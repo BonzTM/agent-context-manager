@@ -111,9 +111,9 @@ func TestHealthFix_ApplySyncRulesetUsesCanonicalParser(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
 		t.Fatalf("mkdir .acm: %v", err)
 	}
-	rulesetPath := filepath.Join(root, ".acm", "canonical-ruleset.yaml")
+	rulesetPath := filepath.Join(root, ".acm", "acm-rules.yaml")
 	ruleset := strings.Join([]string{
-		"version: ctx.rules.v1",
+		"version: acm.rules.v1",
 		"rules:",
 		"  - id: rule.explicit",
 		"    summary: Explicit summary",
@@ -159,11 +159,11 @@ func TestHealthFix_ApplySyncRulesetUsesCanonicalParser(t *testing.T) {
 	if result.AppliedActions[0].Count != 3 {
 		t.Fatalf("unexpected applied count: %d", result.AppliedActions[0].Count)
 	}
-	if len(repo.ruleSyncCalls) != 4 {
-		t.Fatalf("expected 4 rule sync calls (acm + legacy sources), got %d", len(repo.ruleSyncCalls))
+	if len(repo.ruleSyncCalls) != 2 {
+		t.Fatalf("expected 2 rule sync calls (.acm + root canonical sources), got %d", len(repo.ruleSyncCalls))
 	}
 	firstCall := repo.ruleSyncCalls[0]
-	if firstCall.SourcePath != ".acm/canonical-ruleset.yaml" {
+	if firstCall.SourcePath != ".acm/acm-rules.yaml" {
 		t.Fatalf("unexpected acm primary source path: %q", firstCall.SourcePath)
 	}
 	if len(firstCall.Pointers) != 2 {
@@ -202,7 +202,7 @@ func TestSync_IntegratesCanonicalRulesetSync(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
 		t.Fatalf("mkdir .acm: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".acm", "canonical-ruleset.yaml"), []byte("version: ctx.rules.v1\nrules:\n  - summary: Keep tests green\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-rules.yaml"), []byte("version: acm.rules.v1\nrules:\n  - summary: Keep tests green\n"), 0o644); err != nil {
 		t.Fatalf("write canonical ruleset: %v", err)
 	}
 
@@ -233,8 +233,8 @@ func TestSync_IntegratesCanonicalRulesetSync(t *testing.T) {
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if len(repo.ruleSyncCalls) != 4 {
-		t.Fatalf("expected ruleset sync during sync flow across acm+legacy sources, got %d calls", len(repo.ruleSyncCalls))
+	if len(repo.ruleSyncCalls) != 2 {
+		t.Fatalf("expected ruleset sync during sync flow across canonical sources, got %d calls", len(repo.ruleSyncCalls))
 	}
 	if len(repo.ruleSyncCalls[0].Pointers) != 1 {
 		t.Fatalf("expected parsed canonical pointer in first sync call, got %d", len(repo.ruleSyncCalls[0].Pointers))
@@ -249,7 +249,7 @@ func TestBootstrap_ReportsDiscoveredRulesetArtifacts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644); err != nil {
 		t.Fatalf("write a.txt: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".acm", "canonical-ruleset.yaml"), []byte("version: ctx.rules.v1\nrules:\n  - summary: Keep docs current\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-rules.yaml"), []byte("version: acm.rules.v1\nrules:\n  - summary: Keep docs current\n"), 0o644); err != nil {
 		t.Fatalf("write canonical ruleset: %v", err)
 	}
 
@@ -271,12 +271,67 @@ func TestBootstrap_ReportsDiscoveredRulesetArtifacts(t *testing.T) {
 
 	hasRulesetWarning := false
 	for _, warning := range result.Warnings {
-		if strings.Contains(warning, ".acm/canonical-ruleset.yaml") {
+		if strings.Contains(warning, ".acm/acm-rules.yaml") {
 			hasRulesetWarning = true
 			break
 		}
 	}
 	if !hasRulesetWarning {
 		t.Fatalf("expected bootstrap warnings to mention canonical ruleset discovery, got %v", result.Warnings)
+	}
+}
+
+func TestSync_RulesFileOverrideUsesOnlyExplicitSource(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-rules.yaml"), []byte("version: acm.rules.v1\nrules:\n  - summary: Default source\n"), 0o644); err != nil {
+		t.Fatalf("write default canonical ruleset: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "canonical-ruleset.yaml"), []byte("version: acm.rules.v1\nrules:\n  - summary: Override source\n"), 0o644); err != nil {
+		t.Fatalf("write override ruleset: %v", err)
+	}
+
+	repo := &trackingRuleSyncRepository{
+		fakeRepository: &fakeRepository{
+			syncResults: []core.SyncApplyResult{{Updated: 1}},
+		},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	svc.runGitCommand = func(_ context.Context, projectRoot string, args ...string) (string, error) {
+		switch strings.Join(args, " ") {
+		case "ls-tree -r HEAD":
+			return "100644 blob 1111111111111111111111111111111111111111\ttracked.txt\n", nil
+		default:
+			return "", nil
+		}
+	}
+
+	_, apiErr := svc.Sync(context.Background(), v1.SyncPayload{
+		ProjectID:   "project.alpha",
+		ProjectRoot: root,
+		Mode:        "full",
+		RulesFile:   ".acm/canonical-ruleset.yaml",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if len(repo.ruleSyncCalls) != 1 {
+		t.Fatalf("expected one rule sync call for explicit rules_file, got %d", len(repo.ruleSyncCalls))
+	}
+	call := repo.ruleSyncCalls[0]
+	if call.SourcePath != ".acm/canonical-ruleset.yaml" {
+		t.Fatalf("unexpected source path: %q", call.SourcePath)
+	}
+	if len(call.Pointers) != 1 {
+		t.Fatalf("expected one parsed pointer from explicit rules_file, got %d", len(call.Pointers))
+	}
+	if call.Pointers[0].Summary != "Override source" {
+		t.Fatalf("unexpected pointer summary from explicit source: %q", call.Pointers[0].Summary)
 	}
 }

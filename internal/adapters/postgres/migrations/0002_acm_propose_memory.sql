@@ -1,14 +1,14 @@
-ALTER TABLE ctx_memories
+ALTER TABLE acm_memories
 	ADD COLUMN IF NOT EXISTS dedupe_key TEXT;
 
-ALTER TABLE ctx_memories
+ALTER TABLE acm_memories
 	ADD COLUMN IF NOT EXISTS evidence_pointer_keys TEXT[] NOT NULL DEFAULT '{}';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ctx_memories_project_dedupe_active
-	ON ctx_memories (project_id, dedupe_key)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_acm_memories_project_dedupe_active
+	ON acm_memories (project_id, dedupe_key)
 	WHERE active = TRUE AND dedupe_key IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS ctx_memory_candidates (
+CREATE TABLE IF NOT EXISTS acm_memory_candidates (
 	candidate_id BIGSERIAL PRIMARY KEY,
 	project_id TEXT NOT NULL,
 	receipt_id TEXT NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS ctx_memory_candidates (
 		CHECK (coalesce(array_length(evidence_pointer_keys, 1), 0) >= 1),
 	dedupe_key TEXT NOT NULL,
 	status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'promoted', 'rejected')),
-	promoted_memory_id BIGINT NULL REFERENCES ctx_memories (memory_id) ON DELETE SET NULL,
+	promoted_memory_id BIGINT NULL REFERENCES acm_memories (memory_id) ON DELETE SET NULL,
 	hard_passed BOOLEAN NOT NULL,
 	soft_passed BOOLEAN NOT NULL,
 	validation_errors TEXT[] NOT NULL DEFAULT '{}',
@@ -33,14 +33,14 @@ CREATE TABLE IF NOT EXISTS ctx_memory_candidates (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_memory_candidates_project_created
-	ON ctx_memory_candidates (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_created
+	ON acm_memory_candidates (project_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_ctx_memory_candidates_project_status_created
-	ON ctx_memory_candidates (project_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_status_created
+	ON acm_memory_candidates (project_id, status, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_ctx_memory_candidates_receipt_created
-	ON ctx_memory_candidates (receipt_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_receipt_created
+	ON acm_memory_candidates (receipt_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_ctx_memory_candidates_project_dedupe
-	ON ctx_memory_candidates (project_id, dedupe_key);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_dedupe
+	ON acm_memory_candidates (project_id, dedupe_key);

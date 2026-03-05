@@ -9,8 +9,8 @@ import (
 	"github.com/joshd/agent-context-manager/internal/logging"
 )
 
-const LogLevelEnvVar = "CTX_LOG_LEVEL"
-const LogSinkEnvVar = "CTX_LOG_SINK"
+const LogLevelEnvVar = "ACM_LOG_LEVEL"
+const LogSinkEnvVar = "ACM_LOG_SINK"
 
 type loggerSink string
 

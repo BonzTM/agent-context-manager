@@ -32,7 +32,7 @@ func (r *Repository) SyncRulePointers(ctx context.Context, input core.RulePointe
 			return core.RulePointerSyncResult{}, fmt.Errorf("encode rule pointer tags: %w", encodeErr)
 		}
 		tag, execErr := tx.ExecContext(ctx, `
-INSERT INTO ctx_pointers (
+INSERT INTO acm_pointers (
 	project_id,
 	pointer_key,
 	path,
@@ -85,7 +85,7 @@ ON CONFLICT(project_id, pointer_key) DO UPDATE SET
 
 	if len(activeKeys) == 0 {
 		tag, execErr := tx.ExecContext(ctx, `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = 1,
 	stale_at = unixepoch(),
@@ -105,7 +105,7 @@ WHERE project_id = ?
 		result.MarkedStale = int(rowsAffected)
 	} else {
 		query := `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = 1,
 	stale_at = unixepoch(),

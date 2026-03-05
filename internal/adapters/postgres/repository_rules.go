@@ -30,7 +30,7 @@ func (r *Repository) SyncRulePointers(ctx context.Context, input core.RulePointe
 	result := core.RulePointerSyncResult{}
 	for _, pointer := range normalized.Pointers {
 		tag, execErr := tx.Exec(ctx, `
-INSERT INTO ctx_pointers (
+INSERT INTO acm_pointers (
 	project_id,
 	pointer_key,
 	path,
@@ -93,7 +93,7 @@ ON CONFLICT (project_id, pointer_key) DO UPDATE SET
 
 	if len(activeKeys) == 0 {
 		tag, execErr := tx.Exec(ctx, `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = TRUE,
 	stale_at = NOW(),
@@ -109,7 +109,7 @@ WHERE project_id = $1
 		result.MarkedStale = int(tag.RowsAffected())
 	} else {
 		tag, execErr := tx.Exec(ctx, `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = TRUE,
 	stale_at = NOW(),

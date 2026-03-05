@@ -1,0 +1,41 @@
+name: Go Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build acm
+        run: go build -o dist/acm ./cmd/acm
+
+      - name: Build acm-mcp
+        run: go build -o dist/acm-mcp ./cmd/acm-mcp
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: acm-binaries
+          path: dist/
+          if-no-files-found: error

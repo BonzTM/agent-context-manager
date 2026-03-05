@@ -18,10 +18,10 @@ func TestSyncRulePointers_UpsertsAndMarksMissingAsStale(t *testing.T) {
 	t.Cleanup(func() { _ = repo.Close() })
 
 	projectID := "project.alpha"
-	sourcePath := ".ctx/canonical-ruleset.yaml"
+	sourcePath := ".acm/acm-rules.yaml"
 	firstPointers := []core.RulePointer{
 		{
-			PointerKey:  "project.alpha:.ctx/canonical-ruleset.yaml#rule.alpha",
+			PointerKey:  "project.alpha:.acm/acm-rules.yaml#rule.alpha",
 			SourcePath:  sourcePath,
 			RuleID:      "rule.alpha",
 			Summary:     "alpha summary",
@@ -30,7 +30,7 @@ func TestSyncRulePointers_UpsertsAndMarksMissingAsStale(t *testing.T) {
 			Tags:        []string{"ops"},
 		},
 		{
-			PointerKey:  "project.alpha:.ctx/canonical-ruleset.yaml#rule.beta",
+			PointerKey:  "project.alpha:.acm/acm-rules.yaml#rule.beta",
 			SourcePath:  sourcePath,
 			RuleID:      "rule.beta",
 			Summary:     "beta summary",
@@ -57,7 +57,7 @@ func TestSyncRulePointers_UpsertsAndMarksMissingAsStale(t *testing.T) {
 		SourcePath: sourcePath,
 		Pointers: []core.RulePointer{
 			{
-				PointerKey:  "project.alpha:.ctx/canonical-ruleset.yaml#rule.alpha",
+				PointerKey:  "project.alpha:.acm/acm-rules.yaml#rule.alpha",
 				SourcePath:  sourcePath,
 				RuleID:      "rule.alpha",
 				Summary:     "alpha summary updated",
@@ -79,7 +79,7 @@ func TestSyncRulePointers_UpsertsAndMarksMissingAsStale(t *testing.T) {
 
 	rows, err := repo.db.QueryContext(ctx, `
 SELECT pointer_key, is_stale, label, description, tags_json
-FROM ctx_pointers
+FROM acm_pointers
 WHERE project_id = ?
 	AND path = ?
 ORDER BY pointer_key
@@ -119,7 +119,7 @@ ORDER BY pointer_key
 		t.Fatalf("unexpected persisted pointer count: %d", len(persisted))
 	}
 
-	if persisted[0].PointerKey != "project.alpha:.ctx/canonical-ruleset.yaml#rule.alpha" {
+	if persisted[0].PointerKey != "project.alpha:.acm/acm-rules.yaml#rule.alpha" {
 		t.Fatalf("unexpected active pointer key: %q", persisted[0].PointerKey)
 	}
 	if persisted[0].IsStale != 0 {
@@ -133,7 +133,7 @@ ORDER BY pointer_key
 		t.Fatalf("unexpected active tags: got %v want %v", persisted[0].Tags, wantActiveTags)
 	}
 
-	if persisted[1].PointerKey != "project.alpha:.ctx/canonical-ruleset.yaml#rule.beta" {
+	if persisted[1].PointerKey != "project.alpha:.acm/acm-rules.yaml#rule.beta" {
 		t.Fatalf("unexpected stale pointer key: %q", persisted[1].PointerKey)
 	}
 	if persisted[1].IsStale != 1 {

@@ -41,7 +41,7 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx, `
-CREATE TABLE IF NOT EXISTS ctx_schema_migrations (
+CREATE TABLE IF NOT EXISTS acm_schema_migrations (
 	migration_name TEXT PRIMARY KEY,
 	applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )`); err != nil {
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS ctx_schema_migrations (
 		var applied bool
 		if err := tx.QueryRow(
 			ctx,
-			`SELECT EXISTS (SELECT 1 FROM ctx_schema_migrations WHERE migration_name = $1)`,
+			`SELECT EXISTS (SELECT 1 FROM acm_schema_migrations WHERE migration_name = $1)`,
 			migration.Name,
 		).Scan(&applied); err != nil {
 			return fmt.Errorf("check migration %s: %w", migration.Name, err)
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS ctx_schema_migrations (
 
 		if _, err := tx.Exec(
 			ctx,
-			`INSERT INTO ctx_schema_migrations (migration_name) VALUES ($1)`,
+			`INSERT INTO acm_schema_migrations (migration_name) VALUES ($1)`,
 			migration.Name,
 		); err != nil {
 			return fmt.Errorf("record migration %s: %w", migration.Name, err)

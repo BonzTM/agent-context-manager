@@ -30,7 +30,7 @@ const (
 	EventMCPResult          = "mcp.result"
 	EventMCPFailure         = "mcp.failure"
 
-	EventCtxRun    = "acm.run"
-	EventCtxMCP    = "acm.mcp"
-	EventCtxIORead = "acm.io.read"
+	EventACMRun    = "acm.run"
+	EventACMMCP    = "acm.mcp"
+	EventACMIORead = "acm.io.read"
 )

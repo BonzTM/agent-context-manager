@@ -13,9 +13,9 @@ type migration struct {
 
 var migrations = []migration{
 	{
-		Name: "0001_ctx_foundation.sql",
+		Name: "0001_acm_foundation.sql",
 		SQL: `
-CREATE TABLE IF NOT EXISTS ctx_pointers (
+CREATE TABLE IF NOT EXISTS acm_pointers (
 	pointer_id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id TEXT NOT NULL,
 	pointer_key TEXT NOT NULL,
@@ -33,12 +33,12 @@ CREATE TABLE IF NOT EXISTS ctx_pointers (
 	UNIQUE (project_id, pointer_key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_pointers_project_updated
-	ON ctx_pointers (project_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ctx_pointers_project_path
-	ON ctx_pointers (project_id, path);
+CREATE INDEX IF NOT EXISTS idx_acm_pointers_project_updated
+	ON acm_pointers (project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_pointers_project_path
+	ON acm_pointers (project_id, path);
 
-CREATE TABLE IF NOT EXISTS ctx_pointer_links (
+CREATE TABLE IF NOT EXISTS acm_pointer_links (
 	project_id TEXT NOT NULL,
 	from_key TEXT NOT NULL,
 	to_key TEXT NOT NULL,
@@ -46,10 +46,10 @@ CREATE TABLE IF NOT EXISTS ctx_pointer_links (
 	PRIMARY KEY (project_id, from_key, to_key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_pointer_links_project_to_key
-	ON ctx_pointer_links (project_id, to_key);
+CREATE INDEX IF NOT EXISTS idx_acm_pointer_links_project_to_key
+	ON acm_pointer_links (project_id, to_key);
 
-CREATE TABLE IF NOT EXISTS ctx_memories (
+CREATE TABLE IF NOT EXISTS acm_memories (
 	memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id TEXT NOT NULL,
 	category TEXT NOT NULL,
@@ -65,13 +65,13 @@ CREATE TABLE IF NOT EXISTS ctx_memories (
 	updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_memories_project_active
-	ON ctx_memories (project_id, active, updated_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ctx_memories_project_dedupe_active
-	ON ctx_memories (project_id, dedupe_key)
+CREATE INDEX IF NOT EXISTS idx_acm_memories_project_active
+	ON acm_memories (project_id, active, updated_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_acm_memories_project_dedupe_active
+	ON acm_memories (project_id, dedupe_key)
 	WHERE active = 1 AND dedupe_key IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS ctx_receipts (
+CREATE TABLE IF NOT EXISTS acm_receipts (
 	receipt_id TEXT PRIMARY KEY,
 	project_id TEXT NOT NULL,
 	task_text TEXT NOT NULL DEFAULT '',
@@ -83,10 +83,10 @@ CREATE TABLE IF NOT EXISTS ctx_receipts (
 	created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_receipts_project_created
-	ON ctx_receipts (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_receipts_project_created
+	ON acm_receipts (project_id, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS ctx_runs (
+CREATE TABLE IF NOT EXISTS acm_runs (
 	run_id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id TEXT NOT NULL,
 	request_id TEXT NOT NULL DEFAULT '',
@@ -96,17 +96,17 @@ CREATE TABLE IF NOT EXISTS ctx_runs (
 	outcome TEXT NOT NULL DEFAULT '',
 	summary_json TEXT NOT NULL DEFAULT '{}',
 	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-	FOREIGN KEY (receipt_id) REFERENCES ctx_receipts (receipt_id) ON DELETE CASCADE
+	FOREIGN KEY (receipt_id) REFERENCES acm_receipts (receipt_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_runs_project_created
-	ON ctx_runs (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_runs_project_created
+	ON acm_runs (project_id, created_at DESC);
 `,
 	},
 	{
-		Name: "0002_ctx_propose_memory.sql",
+		Name: "0002_acm_propose_memory.sql",
 		SQL: `
-CREATE TABLE IF NOT EXISTS ctx_memory_candidates (
+CREATE TABLE IF NOT EXISTS acm_memory_candidates (
 	candidate_id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id TEXT NOT NULL,
 	receipt_id TEXT NOT NULL,
@@ -128,23 +128,23 @@ CREATE TABLE IF NOT EXISTS ctx_memory_candidates (
 	promotable INTEGER NOT NULL DEFAULT 0 CHECK (promotable IN (0, 1)),
 	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
 	updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-	FOREIGN KEY (promoted_memory_id) REFERENCES ctx_memories (memory_id) ON DELETE SET NULL
+	FOREIGN KEY (promoted_memory_id) REFERENCES acm_memories (memory_id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_memory_candidates_project_created
-	ON ctx_memory_candidates (project_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ctx_memory_candidates_project_status_created
-	ON ctx_memory_candidates (project_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ctx_memory_candidates_receipt_created
-	ON ctx_memory_candidates (receipt_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ctx_memory_candidates_project_dedupe
-	ON ctx_memory_candidates (project_id, dedupe_key);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_created
+	ON acm_memory_candidates (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_status_created
+	ON acm_memory_candidates (project_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_receipt_created
+	ON acm_memory_candidates (receipt_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_dedupe
+	ON acm_memory_candidates (project_id, dedupe_key);
 `,
 	},
 	{
-		Name: "0003_ctx_sync.sql",
+		Name: "0003_acm_sync.sql",
 		SQL: `
-CREATE TABLE IF NOT EXISTS ctx_pointer_candidates (
+CREATE TABLE IF NOT EXISTS acm_pointer_candidates (
 	candidate_id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id TEXT NOT NULL,
 	path TEXT NOT NULL,
@@ -155,18 +155,18 @@ CREATE TABLE IF NOT EXISTS ctx_pointer_candidates (
 	UNIQUE (project_id, path)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_pointer_candidates_project_created
-	ON ctx_pointer_candidates (project_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ctx_pointer_candidates_project_updated
-	ON ctx_pointer_candidates (project_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ctx_pointer_candidates_project_hash
-	ON ctx_pointer_candidates (project_id, content_hash);
+CREATE INDEX IF NOT EXISTS idx_acm_pointer_candidates_project_created
+	ON acm_pointer_candidates (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_pointer_candidates_project_updated
+	ON acm_pointer_candidates (project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_pointer_candidates_project_hash
+	ON acm_pointer_candidates (project_id, content_hash);
 `,
 	},
 	{
-		Name: "0004_ctx_work_items.sql",
+		Name: "0004_acm_work_items.sql",
 		SQL: `
-CREATE TABLE IF NOT EXISTS ctx_work_items (
+CREATE TABLE IF NOT EXISTS acm_work_items (
 	work_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id TEXT NOT NULL,
 	receipt_id TEXT NOT NULL,
@@ -175,15 +175,68 @@ CREATE TABLE IF NOT EXISTS ctx_work_items (
 	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
 	updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
 	UNIQUE (project_id, receipt_id, item_key),
-	FOREIGN KEY (receipt_id) REFERENCES ctx_receipts (receipt_id) ON DELETE CASCADE
+	FOREIGN KEY (receipt_id) REFERENCES acm_receipts (receipt_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_work_items_project_receipt
-	ON ctx_work_items (project_id, receipt_id, item_key);
-CREATE INDEX IF NOT EXISTS idx_ctx_work_items_project_receipt_status
-	ON ctx_work_items (project_id, receipt_id, status, item_key);
-CREATE INDEX IF NOT EXISTS idx_ctx_work_items_project_receipt_updated
-	ON ctx_work_items (project_id, receipt_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_work_items_project_receipt
+	ON acm_work_items (project_id, receipt_id, item_key);
+CREATE INDEX IF NOT EXISTS idx_acm_work_items_project_receipt_status
+	ON acm_work_items (project_id, receipt_id, status, item_key);
+CREATE INDEX IF NOT EXISTS idx_acm_work_items_project_receipt_updated
+	ON acm_work_items (project_id, receipt_id, updated_at DESC);
+`,
+	},
+	{
+		Name: "0005_acm_work_plans.sql",
+		SQL: `
+CREATE TABLE IF NOT EXISTS acm_work_plans (
+	plan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id TEXT NOT NULL,
+	plan_key TEXT NOT NULL,
+	receipt_id TEXT NULL,
+	title TEXT NOT NULL DEFAULT '',
+	objective TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'blocked', 'completed')),
+	stage_spec_outline TEXT NOT NULL DEFAULT 'pending' CHECK (stage_spec_outline IN ('pending', 'in_progress', 'blocked', 'completed')),
+	stage_refined_spec TEXT NOT NULL DEFAULT 'pending' CHECK (stage_refined_spec IN ('pending', 'in_progress', 'blocked', 'completed')),
+	stage_implementation_plan TEXT NOT NULL DEFAULT 'pending' CHECK (stage_implementation_plan IN ('pending', 'in_progress', 'blocked', 'completed')),
+	in_scope_json TEXT NOT NULL DEFAULT '[]',
+	out_of_scope_json TEXT NOT NULL DEFAULT '[]',
+	constraints_json TEXT NOT NULL DEFAULT '[]',
+	references_json TEXT NOT NULL DEFAULT '[]',
+	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	UNIQUE (project_id, plan_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_acm_work_plans_project_status_updated
+	ON acm_work_plans (project_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_work_plans_project_receipt_updated
+	ON acm_work_plans (project_id, receipt_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS acm_work_plan_tasks (
+	task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id TEXT NOT NULL,
+	plan_key TEXT NOT NULL,
+	task_key TEXT NOT NULL,
+	summary TEXT NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'blocked', 'completed')),
+	depends_on_json TEXT NOT NULL DEFAULT '[]',
+	acceptance_criteria_json TEXT NOT NULL DEFAULT '[]',
+	references_json TEXT NOT NULL DEFAULT '[]',
+	blocked_reason TEXT NOT NULL DEFAULT '',
+	outcome TEXT NOT NULL DEFAULT '',
+	evidence_json TEXT NOT NULL DEFAULT '[]',
+	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	UNIQUE (project_id, plan_key, task_key),
+	FOREIGN KEY (project_id, plan_key) REFERENCES acm_work_plans (project_id, plan_key) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_acm_work_plan_tasks_project_plan_status
+	ON acm_work_plan_tasks (project_id, plan_key, status, task_key);
+CREATE INDEX IF NOT EXISTS idx_acm_work_plan_tasks_project_plan_updated
+	ON acm_work_plan_tasks (project_id, plan_key, updated_at DESC);
 `,
 	},
 }
@@ -200,7 +253,7 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx, `
-CREATE TABLE IF NOT EXISTS ctx_schema_migrations (
+CREATE TABLE IF NOT EXISTS acm_schema_migrations (
 	migration_name TEXT PRIMARY KEY,
 	applied_at INTEGER NOT NULL DEFAULT (unixepoch())
 )`); err != nil {
@@ -211,7 +264,7 @@ CREATE TABLE IF NOT EXISTS ctx_schema_migrations (
 		var applied int
 		if err := tx.QueryRowContext(
 			ctx,
-			`SELECT COUNT(1) FROM ctx_schema_migrations WHERE migration_name = ?`,
+			`SELECT COUNT(1) FROM acm_schema_migrations WHERE migration_name = ?`,
 			migration.Name,
 		).Scan(&applied); err != nil {
 			return fmt.Errorf("check migration %s: %w", migration.Name, err)
@@ -225,7 +278,7 @@ CREATE TABLE IF NOT EXISTS ctx_schema_migrations (
 		}
 		if _, err := tx.ExecContext(
 			ctx,
-			`INSERT INTO ctx_schema_migrations (migration_name) VALUES (?)`,
+			`INSERT INTO acm_schema_migrations (migration_name) VALUES (?)`,
 			migration.Name,
 		); err != nil {
 			return fmt.Errorf("record migration %s: %w", migration.Name, err)

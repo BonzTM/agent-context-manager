@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-const PostgresDSNEnvVar = "CTX_PG_DSN"
-const SQLitePathEnvVar = "CTX_SQLITE_PATH"
+const PostgresDSNEnvVar = "ACM_PG_DSN"
+const SQLitePathEnvVar = "ACM_SQLITE_PATH"
 
 type Config struct {
 	PostgresDSN string

@@ -22,6 +22,7 @@ func (s *Service) HealthFix(ctx context.Context, payload v1.HealthFixPayload) (v
 
 	projectID := strings.TrimSpace(payload.ProjectID)
 	projectRoot := normalizeSyncProjectRoot(payload.ProjectRoot)
+	rulesFile := strings.TrimSpace(payload.RulesFile)
 	dryRun := !effectiveHealthFixApply(payload.Apply)
 	fixers := effectiveHealthFixers(payload.Fixers)
 
@@ -31,7 +32,7 @@ func (s *Service) HealthFix(ctx context.Context, payload v1.HealthFixPayload) (v
 	totalApplied := 0
 
 	for _, fixer := range fixers {
-		planned, applied, err := s.executeHealthFixer(ctx, projectID, projectRoot, fixer, dryRun)
+		planned, applied, err := s.executeHealthFixer(ctx, projectID, projectRoot, rulesFile, fixer, dryRun)
 		if err != nil {
 			return v1.HealthFixResult{}, healthFixInternalError(string(fixer), err)
 		}
@@ -55,20 +56,20 @@ func (s *Service) HealthFix(ctx context.Context, payload v1.HealthFixPayload) (v
 	}, nil
 }
 
-func (s *Service) executeHealthFixer(ctx context.Context, projectID, projectRoot string, fixer v1.HealthFixer, dryRun bool) (v1.HealthFixAction, v1.HealthFixAction, error) {
+func (s *Service) executeHealthFixer(ctx context.Context, projectID, projectRoot, rulesFile string, fixer v1.HealthFixer, dryRun bool) (v1.HealthFixAction, v1.HealthFixAction, error) {
 	switch fixer {
 	case v1.HealthFixerSyncWorkingTree:
-		return s.runHealthFixSyncWorkingTree(ctx, projectID, projectRoot, dryRun)
+		return s.runHealthFixSyncWorkingTree(ctx, projectID, projectRoot, rulesFile, dryRun)
 	case v1.HealthFixerIndexUncoveredFile:
 		return s.runHealthFixIndexUncoveredFiles(ctx, projectID, projectRoot, dryRun)
 	case v1.HealthFixerSyncRuleset:
-		return s.runHealthFixSyncRuleset(ctx, projectID, projectRoot, dryRun)
+		return s.runHealthFixSyncRuleset(ctx, projectID, projectRoot, rulesFile, dryRun)
 	default:
 		return v1.HealthFixAction{}, v1.HealthFixAction{}, fmt.Errorf("unsupported fixer %q", fixer)
 	}
 }
 
-func (s *Service) runHealthFixSyncWorkingTree(ctx context.Context, projectID, projectRoot string, dryRun bool) (v1.HealthFixAction, v1.HealthFixAction, error) {
+func (s *Service) runHealthFixSyncWorkingTree(ctx context.Context, projectID, projectRoot, rulesFile string, dryRun bool) (v1.HealthFixAction, v1.HealthFixAction, error) {
 	paths, err := s.collectSyncPaths(ctx, syncModeWorkingTree, "", projectRoot)
 	if err != nil {
 		return v1.HealthFixAction{}, v1.HealthFixAction{}, err
@@ -90,6 +91,7 @@ func (s *Service) runHealthFixSyncWorkingTree(ctx context.Context, projectID, pr
 		ProjectID:   projectID,
 		Mode:        syncModeWorkingTree,
 		ProjectRoot: projectRoot,
+		RulesFile:   rulesFile,
 	})
 	if apiErr != nil {
 		return v1.HealthFixAction{}, v1.HealthFixAction{}, fmt.Errorf("sync working tree: %s", apiErr.Message)
@@ -151,8 +153,8 @@ func (s *Service) runHealthFixIndexUncoveredFiles(ctx context.Context, projectID
 	return planned, applied, nil
 }
 
-func (s *Service) runHealthFixSyncRuleset(ctx context.Context, projectID, projectRoot string, dryRun bool) (v1.HealthFixAction, v1.HealthFixAction, error) {
-	syncResult, err := s.syncCanonicalRulesets(ctx, projectID, projectRoot, !dryRun)
+func (s *Service) runHealthFixSyncRuleset(ctx context.Context, projectID, projectRoot, rulesFile string, dryRun bool) (v1.HealthFixAction, v1.HealthFixAction, error) {
+	syncResult, err := s.syncCanonicalRulesets(ctx, projectID, projectRoot, rulesFile, !dryRun)
 	if err != nil {
 		return v1.HealthFixAction{}, v1.HealthFixAction{}, err
 	}

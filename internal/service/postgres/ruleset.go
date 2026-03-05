@@ -18,11 +18,9 @@ import (
 )
 
 const (
-	canonicalRulesVersionV1             = "ctx.rules.v1"
-	canonicalRulesetPrimarySourcePath   = ".acm/canonical-ruleset.yaml"
+	canonicalRulesVersionV1             = "acm.rules.v1"
+	canonicalRulesetPrimarySourcePath   = ".acm/acm-rules.yaml"
 	canonicalRulesetSecondarySourcePath = "acm-rules.yaml"
-	canonicalRulesetLegacyPrimaryPath   = ".ctx/canonical-ruleset.yaml"
-	canonicalRulesetLegacySecondaryPath = "ctx-rules.yaml"
 
 	ruleTagCanonical       = "canonical-rule"
 	ruleTagEnforcementHard = "enforcement-hard"
@@ -33,8 +31,6 @@ var (
 	canonicalRulesetDefaultPaths = []string{
 		canonicalRulesetPrimarySourcePath,
 		canonicalRulesetSecondarySourcePath,
-		canonicalRulesetLegacyPrimaryPath,
-		canonicalRulesetLegacySecondaryPath,
 	}
 	ruleIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 )
@@ -84,13 +80,13 @@ type canonicalRulesetSyncResult struct {
 	TotalMarkedStale int
 }
 
-func (s *Service) syncCanonicalRulesets(ctx context.Context, projectID, projectRoot string, apply bool) (canonicalRulesetSyncResult, error) {
+func (s *Service) syncCanonicalRulesets(ctx context.Context, projectID, projectRoot, rulesFile string, apply bool) (canonicalRulesetSyncResult, error) {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
 		return canonicalRulesetSyncResult{}, fmt.Errorf("project_id is required")
 	}
 
-	sources, err := discoverCanonicalRulesetSources(projectRoot)
+	sources, err := discoverCanonicalRulesetSources(projectRoot, rulesFile)
 	if err != nil {
 		return canonicalRulesetSyncResult{}, err
 	}
@@ -137,11 +133,16 @@ func (s *Service) syncCanonicalRulesets(ctx context.Context, projectID, projectR
 	return result, nil
 }
 
-func discoverCanonicalRulesetSources(projectRoot string) ([]canonicalRulesetSource, error) {
+func discoverCanonicalRulesetSources(projectRoot, rulesFile string) ([]canonicalRulesetSource, error) {
 	root := normalizeBootstrapProjectRoot(projectRoot)
-	sources := make([]canonicalRulesetSource, 0, len(canonicalRulesetDefaultPaths))
-	for _, defaultPath := range canonicalRulesetDefaultPaths {
-		sourcePath := normalizeCompletionPath(defaultPath)
+	sourcePaths := canonicalRulesetDefaultPaths
+	if trimmedRulesFile := strings.TrimSpace(rulesFile); trimmedRulesFile != "" {
+		sourcePaths = []string{trimmedRulesFile}
+	}
+
+	sources := make([]canonicalRulesetSource, 0, len(sourcePaths))
+	for _, rawPath := range sourcePaths {
+		sourcePath := normalizeCompletionPath(rawPath)
 		if sourcePath == "" {
 			continue
 		}

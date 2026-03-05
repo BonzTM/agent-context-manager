@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION ctx_pointer_search_vector(label TEXT, description TEXT, tags TEXT[])
+CREATE OR REPLACE FUNCTION acm_pointer_search_vector(label TEXT, description TEXT, tags TEXT[])
 RETURNS TSVECTOR
 LANGUAGE SQL
 IMMUTABLE
@@ -9,7 +9,7 @@ AS $$
 		setweight(to_tsvector('simple', coalesce(array_to_string(tags, ' '), '')), 'C')
 $$;
 
-CREATE TABLE IF NOT EXISTS ctx_pointers (
+CREATE TABLE IF NOT EXISTS acm_pointers (
 	pointer_id BIGSERIAL PRIMARY KEY,
 	project_id TEXT NOT NULL,
 	pointer_key TEXT NOT NULL,
@@ -23,35 +23,35 @@ CREATE TABLE IF NOT EXISTS ctx_pointers (
 	is_stale BOOLEAN NOT NULL DEFAULT FALSE,
 	stale_at TIMESTAMPTZ NULL,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	search_vector TSVECTOR GENERATED ALWAYS AS (ctx_pointer_search_vector(label, description, tags)) STORED,
+	search_vector TSVECTOR GENERATED ALWAYS AS (acm_pointer_search_vector(label, description, tags)) STORED,
 	UNIQUE (project_id, pointer_key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_pointers_project_updated
-	ON ctx_pointers (project_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ctx_pointers_tags_gin
-	ON ctx_pointers USING GIN (tags);
-CREATE INDEX IF NOT EXISTS idx_ctx_pointers_search_vector_gin
-	ON ctx_pointers USING GIN (search_vector);
+CREATE INDEX IF NOT EXISTS idx_acm_pointers_project_updated
+	ON acm_pointers (project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_pointers_tags_gin
+	ON acm_pointers USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_acm_pointers_search_vector_gin
+	ON acm_pointers USING GIN (search_vector);
 
-CREATE TABLE IF NOT EXISTS ctx_pointer_links (
+CREATE TABLE IF NOT EXISTS acm_pointer_links (
 	project_id TEXT NOT NULL,
 	from_key TEXT NOT NULL,
 	to_key TEXT NOT NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	PRIMARY KEY (project_id, from_key, to_key),
 	FOREIGN KEY (project_id, from_key)
-		REFERENCES ctx_pointers (project_id, pointer_key)
+		REFERENCES acm_pointers (project_id, pointer_key)
 		ON DELETE CASCADE,
 	FOREIGN KEY (project_id, to_key)
-		REFERENCES ctx_pointers (project_id, pointer_key)
+		REFERENCES acm_pointers (project_id, pointer_key)
 		ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_pointer_links_project_to_key
-	ON ctx_pointer_links (project_id, to_key);
+CREATE INDEX IF NOT EXISTS idx_acm_pointer_links_project_to_key
+	ON acm_pointer_links (project_id, to_key);
 
-CREATE TABLE IF NOT EXISTS ctx_memories (
+CREATE TABLE IF NOT EXISTS acm_memories (
 	memory_id BIGSERIAL PRIMARY KEY,
 	project_id TEXT NOT NULL,
 	category TEXT NOT NULL,
@@ -65,14 +65,14 @@ CREATE TABLE IF NOT EXISTS ctx_memories (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_memories_project_active
-	ON ctx_memories (project_id, active, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ctx_memories_tags_gin
-	ON ctx_memories USING GIN (tags);
-CREATE INDEX IF NOT EXISTS idx_ctx_memories_related_pointer_keys_gin
-	ON ctx_memories USING GIN (related_pointer_keys);
+CREATE INDEX IF NOT EXISTS idx_acm_memories_project_active
+	ON acm_memories (project_id, active, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memories_tags_gin
+	ON acm_memories USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_acm_memories_related_pointer_keys_gin
+	ON acm_memories USING GIN (related_pointer_keys);
 
-CREATE TABLE IF NOT EXISTS ctx_receipts (
+CREATE TABLE IF NOT EXISTS acm_receipts (
 	receipt_id TEXT PRIMARY KEY,
 	project_id TEXT NOT NULL,
 	task_text TEXT NOT NULL DEFAULT '',
@@ -84,14 +84,14 @@ CREATE TABLE IF NOT EXISTS ctx_receipts (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_receipts_project_created
-	ON ctx_receipts (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_receipts_project_created
+	ON acm_receipts (project_id, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS ctx_runs (
+CREATE TABLE IF NOT EXISTS acm_runs (
 	run_id BIGSERIAL PRIMARY KEY,
 	project_id TEXT NOT NULL,
 	request_id TEXT NOT NULL DEFAULT '',
-	receipt_id TEXT NOT NULL REFERENCES ctx_receipts (receipt_id) ON DELETE CASCADE,
+	receipt_id TEXT NOT NULL REFERENCES acm_receipts (receipt_id) ON DELETE CASCADE,
 	status TEXT NOT NULL,
 	files_changed TEXT[] NOT NULL DEFAULT '{}',
 	outcome TEXT NOT NULL DEFAULT '',
@@ -99,5 +99,5 @@ CREATE TABLE IF NOT EXISTS ctx_runs (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_ctx_runs_project_created
-	ON ctx_runs (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_runs_project_created
+	ON acm_runs (project_id, created_at DESC);
