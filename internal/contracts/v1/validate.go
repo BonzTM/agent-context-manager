@@ -301,7 +301,7 @@ func validateWorkPayload(p *WorkPayload) error {
 		if err := validateBoundedKey(planKey, 256); err != nil {
 			return fmt.Errorf("plan_key %w", err)
 		}
-		if !strings.HasPrefix(strings.ToLower(planKey), "plan:") {
+		if !strings.HasPrefix(planKey, "plan:") {
 			return fmt.Errorf("plan_key must use format plan:<receipt_id>")
 		}
 		derivedReceiptID := strings.TrimSpace(planKey[len("plan:"):])
