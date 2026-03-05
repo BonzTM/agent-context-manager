@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/joshd/agents-context/internal/core"
+	"github.com/joshd/agent-context-manager/internal/core"
 )
 
 func TestNormalizeRulePointerSyncInput_DedupesAndDefaults(t *testing.T) {

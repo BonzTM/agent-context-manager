@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/joshd/agents-context/internal/adapters/postgres"
-	sqliteadapter "github.com/joshd/agents-context/internal/adapters/sqlite"
-	"github.com/joshd/agents-context/internal/core"
-	"github.com/joshd/agents-context/internal/logging"
-	postgressvc "github.com/joshd/agents-context/internal/service/postgres"
+	"github.com/joshd/agent-context-manager/internal/adapters/postgres"
+	sqliteadapter "github.com/joshd/agent-context-manager/internal/adapters/sqlite"
+	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/joshd/agent-context-manager/internal/logging"
+	postgressvc "github.com/joshd/agent-context-manager/internal/service/postgres"
 )
 
 type CleanupFunc func()

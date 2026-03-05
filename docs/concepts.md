@@ -1,23 +1,23 @@
 # Concepts
 
-This page defines the core terms used throughout ctx. Read this if you're new or if a term in the docs isn't clear.
+This page defines the core terms used throughout acm. Read this if you're new or if a term in the docs isn't clear.
 
 ## Pointer
 
-A pointer is an entry in ctx's index that points to something in your codebase — a file, a function, a doc, a test, a rule. Each pointer has:
+A pointer is an entry in acm's index that points to something in your codebase — a file, a function, a doc, a test, a rule. Each pointer has:
 
-- **Key** — unique identifier in the format `project:path#anchor` (anchor is optional). Example: `myapp:src/auth/login.go#handleTimeout`
+- **Key** — unique identifier in the format `project:path#anchor` (anchor is optional). Example: `my-cool-app:src/auth/login.go#handleTimeout`
 - **Kind** — one of: `code`, `rule`, `doc`, `test`, `command`
 - **Label** — short human-readable name
 - **Description** — one-line summary of what this thing does
 - **Tags** — flat list of canonical tags for scoping (e.g., `backend`, `auth`, `test`)
 - **Content hash** — used to detect staleness when files change
 
-Pointers are lightweight. They don't contain the full file content — just enough for ctx to decide what's relevant and for agents to decide what to fetch.
+Pointers are lightweight. They don't contain the full file content — just enough for acm to decide what's relevant and for agents to decide what to fetch.
 
 ## Receipt
 
-When you call `get_context`, ctx returns a receipt. A receipt is a scoped snapshot of everything relevant to your task. It contains:
+When you call `get_context`, acm returns a receipt. A receipt is a scoped snapshot of everything relevant to your task. It contains:
 
 - **Rules** — hard constraints the agent must follow
 - **Suggestions** — code/doc/test pointers relevant to the task (advisory)
@@ -36,11 +36,11 @@ A rule is a pointer with `kind: rule` that represents a behavioral constraint fo
 
 Hard rules are always included with their full content in the receipt. Soft rules are summary-only and can be fetched on demand.
 
-You author rules in `.ctx/canonical-ruleset.yaml` and sync them into ctx. ctx delivers the right rules at the right time based on task tags and phase.
+You author rules in `.acm/canonical-ruleset.yaml` and sync them into acm. acm delivers the right rules at the right time based on task tags and phase.
 
 ## Memory
 
-A memory is a durable fact learned from completed work. Unlike model-specific memory (Claude's memory, ChatGPT's memory), ctx memories are:
+A memory is a durable fact learned from completed work. Unlike model-specific memory (Claude's memory, ChatGPT's memory), acm memories are:
 
 - **Model-agnostic** — any agent on any model can read them
 - **Evidence-backed** — each memory links to the pointer(s) that prove it
@@ -51,7 +51,7 @@ Memories are proposed via `propose_memory`, validated, and either promoted to du
 
 ## Work Item
 
-A work item is a stateful task tracked by ctx. Work items have:
+A work item is a stateful task tracked by acm. Work items have:
 
 - **Key** — unique identifier (e.g., `implement-auth-refactor`, `verify:tests`)
 - **Summary** — what needs to be done
@@ -68,7 +68,7 @@ Two special work item keys are used for definition-of-done verification:
 
 Tags are flat labels used to scope pointers, rules, and memories. Examples: `backend`, `auth`, `test`, `frontend`.
 
-ctx maintains a canonical tag dictionary that normalizes aliases (e.g., `api` and `server` both map to `backend`). When you call `get_context`, your task text is decomposed into 3-6 canonical tags, and ctx uses those to find relevant pointers.
+acm maintains a canonical tag dictionary that normalizes aliases (e.g., `api` and `server` both map to `backend`). When you call `get_context`, your task text is decomposed into 3-6 canonical tags, and acm uses those to find relevant pointers.
 
 Tags replace the concept of "profiles" from other systems. They're simpler: just strings, no hierarchy, no inheritance.
 
@@ -84,7 +84,7 @@ The phase doesn't filter results — it changes their ranking so the most useful
 
 ## Scope Mode
 
-Controls how strictly ctx enforces that agents stay within the retrieved context:
+Controls how strictly acm enforces that agents stay within the retrieved context:
 
 - **warn** (default) — violations are logged but the request is accepted
 - **strict** — violations reject the request; the agent must re-retrieve
@@ -94,7 +94,7 @@ Used in `report_completion` to validate that changed files were within the recei
 
 ## Canonical Ruleset
 
-The human-authored YAML file (`.ctx/canonical-ruleset.yaml` or `ctx-rules.yaml`) where you define your rules. Format:
+The human-authored YAML file (`.acm/canonical-ruleset.yaml` or `acm-rules.yaml`) where you define your rules. Format:
 
 ```yaml
 version: ctx.rules.v1
@@ -106,4 +106,4 @@ rules:
     tags: [tag1, tag2] (optional)
 ```
 
-ctx reads this file during `sync` or `health-fix --fixer sync_ruleset` and upserts the rules as pointers. The canonical ruleset is the source of truth — ctx stores and delivers, the file defines.
+acm reads this file during `sync` or `health-fix --fixer sync_ruleset` and upserts the rules as pointers. The canonical ruleset is the source of truth — acm stores and delivers, the file defines.

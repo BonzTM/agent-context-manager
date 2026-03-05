@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/joshd/agents-context/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/logging"
 )
 
 const LogLevelEnvVar = "CTX_LOG_LEVEL"

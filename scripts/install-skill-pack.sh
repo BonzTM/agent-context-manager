@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Install ctx-broker skill assets for Codex and Claude.
+Install acm-broker skill assets for Codex and Claude.
 
 Usage:
   scripts/install-skill-pack.sh [options]
@@ -67,7 +67,7 @@ if [[ "${install_codex}" == false && "${install_claude}" == false ]]; then
   exit 2
 fi
 
-skill_src="${REPO_ROOT}/skills/ctx-broker"
+skill_src="${REPO_ROOT}/skills/acm-broker"
 if [[ ! -d "${skill_src}" ]]; then
   echo "error: skill source directory not found: ${skill_src}" >&2
   exit 1
@@ -75,7 +75,7 @@ fi
 
 if [[ "${install_codex}" == true ]]; then
   codex_skills_dir="${codex_home}/skills"
-  codex_target="${codex_skills_dir}/ctx-broker"
+  codex_target="${codex_skills_dir}/acm-broker"
   mkdir -p "${codex_skills_dir}"
   rm -rf "${codex_target}"
   cp -R "${skill_src}" "${codex_target}"
@@ -86,7 +86,7 @@ if [[ "${install_claude}" == true ]]; then
   claude_target="$(cd "${claude_target}" && pwd)"
   claude_dir="${claude_target}/.claude"
   claude_commands_dir="${claude_dir}/commands"
-  claude_pack_dir="${claude_dir}/ctx-broker"
+  claude_pack_dir="${claude_dir}/acm-broker"
 
   mkdir -p "${claude_commands_dir}" "${claude_pack_dir}"
   cp "${skill_src}/claude/commands/"*.md "${claude_commands_dir}/"

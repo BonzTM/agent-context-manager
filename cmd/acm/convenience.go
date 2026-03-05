@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joshd/agents-context/internal/adapters/cli"
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/core"
-	"github.com/joshd/agents-context/internal/logging"
-	"github.com/joshd/agents-context/internal/runtime"
+	"github.com/joshd/agent-context-manager/internal/adapters/cli"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/runtime"
 )
 
 type serviceFactory func(context.Context, logging.Logger) (core.Service, runtime.CleanupFunc, error)
@@ -126,11 +126,12 @@ func buildConvenienceEnvelope(subcommand string, args []string, now func() time.
 func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"get-context",
-		"ctx get-context --project-id <id> --task-text <text> [flags]",
-		"ctx get-context --project-id soundspan --task-text \"Add sync checks\" --phase execute",
+		"acm get-context --project <id> [--task-text <text>|--task-file <path>] [flags]",
+		"acm get-context --project myproject --task-text \"Add sync checks\" --phase execute",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	taskText := fs.String("task-text", "", "task description")
+	taskFile := fs.String("task-file", "", "file containing task text ('-' for stdin)")
 	phase := fs.String("phase", string(v1.PhaseExecute), "phase: plan|execute|review")
 	scopeMode := fs.String("scope-mode", "", "scope mode: strict|warn|auto_index")
 	allowStale := fs.Bool("allow-stale", false, "allow stale pointers")
@@ -145,16 +146,32 @@ func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnv
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("task-text", *taskText); err != nil {
-		return v1.CommandEnvelope{}, err
+
+	trimmedTaskText := strings.TrimSpace(*taskText)
+	trimmedTaskFile := strings.TrimSpace(*taskFile)
+	if trimmedTaskText != "" && trimmedTaskFile != "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --task-text or --task-file")
+	}
+	if trimmedTaskText == "" {
+		if trimmedTaskFile == "" {
+			return v1.CommandEnvelope{}, fmt.Errorf("--task-text or --task-file is required")
+		}
+		blob, err := readTextFile(trimmedTaskFile)
+		if err != nil {
+			return v1.CommandEnvelope{}, fmt.Errorf("read --task-file %s: %w", trimmedTaskFile, err)
+		}
+		trimmedTaskText = strings.TrimSpace(blob)
+	}
+	if trimmedTaskText == "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("task text must not be empty")
 	}
 
 	payload := v1.GetContextPayload{
 		ProjectID:  strings.TrimSpace(*projectID),
-		TaskText:   *taskText,
+		TaskText:   trimmedTaskText,
 		Phase:      v1.Phase(strings.TrimSpace(*phase)),
 		AllowStale: *allowStale,
 	}
@@ -204,11 +221,13 @@ func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnv
 func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"fetch",
-		"ctx fetch --project-id <id> [--key <pointer>]... [--receipt-id <id>] [--expect <key=version>]...",
-		"ctx fetch --project-id soundspan --key plan:req-12345678 --expect plan:req-12345678=v3",
+		"acm fetch --project <id> [--key <pointer>]... [--keys-file <path>] [--receipt-id <id>] [--expect <key=version>]... [--expected-versions-file <path>]",
+		"acm fetch --project myproject --key plan:req-12345678 --expect plan:req-12345678=v3",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	receiptID := fs.String("receipt-id", "", "receipt ID to fetch via shorthand")
+	keysFile := fs.String("keys-file", "", "JSON file containing an array of keys")
+	expectedVersionsFile := fs.String("expected-versions-file", "", "JSON file containing an object map of key->version")
 	var keys repeatedStringFlag
 	var expects repeatedStringFlag
 	fs.Var(&keys, "key", "key to fetch (repeatable)")
@@ -216,24 +235,44 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
+	}
+
+	allKeys := keys.Values()
+	if trimmedKeysFile := strings.TrimSpace(*keysFile); trimmedKeysFile != "" {
+		fileKeys, err := readStringListFromFile(trimmedKeysFile, "--keys-file")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allKeys = mergeUnique(allKeys, fileKeys)
+	}
+
+	expectedVersions := map[string]string{}
+	if trimmedExpectedVersionsFile := strings.TrimSpace(*expectedVersionsFile); trimmedExpectedVersionsFile != "" {
+		fileMap, err := readStringMapFromFile(trimmedExpectedVersionsFile, "--expected-versions-file")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		for k, v := range fileMap {
+			expectedVersions[k] = v
+		}
+	}
+	for _, expectedArg := range expects {
+		key, version, err := parseExpectedVersion(expectedArg)
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		expectedVersions[key] = version
 	}
 
 	payload := v1.FetchPayload{
 		ProjectID: strings.TrimSpace(*projectID),
-		Keys:      keys.Values(),
+		Keys:      allKeys,
 		ReceiptID: strings.TrimSpace(*receiptID),
 	}
-	if len(expects) > 0 {
-		payload.ExpectedVersions = make(map[string]string, len(expects))
-		for _, expectedArg := range expects {
-			key, version, err := parseExpectedVersion(expectedArg)
-			if err != nil {
-				return v1.CommandEnvelope{}, err
-			}
-			payload.ExpectedVersions[key] = version
-		}
+	if len(expectedVersions) > 0 {
+		payload.ExpectedVersions = expectedVersions
 	}
 
 	return buildEnvelope(v1.CommandFetch, *requestID, payload, now)
@@ -242,15 +281,19 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"propose-memory",
-		"ctx propose-memory --project-id <id> --receipt-id <id> --category <name> --subject <text> --content <text> --confidence <1-5> [flags]",
-		"ctx propose-memory --project-id soundspan --receipt-id req-12345678 --category decision --subject \"Use health check\" --content \"Run before completion\" --confidence 4 --evidence-key rule:ctx/rule-1",
+		"acm propose-memory --project <id> --receipt-id <id> --category <name> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [flags]",
+		"acm propose-memory --project myproject --receipt-id req-12345678 --category decision --subject \"Use health check\" --content \"Run before completion\" --confidence 4 --evidence-key rule:myproject/rule-1",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	receiptID := fs.String("receipt-id", "", "receipt ID")
 	category := fs.String("category", "", "memory category: decision|gotcha|pattern|preference")
 	subject := fs.String("subject", "", "memory subject")
 	content := fs.String("content", "", "memory content")
+	contentFile := fs.String("content-file", "", "file containing memory content ('-' for stdin)")
 	confidence := fs.Int("confidence", 0, "memory confidence (1-5)")
+	relatedKeysFile := fs.String("related-keys-file", "", "JSON file containing an array of related pointer keys")
+	tagsFile := fs.String("tags-file", "", "JSON file containing an array of tags")
+	evidenceKeysFile := fs.String("evidence-keys-file", "", "JSON file containing an array of evidence pointer keys")
 	var relatedKeys repeatedStringFlag
 	var tags repeatedStringFlag
 	var evidenceKeys repeatedStringFlag
@@ -262,7 +305,7 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
 	if err := requireFlag("receipt-id", *receiptID); err != nil {
@@ -274,11 +317,54 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 	if err := requireFlag("subject", *subject); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("content", *content); err != nil {
-		return v1.CommandEnvelope{}, err
-	}
 	if *confidence == 0 {
 		return v1.CommandEnvelope{}, fmt.Errorf("--confidence is required")
+	}
+
+	trimmedContent := strings.TrimSpace(*content)
+	trimmedContentFile := strings.TrimSpace(*contentFile)
+	if trimmedContent != "" && trimmedContentFile != "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --content or --content-file")
+	}
+	if trimmedContent == "" {
+		if trimmedContentFile == "" {
+			return v1.CommandEnvelope{}, fmt.Errorf("--content or --content-file is required")
+		}
+		blob, err := readTextFile(trimmedContentFile)
+		if err != nil {
+			return v1.CommandEnvelope{}, fmt.Errorf("read --content-file %s: %w", trimmedContentFile, err)
+		}
+		trimmedContent = strings.TrimSpace(blob)
+	}
+	if trimmedContent == "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("memory content must not be empty")
+	}
+
+	allRelatedKeys := relatedKeys.Values()
+	if trimmedRelatedKeysFile := strings.TrimSpace(*relatedKeysFile); trimmedRelatedKeysFile != "" {
+		fileValues, err := readStringListFromFile(trimmedRelatedKeysFile, "--related-keys-file")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allRelatedKeys = mergeUnique(allRelatedKeys, fileValues)
+	}
+
+	allTags := tags.Values()
+	if trimmedTagsFile := strings.TrimSpace(*tagsFile); trimmedTagsFile != "" {
+		fileValues, err := readStringListFromFile(trimmedTagsFile, "--tags-file")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allTags = mergeUnique(allTags, fileValues)
+	}
+
+	allEvidenceKeys := evidenceKeys.Values()
+	if trimmedEvidenceKeysFile := strings.TrimSpace(*evidenceKeysFile); trimmedEvidenceKeysFile != "" {
+		fileValues, err := readStringListFromFile(trimmedEvidenceKeysFile, "--evidence-keys-file")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allEvidenceKeys = mergeUnique(allEvidenceKeys, fileValues)
 	}
 
 	payload := v1.ProposeMemoryPayload{
@@ -287,11 +373,11 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 		Memory: v1.MemoryPayload{
 			Category:            v1.MemoryCategory(strings.TrimSpace(*category)),
 			Subject:             *subject,
-			Content:             *content,
-			RelatedPointerKeys:  relatedKeys.Values(),
-			Tags:                tags.Values(),
+			Content:             trimmedContent,
+			RelatedPointerKeys:  allRelatedKeys,
+			Tags:                allTags,
 			Confidence:          *confidence,
-			EvidencePointerKeys: evidenceKeys.Values(),
+			EvidencePointerKeys: allEvidenceKeys,
 		},
 	}
 	if autoPromote.IsSet() {
@@ -304,8 +390,8 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"work",
-		"ctx work --project-id <id> [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--items-file <path>]",
-		"ctx work --project-id soundspan --receipt-id req-12345678 --items-file ./work-items.json",
+		"acm work --project <id> [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--items-file <path>]",
+		"acm work --project myproject --receipt-id req-12345678 --items-file ./work-items.json",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	planKey := fs.String("plan-key", "", "plan key")
@@ -315,7 +401,7 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
 
@@ -339,33 +425,60 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"report-completion",
-		"ctx report-completion --project-id <id> --receipt-id <id> --outcome <text> [--file-changed <path>]... [--scope-mode <mode>]",
-		"ctx report-completion --project-id soundspan --receipt-id req-12345678 --file-changed cmd/ctx/main.go --outcome \"Done\"",
+		"acm report-completion --project <id> --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--scope-mode <mode>]",
+		"acm report-completion --project myproject --receipt-id req-12345678 --file-changed cmd/acm/main.go --outcome \"Done\"",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	receiptID := fs.String("receipt-id", "", "receipt ID")
 	outcome := fs.String("outcome", "", "completion outcome summary")
+	outcomeFile := fs.String("outcome-file", "", "file containing completion outcome ('-' for stdin)")
 	scopeMode := fs.String("scope-mode", "", "scope mode: strict|warn|auto_index")
+	filesChangedFile := fs.String("files-changed-file", "", "JSON file containing an array of changed file paths")
 	var filesChanged repeatedStringFlag
 	fs.Var(&filesChanged, "file-changed", "repository-relative changed file path (repeatable)")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
 	if err := requireFlag("receipt-id", *receiptID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("outcome", *outcome); err != nil {
-		return v1.CommandEnvelope{}, err
+
+	trimmedOutcome := strings.TrimSpace(*outcome)
+	trimmedOutcomeFile := strings.TrimSpace(*outcomeFile)
+	if trimmedOutcome != "" && trimmedOutcomeFile != "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --outcome or --outcome-file")
+	}
+	if trimmedOutcome == "" {
+		if trimmedOutcomeFile == "" {
+			return v1.CommandEnvelope{}, fmt.Errorf("--outcome or --outcome-file is required")
+		}
+		blob, err := readTextFile(trimmedOutcomeFile)
+		if err != nil {
+			return v1.CommandEnvelope{}, fmt.Errorf("read --outcome-file %s: %w", trimmedOutcomeFile, err)
+		}
+		trimmedOutcome = strings.TrimSpace(blob)
+	}
+	if trimmedOutcome == "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("outcome must not be empty")
+	}
+
+	allFilesChanged := filesChanged.Values()
+	if trimmedFilesChangedFile := strings.TrimSpace(*filesChangedFile); trimmedFilesChangedFile != "" {
+		fileValues, err := readStringListFromFile(trimmedFilesChangedFile, "--files-changed-file")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allFilesChanged = mergeUnique(allFilesChanged, fileValues)
 	}
 
 	payload := v1.ReportCompletionPayload{
 		ProjectID:    strings.TrimSpace(*projectID),
 		ReceiptID:    strings.TrimSpace(*receiptID),
-		FilesChanged: filesChanged.Values(),
-		Outcome:      *outcome,
+		FilesChanged: allFilesChanged,
+		Outcome:      trimmedOutcome,
 	}
 	if trimmedScopeMode := strings.TrimSpace(*scopeMode); trimmedScopeMode != "" {
 		payload.ScopeMode = v1.ScopeMode(trimmedScopeMode)
@@ -377,8 +490,8 @@ func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.Comm
 func buildSyncEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"sync",
-		"ctx sync --project-id <id> [--mode changed|full|working_tree] [--git-range <range>] [--project-root <path>] [--insert-new-candidates[=true|false]]",
-		"ctx sync --project-id soundspan --mode changed --git-range HEAD~1..HEAD",
+		"acm sync --project <id> [--mode changed|full|working_tree] [--git-range <range>] [--project-root <path>] [--insert-new-candidates[=true|false]]",
+		"acm sync --project myproject --mode changed --git-range HEAD~1..HEAD",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	mode := fs.String("mode", "", "sync mode: changed|full|working_tree")
@@ -389,7 +502,7 @@ func buildSyncEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
 
@@ -409,8 +522,8 @@ func buildSyncEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 func buildHealthCheckEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"health-check",
-		"ctx health-check --project-id <id> [--include-details[=true|false]] [--max-findings-per-check <n>]",
-		"ctx health-check --project-id soundspan --include-details --max-findings-per-check 50",
+		"acm health-check --project <id> [--include-details[=true|false]] [--max-findings-per-check <n>]",
+		"acm health --project myproject --include-details --max-findings-per-check 50",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	includeDetails := optionalBoolFlag{}
@@ -419,7 +532,7 @@ func buildHealthCheckEnvelope(args []string, now func() time.Time) (v1.CommandEn
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
 
@@ -437,8 +550,8 @@ func buildHealthCheckEnvelope(args []string, now func() time.Time) (v1.CommandEn
 func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"health-fix",
-		"ctx health-fix --project-id <id> [--apply[=true|false>] [--project-root <path>] [--fixer <name>]...",
-		"ctx health-fix --project-id soundspan --apply --fixer sync_working_tree",
+		"acm health-fix --project <id> [--apply[=true|false>] [--project-root <path>] [--fixer <name>]...",
+		"acm health-fix --project myproject --apply --fixer sync_working_tree",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	applyChanges := optionalBoolFlag{}
@@ -449,7 +562,7 @@ func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
 
@@ -473,15 +586,15 @@ func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 func buildCoverageEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"coverage",
-		"ctx coverage --project-id <id> [--project-root <path>]",
-		"ctx coverage --project-id soundspan --project-root .",
+		"acm coverage --project <id> [--project-root <path>]",
+		"acm coverage --project myproject --project-root .",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	projectRoot := fs.String("project-root", "", "project root")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
 
@@ -495,8 +608,8 @@ func buildCoverageEnvelope(args []string, now func() time.Time) (v1.CommandEnvel
 func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"regress",
-		"ctx regress --project-id <id> (--eval-suite-path <path> | --eval-suite-inline-file <path>) [--minimum-recall <0..1>]",
-		"ctx regress --project-id soundspan --eval-suite-path ./eval/ctx.json --minimum-recall 0.9",
+		"acm regress --project <id> (--eval-suite-path <path> | --eval-suite-inline-file <path>) [--minimum-recall <0..1>]",
+		"acm regress --project myproject --eval-suite-path ./eval.json --minimum-recall 0.9",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	evalSuitePath := fs.String("eval-suite-path", "", "path to eval suite JSON file")
@@ -505,7 +618,7 @@ func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelo
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
 
@@ -539,8 +652,8 @@ func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelo
 func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"bootstrap",
-		"ctx bootstrap --project-id <id> --project-root <path> [--respect-gitignore[=true|false]] [--llm-assist-descriptions[=true|false]] [--output-candidates-path <path>]",
-		"ctx bootstrap --project-id soundspan --project-root . --respect-gitignore",
+		"acm bootstrap --project <id> --project-root <path> [--respect-gitignore[=true|false]] [--llm-assist-descriptions[=true|false]] [--output-candidates-path <path>]",
+		"acm bootstrap --project myproject --project-root . --respect-gitignore",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	projectRoot := fs.String("project-root", "", "project root to analyze")
@@ -552,7 +665,7 @@ func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	if err := requireFlag("project-id", *projectID); err != nil {
+	if err := requireFlag("project", *projectID); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
 	if err := requireFlag("project-root", *projectRoot); err != nil {
@@ -663,6 +776,38 @@ func parseExpectedVersion(raw string) (string, string, error) {
 	return key, version, nil
 }
 
+func mergeUnique(base []string, additional []string) []string {
+	seen := make(map[string]struct{}, len(base)+len(additional))
+	out := make([]string, 0, len(base)+len(additional))
+	for _, raw := range append(append([]string(nil), base...), additional...) {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func readTextFile(path string) (string, error) {
+	if strings.TrimSpace(path) == "-" {
+		blob, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", err
+		}
+		return string(blob), nil
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(blob), nil
+}
+
 func readWorkItemsFromFile(path string) ([]v1.WorkItemPayload, error) {
 	var items []v1.WorkItemPayload
 	if err := readJSONFileStrict(path, &items); err != nil {
@@ -677,6 +822,31 @@ func readRegressCasesFromFile(path string) ([]v1.RegressCase, error) {
 		return nil, fmt.Errorf("read --eval-suite-inline-file %s: %w", path, err)
 	}
 	return cases, nil
+}
+
+func readStringListFromFile(path, flagName string) ([]string, error) {
+	var values []string
+	if err := readJSONFileStrict(path, &values); err != nil {
+		return nil, fmt.Errorf("read %s %s: %w", flagName, path, err)
+	}
+	return mergeUnique(nil, values), nil
+}
+
+func readStringMapFromFile(path, flagName string) (map[string]string, error) {
+	values := map[string]string{}
+	if err := readJSONFileStrict(path, &values); err != nil {
+		return nil, fmt.Errorf("read %s %s: %w", flagName, path, err)
+	}
+	normalized := make(map[string]string, len(values))
+	for k, v := range values {
+		key := strings.TrimSpace(k)
+		value := strings.TrimSpace(v)
+		if key == "" || value == "" {
+			continue
+		}
+		normalized[key] = value
+	}
+	return normalized, nil
 }
 
 func readJSONFileStrict(path string, out any) error {

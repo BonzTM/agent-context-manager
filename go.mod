@@ -1,4 +1,4 @@
-module github.com/joshd/agents-context
+module github.com/joshd/agent-context-manager
 
 go 1.26
 

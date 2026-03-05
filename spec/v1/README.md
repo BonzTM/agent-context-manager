@@ -1,17 +1,17 @@
-# ctx v1 Schemas
+# acm v1 Schemas
 
 This directory defines the v1 wire contract for the context broker.
 
 ## Files
 
 - `shared.schema.json`: reusable types used by CLI and MCP contracts.
-- `cli.command.schema.json`: input envelope for `ctx` CLI JSON mode.
-- `cli.result.schema.json`: output envelope for `ctx` CLI JSON mode.
+- `cli.command.schema.json`: input envelope for `acm` CLI JSON mode.
+- `cli.result.schema.json`: output envelope for `acm` CLI JSON mode.
 - `mcp.tools.v1.json`: MCP tool contracts with exact input/output schema refs.
 
 ## CLI Contract
 
-`ctx` in JSON mode should accept a request matching `cli.command.schema.json` and emit a response matching `cli.result.schema.json`.
+`acm` in JSON mode should accept a request matching `cli.command.schema.json` and emit a response matching `cli.result.schema.json`.
 
 ## MCP Contract
 

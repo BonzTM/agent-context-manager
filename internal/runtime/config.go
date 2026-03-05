@@ -32,7 +32,7 @@ func (c Config) EffectiveSQLitePath() string {
 
 	cacheDir, err := os.UserCacheDir()
 	if err == nil && strings.TrimSpace(cacheDir) != "" {
-		return filepath.Join(cacheDir, "agents-context", "context.db")
+		return filepath.Join(cacheDir, "agent-context-manager", "context.db")
 	}
-	return filepath.Join(os.TempDir(), "agents-context-context.db")
+	return filepath.Join(os.TempDir(), "agent-context-manager-context.db")
 }

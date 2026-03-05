@@ -1,0 +1,3 @@
+interface:
+  display_name: "Context Broker"
+  short_description: "Use acm CLI/MCP for scoped context, completion reporting, and memory proposals"

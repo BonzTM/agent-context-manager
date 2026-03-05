@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/joshd/agents-context/internal/core"
+	"github.com/joshd/agent-context-manager/internal/core"
 )
 
 type Repository struct {

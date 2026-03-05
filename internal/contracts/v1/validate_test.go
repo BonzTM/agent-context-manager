@@ -12,7 +12,7 @@ func TestDecodeAndValidateCommand_GetContextSuccess(t *testing.T) {
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"task_text":"fix preference save bug",
 			"phase":"execute"
 		}
@@ -28,7 +28,7 @@ func TestDecodeAndValidateCommand_GetContextSuccess(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.ProjectID != "soundspan" {
+	if p.ProjectID != "my-cool-app" {
 		t.Fatalf("unexpected project_id: %s", p.ProjectID)
 	}
 }
@@ -39,7 +39,7 @@ func TestDecodeAndValidateCommand_InvalidVersion(t *testing.T) {
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"task_text":"x",
 			"phase":"execute"
 		}
@@ -59,7 +59,7 @@ func TestDecodeAndValidateCommand_RejectsUnknownField(t *testing.T) {
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"task_text":"x",
 			"phase":"execute",
 			"oops":true
@@ -80,7 +80,7 @@ func TestDecodeAndValidateCommand_ReportCompletionRejectsInvalidScopeMode(t *tes
 		"command":"report_completion",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"receipt_id":"receipt-1234",
 			"files_changed":["src/main.go"],
 			"outcome":"done",
@@ -102,7 +102,7 @@ func TestDecodeAndValidateCommand_CoveragePayloadValidation(t *testing.T) {
 		"command":"coverage",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"project_root":"."
 		}
 	}`
@@ -114,7 +114,7 @@ func TestDecodeAndValidateCommand_CoveragePayloadValidation(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.ProjectID != "soundspan" || p.ProjectRoot != "." {
+	if p.ProjectID != "my-cool-app" || p.ProjectRoot != "." {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 
@@ -123,7 +123,7 @@ func TestDecodeAndValidateCommand_CoveragePayloadValidation(t *testing.T) {
 		"command":"coverage",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"project_root":" "
 		}
 	}`
@@ -142,7 +142,7 @@ func TestDecodeAndValidateCommand_FetchSuccess(t *testing.T) {
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"keys":["docs/runtime.md","src/main.go"],
 			"expected_versions":{
 				"docs/runtime.md":"v2"
@@ -157,7 +157,7 @@ func TestDecodeAndValidateCommand_FetchSuccess(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.ProjectID != "soundspan" || len(p.Keys) != 2 {
+	if p.ProjectID != "my-cool-app" || len(p.Keys) != 2 {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 	if p.ExpectedVersions["docs/runtime.md"] != "v2" {
@@ -171,7 +171,7 @@ func TestDecodeAndValidateCommand_FetchRejectsUnknownField(t *testing.T) {
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"keys":["docs/runtime.md"],
 			"extra":true
 		}
@@ -191,7 +191,7 @@ func TestDecodeAndValidateCommand_FetchRejectsBlankKey(t *testing.T) {
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"keys":["   "]
 		}
 	}`
@@ -211,7 +211,7 @@ func TestDecodeAndValidateCommand_FetchRejectsLongKey(t *testing.T) {
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"keys":[%q]
 		}
 	}`, longKey)
@@ -230,7 +230,7 @@ func TestDecodeAndValidateCommand_WorkSuccess(t *testing.T) {
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"plan_key":"plan.release.v1",
 			"plan_title":"Release readiness",
 			"receipt_id":"receipt-1234",
@@ -248,7 +248,7 @@ func TestDecodeAndValidateCommand_WorkSuccess(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.ProjectID != "soundspan" || p.PlanKey != "plan.release.v1" || len(p.Items) != 2 {
+	if p.ProjectID != "my-cool-app" || p.PlanKey != "plan.release.v1" || len(p.Items) != 2 {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 	if p.Items[1].Status != WorkItemStatusComplete {
@@ -262,7 +262,7 @@ func TestDecodeAndValidateCommand_WorkRejectsInvalidStatus(t *testing.T) {
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"plan_key":"plan.release.v1",
 			"items":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"completed"}
@@ -284,7 +284,7 @@ func TestDecodeAndValidateCommand_WorkRejectsEmptyPlanKey(t *testing.T) {
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"plan_key":"   ",
 			"items":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
@@ -306,7 +306,7 @@ func TestDecodeAndValidateCommand_WorkRejectsEmptyItemKey(t *testing.T) {
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"plan_key":"plan.release.v1",
 			"items":[
 				{"key":"   ","summary":"wire dispatch","status":"pending"}
@@ -328,7 +328,7 @@ func TestDecodeAndValidateCommand_FetchReceiptIDOnlySuccess(t *testing.T) {
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"receipt_id":"receipt-1234"
 		}
 	}`
@@ -351,7 +351,7 @@ func TestDecodeAndValidateCommand_FetchRejectsMissingKeysAndReceiptID(t *testing
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan"
+			"project_id":"my-cool-app"
 		}
 	}`
 	_, _, errp := DecodeAndValidateCommand([]byte(json))
@@ -369,7 +369,7 @@ func TestDecodeAndValidateCommand_FetchRejectsExpectedVersionsWithoutKeys(t *tes
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"receipt_id":"receipt-1234",
 			"expected_versions":{
 				"docs/runtime.md":"v2"
@@ -391,7 +391,7 @@ func TestDecodeAndValidateCommand_FetchRejectsInvalidReceiptID(t *testing.T) {
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"receipt_id":"bad"
 		}
 	}`
@@ -410,7 +410,7 @@ func TestDecodeAndValidateCommand_WorkReceiptOnlySuccess(t *testing.T) {
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"receipt_id":"receipt-1234"
 		}
 	}`
@@ -433,7 +433,7 @@ func TestDecodeAndValidateCommand_WorkReceiptOnlyAllowsEmptyItems(t *testing.T) 
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"receipt_id":"receipt-1234",
 			"items":[]
 		}
@@ -457,7 +457,7 @@ func TestDecodeAndValidateCommand_WorkRejectsMissingPlanKeyAndReceiptID(t *testi
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"items":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
 			]
@@ -478,7 +478,7 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 		"command":"health_fix",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"apply":true,
 			"project_root":".",
 			"fixers":["sync_working_tree","sync_ruleset"]
@@ -492,7 +492,7 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.ProjectID != "soundspan" {
+	if p.ProjectID != "my-cool-app" {
 		t.Fatalf("unexpected project_id: %q", p.ProjectID)
 	}
 	if p.Apply == nil || !*p.Apply {
@@ -507,7 +507,7 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 		"command":"health_fix",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"fixers":["bad_fixer"]
 		}
 	}`

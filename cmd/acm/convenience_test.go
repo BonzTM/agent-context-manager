@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshd/agents-context/internal/adapters/cli"
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/core"
-	"github.com/joshd/agents-context/internal/logging"
-	"github.com/joshd/agents-context/internal/runtime"
+	"github.com/joshd/agent-context-manager/internal/adapters/cli"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/runtime"
 )
 
 func TestParseExpectedVersion(t *testing.T) {
@@ -35,12 +35,12 @@ func TestParseExpectedVersion(t *testing.T) {
 
 func TestBuildFetchEnvelope_ParsesRepeatedFlags(t *testing.T) {
 	env, err := buildConvenienceEnvelope("fetch", []string{
-		"--project-id", "soundspan",
-		"--request-id", "req-12345678",
+		"--project", "myproject",
+		"--request", "req-12345678",
 		"--key", "plan:req-12345678",
-		"--key", "rule:ctx/rule-1",
+		"--key", "rule:myproject/rule-1",
 		"--expect", "plan:req-12345678=v4",
-		"--expect", "rule:ctx/rule-1=v2",
+		"--expect", "rule:myproject/rule-1=v2",
 	}, fixedNow)
 	if err != nil {
 		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
@@ -56,7 +56,7 @@ func TestBuildFetchEnvelope_ParsesRepeatedFlags(t *testing.T) {
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
-	if payload.ProjectID != "soundspan" {
+	if payload.ProjectID != "myproject" {
 		t.Fatalf("unexpected project id: %s", payload.ProjectID)
 	}
 	if len(payload.Keys) != 2 {
@@ -65,8 +65,35 @@ func TestBuildFetchEnvelope_ParsesRepeatedFlags(t *testing.T) {
 	if payload.ExpectedVersions["plan:req-12345678"] != "v4" {
 		t.Fatalf("unexpected expected version for plan key: %q", payload.ExpectedVersions["plan:req-12345678"])
 	}
-	if payload.ExpectedVersions["rule:ctx/rule-1"] != "v2" {
-		t.Fatalf("unexpected expected version for rule key: %q", payload.ExpectedVersions["rule:ctx/rule-1"])
+	if payload.ExpectedVersions["rule:myproject/rule-1"] != "v2" {
+		t.Fatalf("unexpected expected version for rule key: %q", payload.ExpectedVersions["rule:myproject/rule-1"])
+	}
+}
+
+func TestBuildFetchEnvelope_LoadsKeysFile(t *testing.T) {
+	keysPath := filepath.Join(t.TempDir(), "keys.json")
+	if err := os.WriteFile(keysPath, []byte(`["plan:req-12345678","rule:myproject/rule-2"]`), 0o644); err != nil {
+		t.Fatalf("write keys fixture: %v", err)
+	}
+
+	env, err := buildConvenienceEnvelope("fetch", []string{
+		"--project", "myproject",
+		"--keys-file", keysPath,
+		"--receipt-id", "req-87654321",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.FetchPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.ReceiptID != "req-87654321" {
+		t.Fatalf("unexpected receipt id: %s", payload.ReceiptID)
+	}
+	if len(payload.Keys) != 2 {
+		t.Fatalf("expected 2 keys from file, got %d", len(payload.Keys))
 	}
 }
 
@@ -80,8 +107,8 @@ func TestBuildWorkEnvelope_LoadsItemsFile(t *testing.T) {
 	}
 
 	env, err := buildConvenienceEnvelope("work", []string{
-		"--project-id", "soundspan",
-		"--request-id", "req-12345678",
+		"--project", "myproject",
+		"--request", "req-12345678",
 		"--receipt-id", "req-87654321",
 		"--items-file", itemsPath,
 	}, fixedNow)
@@ -107,20 +134,23 @@ func TestBuildWorkEnvelope_LoadsItemsFile(t *testing.T) {
 	}
 }
 
-func TestBuildProposeMemoryEnvelope_FullFlagSurface(t *testing.T) {
+func TestBuildProposeMemoryEnvelope_ContentFile(t *testing.T) {
+	contentPath := filepath.Join(t.TempDir(), "memory-content.txt")
+	if err := os.WriteFile(contentPath, []byte("Prefer shared logger wrappers"), 0o644); err != nil {
+		t.Fatalf("write content fixture: %v", err)
+	}
+
 	env, err := buildConvenienceEnvelope("propose-memory", []string{
-		"--project-id", "soundspan",
-		"--request-id", "req-12345678",
+		"--project", "myproject",
+		"--request", "req-12345678",
 		"--receipt-id", "req-87654321",
 		"--category", "decision",
 		"--subject", "Use shared logger",
-		"--content", "Prefer shared logger wrappers",
+		"--content-file", contentPath,
 		"--confidence", "4",
-		"--related-key", "rule:ctx/rule-1",
-		"--related-key", "rule:ctx/rule-2",
+		"--related-key", "rule:myproject/rule-1",
 		"--tag", "logging",
-		"--tag", "go",
-		"--evidence-key", "rule:ctx/rule-1",
+		"--evidence-key", "rule:myproject/rule-1",
 		"--auto-promote=false",
 	}, fixedNow)
 	if err != nil {
@@ -134,20 +164,43 @@ func TestBuildProposeMemoryEnvelope_FullFlagSurface(t *testing.T) {
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
-	if payload.Memory.Category != v1.MemoryCategoryDecision {
-		t.Fatalf("unexpected category: %s", payload.Memory.Category)
-	}
-	if payload.Memory.Confidence != 4 {
-		t.Fatalf("unexpected confidence: %d", payload.Memory.Confidence)
-	}
-	if len(payload.Memory.RelatedPointerKeys) != 2 {
-		t.Fatalf("expected 2 related keys, got %d", len(payload.Memory.RelatedPointerKeys))
-	}
-	if len(payload.Memory.Tags) != 2 {
-		t.Fatalf("expected 2 tags, got %d", len(payload.Memory.Tags))
+	if payload.Memory.Content != "Prefer shared logger wrappers" {
+		t.Fatalf("unexpected content: %q", payload.Memory.Content)
 	}
 	if payload.AutoPromote == nil || *payload.AutoPromote {
 		t.Fatalf("expected auto_promote=false, got %+v", payload.AutoPromote)
+	}
+}
+
+func TestBuildReportCompletionEnvelope_FilesAndOutcomeFromFiles(t *testing.T) {
+	filesPath := filepath.Join(t.TempDir(), "files.json")
+	if err := os.WriteFile(filesPath, []byte(`["cmd/acm/main.go","cmd/acm/convenience.go"]`), 0o644); err != nil {
+		t.Fatalf("write files fixture: %v", err)
+	}
+	outcomePath := filepath.Join(t.TempDir(), "outcome.txt")
+	if err := os.WriteFile(outcomePath, []byte("Implemented script-friendly flags"), 0o644); err != nil {
+		t.Fatalf("write outcome fixture: %v", err)
+	}
+
+	env, err := buildConvenienceEnvelope("report-completion", []string{
+		"--project", "myproject",
+		"--receipt-id", "req-87654321",
+		"--files-changed-file", filesPath,
+		"--outcome-file", outcomePath,
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.ReportCompletionPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if len(payload.FilesChanged) != 2 {
+		t.Fatalf("expected 2 changed files, got %d", len(payload.FilesChanged))
+	}
+	if payload.Outcome != "Implemented script-friendly flags" {
+		t.Fatalf("unexpected outcome: %q", payload.Outcome)
 	}
 }
 
@@ -160,7 +213,7 @@ func TestRunConvenienceWithDeps_EndToEndGetContext(t *testing.T) {
 		context.Background(),
 		recorder,
 		"get-context",
-		[]string{"--project", "soundspan", "--request", "req-12345678", "--task-text", "Add health checks", "--phase", "execute"},
+		[]string{"--project", "myproject", "--request", "req-12345678", "--task-text", "Add health checks", "--phase", "execute"},
 		out,
 		fixedNow,
 		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {

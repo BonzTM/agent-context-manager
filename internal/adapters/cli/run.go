@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/core"
-	"github.com/joshd/agents-context/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/joshd/agent-context-manager/internal/logging"
 )
 
 const (

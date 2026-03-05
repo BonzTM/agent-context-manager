@@ -1,4 +1,4 @@
-# ADR-001: Deterministic Context Broker (`ctx`) for LLM Task Context and Memory
+# ADR-001: Deterministic Context Broker (`acm`) for LLM Task Context and Memory
 
 > This is an architecture decision record. For getting started, see [getting-started.md](getting-started.md). For terminology, see [concepts.md](concepts.md).
 
@@ -19,10 +19,10 @@ Current agent startup loads large, mostly task-irrelevant context before any tas
 
 ## Decision
 
-Build a deterministic context broker called `ctx` with one shared core implementation and two front doors:
+Build a deterministic context broker called `acm` with one shared core implementation and two front doors:
 
-1. `ctx` CLI (primary interface, lowest operational burden).
-2. `ctx` MCP server (thin adapter over same core for tool-native models).
+1. `acm` CLI (primary interface, lowest operational burden).
+2. `acm` MCP server (thin adapter over same core for tool-native models).
 
 No model runtime gets direct SQL access. Models only interact via broker operations and structured JSON contracts.
 
@@ -41,25 +41,25 @@ No model runtime gets direct SQL access. Models only interact via broker operati
 
 ### Interfaces
 
-#### CLI (`cmd/ctx/`)
+#### CLI (`cmd/acm/`)
 
 Convenience subcommands (build v1 envelopes internally):
 
-- `ctx get-context` -> `get_context(task_text, phase, project_id)`
-- `ctx fetch` -> `fetch(project_id, keys?, receipt_id?, expected_versions?)`
-- `ctx work` -> `work(project_id, receipt_id, plan_key?, items?)`
-- `ctx propose-memory` -> `propose_memory(receipt_id, payload_json)`
-- `ctx report-completion` -> `report_completion(receipt_id, files_changed, outcome)`
-- `ctx sync` -> pointer/hash upkeep from git diff
-- `ctx health` / `ctx health-check` -> integrity and drift report
-- `ctx health-fix` -> apply safe remediations (sync_working_tree, index_uncovered_files, sync_ruleset)
-- `ctx regress` -> retrieval regression suite
-- `ctx bootstrap` -> initial pointer candidate generation
-- `ctx coverage` -> file coverage analysis
+- `acm get-context` -> `get_context(task_text, phase, project_id)`
+- `acm fetch` -> `fetch(project_id, keys?, receipt_id?, expected_versions?)`
+- `acm work` -> `work(project_id, receipt_id, plan_key?, items?)`
+- `acm propose-memory` -> `propose_memory(receipt_id, payload_json)`
+- `acm report-completion` -> `report_completion(receipt_id, files_changed, outcome)`
+- `acm sync` -> pointer/hash upkeep from git diff
+- `acm health` / `acm health-check` -> integrity and drift report
+- `acm health-fix` -> apply safe remediations (sync_working_tree, index_uncovered_files, sync_ruleset)
+- `acm regress` -> retrieval regression suite
+- `acm bootstrap` -> initial pointer candidate generation
+- `acm coverage` -> file coverage analysis
 
-JSON envelope mode is also available via `ctx run --in request.json` and `ctx validate --in request.json`.
+JSON envelope mode is also available via `acm run --in request.json` and `acm validate --in request.json`.
 
-#### MCP (`cmd/ctx-mcp/`)
+#### MCP (`cmd/acm-mcp/`)
 
 Tools:
 
@@ -262,7 +262,7 @@ Rules:
 
 ## Automation
 
-### `ctx sync --changed`
+### `acm sync --changed`
 
 - Read changed paths from git diff.
 - Recompute hashes.
@@ -270,7 +270,7 @@ Rules:
 - Insert candidates for new files by conventions.
 - Keep deleted pointers but mark stale.
 
-### `ctx health-check`
+### `acm health-check`
 
 Reports:
 
@@ -282,13 +282,13 @@ Reports:
 - weak/unsupported memories
 - pending quarantines
 
-### `ctx health_fix apply`
+### `acm health_fix apply`
 
 - Apply safe remediations for health findings after canonical rule updates.
 - Use when add/remove/update operations leave drift that can be auto-corrected.
-- Re-run `ctx health-check` after apply to confirm final state.
+- Re-run `acm health-check` after apply to confirm final state.
 
-### `ctx regress`
+### `acm regress`
 
 - Read `eval_suite.json`.
 - Run `get_context` for each test case.
@@ -303,7 +303,7 @@ Use these starter examples when bootstrapping downstream repos with canonical ru
 - `docs/examples/AGENTS.md`
 - `docs/examples/CLAUDE.md`
 
-Canonical ruleset files are discovered at `.ctx/canonical-ruleset.yaml` (preferred) or `ctx-rules.yaml` and must declare `version: ctx.rules.v1`.
+Canonical ruleset files are discovered at `.acm/canonical-ruleset.yaml` (preferred) or `acm-rules.yaml` and must declare `version: ctx.rules.v1`.
 
 `CLAUDE.md` should remain a thin companion that maps to `AGENTS.md` as source of truth.
 Rule maintenance flow is add/remove/update, then run `sync` or `health_fix apply`, then verify with `health_check`.

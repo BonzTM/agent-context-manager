@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agents-context.dev/spec/v1/mcp.tools.v1.json",
-  "title": "ctx MCP v1 tool contracts",
+  "$id": "https://agent-context-manager.dev/spec/v1/mcp.tools.v1.json",
+  "title": "acm MCP v1 tool contracts",
   "type": "object",
   "additionalProperties": false,
   "required": [

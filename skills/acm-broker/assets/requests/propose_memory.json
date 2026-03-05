@@ -3,14 +3,14 @@
   "command": "propose_memory",
   "request_id": "req-memory-001",
   "payload": {
-    "project_id": "soundspan",
+    "project_id": "my-cool-app",
     "receipt_id": "replace-from-get-context-receipt",
     "memory": {
       "category": "gotcha",
       "subject": "preference save requires cache invalidation",
       "content": "Preference persistence succeeds only when cache invalidation runs after DB commit.",
       "related_pointer_keys": [
-        "soundspan:backend/src/services/preferences.ts"
+        "my-cool-app:backend/src/services/preferences.ts"
       ],
       "tags": [
         "backend",
@@ -19,7 +19,7 @@
       ],
       "confidence": 4,
       "evidence_pointer_keys": [
-        "soundspan:backend/src/services/preferences.ts"
+        "my-cool-app:backend/src/services/preferences.ts"
       ]
     },
     "auto_promote": true

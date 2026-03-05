@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/core"
-	postgressvc "github.com/joshd/agents-context/internal/service/postgres"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/core"
+	postgressvc "github.com/joshd/agent-context-manager/internal/service/postgres"
 )
 
 func TestRepositoryParity_ServiceFlows(t *testing.T) {

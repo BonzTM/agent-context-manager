@@ -1,11 +1,11 @@
 ---
-name: ctx-broker
-description: Use the agents-context broker (CLI or MCP) to retrieve context receipts, follow hard get_context rule constraints, use code pointers as advisory suggestions, fetch plan artifacts (or receipt shorthand), post work updates/status, propose durable memory, and report completion with deterministic JSON contracts.
+name: acm-broker
+description: Use the agent-context-manager broker (CLI or MCP) to retrieve context receipts, follow hard get_context rule constraints, use code pointers as advisory suggestions, fetch plan artifacts (or receipt shorthand), post work updates/status, propose durable memory, and report completion with deterministic JSON contracts.
 ---
 
-# ctx-broker
+# acm-broker
 
-Use this skill when a task needs brokered context retrieval, hard rule compliance, plan artifact fetches, work status updates, or durable memory/reporting through `agents-context`.
+Use this skill when a task needs brokered context retrieval, hard rule compliance, plan artifact fetches, work status updates, or durable memory/reporting through `agent-context-manager`.
 
 ## Required Flow
 
@@ -21,14 +21,14 @@ Use this skill when a task needs brokered context retrieval, hard rule complianc
 ## Interfaces
 
 - CLI path:
-  - `go run ./cmd/ctx validate --in <request.json>`
-  - `go run ./cmd/ctx run --in <request.json>`
+  - `go run ./cmd/acm validate --in <request.json>`
+  - `go run ./cmd/acm run --in <request.json>`
 - MCP path:
-  - `go run ./cmd/ctx-mcp invoke --tool get_context --in <payload.json>`
-  - `go run ./cmd/ctx-mcp invoke --tool fetch --in <payload.json>`
-  - `go run ./cmd/ctx-mcp invoke --tool work --in <payload.json>`
-  - `go run ./cmd/ctx-mcp invoke --tool report_completion --in <payload.json>`
-  - `go run ./cmd/ctx-mcp invoke --tool propose_memory --in <payload.json>`
+  - `go run ./cmd/acm-mcp invoke --tool get_context --in <payload.json>`
+  - `go run ./cmd/acm-mcp invoke --tool fetch --in <payload.json>`
+  - `go run ./cmd/acm-mcp invoke --tool work --in <payload.json>`
+  - `go run ./cmd/acm-mcp invoke --tool report_completion --in <payload.json>`
+  - `go run ./cmd/acm-mcp invoke --tool propose_memory --in <payload.json>`
 
 Defaults:
 - SQLite backend is default when `CTX_PG_DSN` is unset.

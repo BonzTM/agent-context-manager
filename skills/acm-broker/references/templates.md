@@ -1,4 +1,4 @@
-# ctx-broker Templates
+# acm-broker Templates
 
 ## Recommended Loop
 
@@ -19,7 +19,7 @@
   "command": "get_context",
   "request_id": "req-get-context-001",
   "payload": {
-    "project_id": "soundspan",
+    "project_id": "my-cool-app",
     "task_text": "fix preference save bug",
     "phase": "execute"
   }
@@ -29,15 +29,15 @@
 Run:
 
 ```bash
-go run ./cmd/ctx validate --in assets/requests/get_context.execute.json
-go run ./cmd/ctx run --in assets/requests/get_context.execute.json
+go run ./cmd/acm validate --in assets/requests/get_context.execute.json
+go run ./cmd/acm run --in assets/requests/get_context.execute.json
 ```
 
 ## MCP `get_context` input
 
 ```json
 {
-  "project_id": "soundspan",
+  "project_id": "my-cool-app",
   "task_text": "fix preference save bug",
   "phase": "execute"
 }
@@ -46,7 +46,7 @@ go run ./cmd/ctx run --in assets/requests/get_context.execute.json
 Run:
 
 ```bash
-go run ./cmd/ctx-mcp invoke --tool get_context --in assets/requests/mcp_get_context.execute.json
+go run ./cmd/acm-mcp invoke --tool get_context --in assets/requests/mcp_get_context.execute.json
 ```
 
 ## CLI `fetch` request
@@ -57,7 +57,7 @@ go run ./cmd/ctx-mcp invoke --tool get_context --in assets/requests/mcp_get_cont
   "command": "fetch",
   "request_id": "req-fetch-001",
   "payload": {
-    "project_id": "soundspan",
+    "project_id": "my-cool-app",
     "receipt_id": "replace-from-get-context-receipt"
   }
 }
@@ -66,15 +66,15 @@ go run ./cmd/ctx-mcp invoke --tool get_context --in assets/requests/mcp_get_cont
 Run:
 
 ```bash
-go run ./cmd/ctx validate --in assets/requests/fetch.json
-go run ./cmd/ctx run --in assets/requests/fetch.json
+go run ./cmd/acm validate --in assets/requests/fetch.json
+go run ./cmd/acm run --in assets/requests/fetch.json
 ```
 
 ## MCP `fetch` input
 
 ```json
 {
-  "project_id": "soundspan",
+  "project_id": "my-cool-app",
   "receipt_id": "replace-from-get-context-receipt"
 }
 ```
@@ -82,7 +82,7 @@ go run ./cmd/ctx run --in assets/requests/fetch.json
 Run:
 
 ```bash
-go run ./cmd/ctx-mcp invoke --tool fetch --in assets/requests/mcp_fetch.json
+go run ./cmd/acm-mcp invoke --tool fetch --in assets/requests/mcp_fetch.json
 ```
 
 ## CLI `work` request
@@ -95,7 +95,7 @@ For status-only retrieval, send zero `items`.
   "command": "work",
   "request_id": "req-work-001",
   "payload": {
-    "project_id": "soundspan",
+    "project_id": "my-cool-app",
     "receipt_id": "replace-from-get-context-receipt",
     "items": []
   }
@@ -110,7 +110,7 @@ For update submissions, include `verify:tests` and `verify:diff-review` work ite
   "command": "work",
   "request_id": "req-work-002",
   "payload": {
-    "project_id": "soundspan",
+    "project_id": "my-cool-app",
     "receipt_id": "replace-from-get-context-receipt",
     "items": [
       {
@@ -133,15 +133,15 @@ For update submissions, include `verify:tests` and `verify:diff-review` work ite
 Run:
 
 ```bash
-go run ./cmd/ctx validate --in assets/requests/work.json
-go run ./cmd/ctx run --in assets/requests/work.json
+go run ./cmd/acm validate --in assets/requests/work.json
+go run ./cmd/acm run --in assets/requests/work.json
 ```
 
 ## MCP `work` input
 
 ```json
 {
-  "project_id": "soundspan",
+  "project_id": "my-cool-app",
   "receipt_id": "replace-from-get-context-receipt",
   "items": []
 }
@@ -151,7 +151,7 @@ For update submissions, use the same verification keys.
 
 ```json
 {
-  "project_id": "soundspan",
+  "project_id": "my-cool-app",
   "receipt_id": "replace-from-get-context-receipt",
   "items": [
     {
@@ -173,7 +173,7 @@ For update submissions, use the same verification keys.
 Run:
 
 ```bash
-go run ./cmd/ctx-mcp invoke --tool work --in assets/requests/mcp_work.json
+go run ./cmd/acm-mcp invoke --tool work --in assets/requests/mcp_work.json
 ```
 
 When work items are present, `report_completion.scope_mode` controls gate behavior: `strict` enforces verification checks, `warn` surfaces warnings.
@@ -186,7 +186,7 @@ When work items are present, `report_completion.scope_mode` controls gate behavi
   "command": "report_completion",
   "request_id": "req-report-001",
   "payload": {
-    "project_id": "soundspan",
+    "project_id": "my-cool-app",
     "receipt_id": "replace-from-get-context-receipt",
     "files_changed": [
       "backend/src/services/preferences.ts"
@@ -204,14 +204,14 @@ When work items are present, `report_completion.scope_mode` controls gate behavi
   "command": "propose_memory",
   "request_id": "req-memory-001",
   "payload": {
-    "project_id": "soundspan",
+    "project_id": "my-cool-app",
     "receipt_id": "replace-from-get-context-receipt",
     "memory": {
       "category": "gotcha",
       "subject": "preference save requires cache invalidation",
       "content": "Preference persistence succeeds only when cache invalidation runs after DB commit.",
       "related_pointer_keys": [
-        "soundspan:backend/src/services/preferences.ts"
+        "my-cool-app:backend/src/services/preferences.ts"
       ],
       "tags": [
         "backend",
@@ -220,7 +220,7 @@ When work items are present, `report_completion.scope_mode` controls gate behavi
       ],
       "confidence": 4,
       "evidence_pointer_keys": [
-        "soundspan:backend/src/services/preferences.ts"
+        "my-cool-app:backend/src/services/preferences.ts"
       ]
     },
     "auto_promote": true

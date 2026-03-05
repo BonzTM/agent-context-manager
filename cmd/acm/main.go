@@ -8,10 +8,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/joshd/agents-context/internal/adapters/cli"
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/logging"
-	"github.com/joshd/agents-context/internal/runtime"
+	"github.com/joshd/agent-context-manager/internal/adapters/cli"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/runtime"
 )
 
 func main() {
@@ -137,33 +137,33 @@ func openInput(path string) (io.Reader, func(), error) {
 }
 
 func usage() {
-	fmt.Println("ctx - context broker CLI")
+	fmt.Println("acm - agent context manager CLI")
 	fmt.Println("")
 	fmt.Println("Usage:")
-	fmt.Println("  ctx run --in <request.json|->")
-	fmt.Println("  ctx validate --in <request.json|->")
-	fmt.Println("  ctx get-context [flags]")
-	fmt.Println("  ctx fetch [flags]")
-	fmt.Println("  ctx propose-memory [flags]")
-	fmt.Println("  ctx work [flags]")
-	fmt.Println("  ctx report-completion [flags]")
-	fmt.Println("  ctx sync [flags]")
-	fmt.Println("  ctx health [flags]  # alias for health-check")
-	fmt.Println("  ctx health-check [flags]")
-	fmt.Println("  ctx health-fix [flags]")
-	fmt.Println("  ctx coverage [flags]")
-	fmt.Println("  ctx regress [flags]")
-	fmt.Println("  ctx bootstrap [flags]")
+	fmt.Println("  acm run --in <request.json|->")
+	fmt.Println("  acm validate --in <request.json|->")
+	fmt.Println("  acm get-context [flags]")
+	fmt.Println("  acm fetch [flags]")
+	fmt.Println("  acm propose-memory [flags]")
+	fmt.Println("  acm work [flags]")
+	fmt.Println("  acm report-completion [flags]")
+	fmt.Println("  acm sync [flags]")
+	fmt.Println("  acm health [flags]  # alias for health-check")
+	fmt.Println("  acm health-check [flags]")
+	fmt.Println("  acm health-fix [flags]")
+	fmt.Println("  acm coverage [flags]")
+	fmt.Println("  acm regress [flags]")
+	fmt.Println("  acm bootstrap [flags]")
 	fmt.Println("")
 	fmt.Println("Convenience command examples:")
 	fmt.Println("  # Context retrieval")
-	fmt.Println("  ctx get-context --project soundspan --task-text \"Add sync checks\" --phase execute")
-	fmt.Println("  ctx fetch --project soundspan --key plan:req-12345678 --expect plan:req-12345678=v3")
+	fmt.Println("  acm get-context --project myproject --task-text \"Add sync checks\" --phase execute")
+	fmt.Println("  acm fetch --project myproject --key plan:req-12345678 --expect plan:req-12345678=v3")
 	fmt.Println("  # Work and completion")
-	fmt.Println("  ctx work --project soundspan --receipt-id req-12345678 --items-file ./work-items.json")
-	fmt.Println("  ctx report-completion --project soundspan --receipt-id req-12345678 --file-changed cmd/ctx/main.go --outcome \"Implemented command\"")
+	fmt.Println("  acm work --project myproject --receipt-id req-12345678 --items-file ./work-items.json")
+	fmt.Println("  acm report-completion --project myproject --receipt-id req-12345678 --file-changed cmd/acm/main.go --outcome \"Implemented command\"")
 	fmt.Println("  # Maintenance")
-	fmt.Println("  ctx sync --project soundspan --mode changed --git-range HEAD~1..HEAD")
-	fmt.Println("  ctx health --project soundspan --include-details")
-	fmt.Println("  ctx bootstrap --project soundspan --project-root .")
+	fmt.Println("  acm sync --project myproject --mode changed --git-range HEAD~1..HEAD")
+	fmt.Println("  acm health --project myproject --include-details")
+	fmt.Println("  acm bootstrap --project myproject --project-root .")
 }

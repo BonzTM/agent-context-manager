@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/core"
-	"github.com/joshd/agents-context/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/joshd/agent-context-manager/internal/logging"
 )
 
 const (
@@ -66,8 +66,8 @@ func ToolDefinitions() []ToolDef {
 
 const (
 	schemaDraft202012 = "https://json-schema.org/draft/2020-12/schema"
-	commandSchemaID   = "https://agents-context.dev/spec/v1/cli.command.schema.json"
-	resultSchemaID    = "https://agents-context.dev/spec/v1/cli.result.schema.json"
+	commandSchemaID   = "https://agent-context-manager.dev/spec/v1/cli.command.schema.json"
+	resultSchemaID    = "https://agent-context-manager.dev/spec/v1/cli.result.schema.json"
 )
 
 func schemaRef(schemaID, defName string) map[string]any {

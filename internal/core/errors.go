@@ -1,6 +1,6 @@
 package core
 
-import "github.com/joshd/agents-context/internal/contracts/v1"
+import "github.com/joshd/agent-context-manager/internal/contracts/v1"
 
 type APIError struct {
 	Code    string

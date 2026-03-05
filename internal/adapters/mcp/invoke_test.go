@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/core"
-	"github.com/joshd/agents-context/internal/logging"
-	"github.com/joshd/agents-context/internal/service/unconfigured"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/service/unconfigured"
 )
 
 type fakeService struct{}
@@ -67,7 +67,7 @@ func TestInvoke_UnknownTool(t *testing.T) {
 }
 
 func TestInvoke_GetContext(t *testing.T) {
-	payload := []byte(`{"project_id":"soundspan","task_text":"x","phase":"execute"}`)
+	payload := []byte(`{"project_id":"my-cool-app","task_text":"x","phase":"execute"}`)
 	result, err := Invoke(context.Background(), fakeService{}, "get_context", payload)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -78,7 +78,7 @@ func TestInvoke_GetContext(t *testing.T) {
 }
 
 func TestInvoke_FetchAndWork(t *testing.T) {
-	fetchResult, fetchErr := Invoke(context.Background(), fakeService{}, toolFetch, []byte(`{"project_id":"soundspan","keys":["docs/runtime.md"]}`))
+	fetchResult, fetchErr := Invoke(context.Background(), fakeService{}, toolFetch, []byte(`{"project_id":"my-cool-app","keys":["docs/runtime.md"]}`))
 	if fetchErr != nil {
 		t.Fatalf("unexpected fetch error: %v", fetchErr)
 	}
@@ -86,7 +86,7 @@ func TestInvoke_FetchAndWork(t *testing.T) {
 		t.Fatalf("unexpected fetch result type: %T", fetchResult)
 	}
 
-	workPayload := []byte(`{"project_id":"soundspan","plan_key":"plan.alpha","items":[{"key":"x.go","summary":"x","status":"pending"}]}`)
+	workPayload := []byte(`{"project_id":"my-cool-app","plan_key":"plan.alpha","items":[{"key":"x.go","summary":"x","status":"pending"}]}`)
 	workResult, workErr := Invoke(context.Background(), fakeService{}, toolWork, workPayload)
 	if workErr != nil {
 		t.Fatalf("unexpected work error: %v", workErr)
@@ -103,18 +103,18 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 	}
 
 	expectedInputRefs := map[string]string{
-		"get_context":       "https://agents-context.dev/spec/v1/cli.command.schema.json#/$defs/getContextPayload",
-		"fetch":             "https://agents-context.dev/spec/v1/cli.command.schema.json#/$defs/fetchPayload",
-		"propose_memory":    "https://agents-context.dev/spec/v1/cli.command.schema.json#/$defs/proposeMemoryPayload",
-		"report_completion": "https://agents-context.dev/spec/v1/cli.command.schema.json#/$defs/reportCompletionPayload",
-		"work":              "https://agents-context.dev/spec/v1/cli.command.schema.json#/$defs/workPayload",
+		"get_context":       "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/getContextPayload",
+		"fetch":             "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/fetchPayload",
+		"propose_memory":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/proposeMemoryPayload",
+		"report_completion": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reportCompletionPayload",
+		"work":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/workPayload",
 	}
 	expectedOutputRefs := map[string]string{
-		"get_context":       "https://agents-context.dev/spec/v1/cli.result.schema.json#/$defs/getContextResult",
-		"fetch":             "https://agents-context.dev/spec/v1/cli.result.schema.json#/$defs/fetchResult",
-		"propose_memory":    "https://agents-context.dev/spec/v1/cli.result.schema.json#/$defs/proposeMemoryResult",
-		"report_completion": "https://agents-context.dev/spec/v1/cli.result.schema.json#/$defs/reportCompletionResult",
-		"work":              "https://agents-context.dev/spec/v1/cli.result.schema.json#/$defs/workResult",
+		"get_context":       "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/getContextResult",
+		"fetch":             "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/fetchResult",
+		"propose_memory":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/proposeMemoryResult",
+		"report_completion": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reportCompletionResult",
+		"work":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/workResult",
 	}
 
 	for _, def := range defs {
@@ -134,7 +134,7 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 }
 
 func TestInvoke_UnconfiguredServiceReturnsNotImplemented(t *testing.T) {
-	payload := []byte(`{"project_id":"soundspan","task_text":"x","phase":"execute"}`)
+	payload := []byte(`{"project_id":"my-cool-app","task_text":"x","phase":"execute"}`)
 	_, err := Invoke(context.Background(), unconfigured.New(), "get_context", payload)
 	if err == nil {
 		t.Fatal("expected error")
@@ -161,7 +161,7 @@ func TestInvoke_HealthCheckRegressBootstrapRemainUnsupportedTools(t *testing.T) 
 
 func TestInvokeWithLogger_LogsIngressDispatchAndResultOnSuccess(t *testing.T) {
 	recorder := logging.NewRecorder()
-	payload := []byte(`{"project_id":"soundspan","task_text":"x","phase":"execute"}`)
+	payload := []byte(`{"project_id":"my-cool-app","task_text":"x","phase":"execute"}`)
 
 	result, err := InvokeWithLogger(context.Background(), fakeService{}, "get_context", payload, recorder)
 	if err != nil {
@@ -244,7 +244,7 @@ func TestInvokeWithLogger_LogsUnknownToolFailure(t *testing.T) {
 
 func TestInvokeWithLogger_LogsDispatchFailure(t *testing.T) {
 	recorder := logging.NewRecorder()
-	payload := []byte(`{"project_id":"soundspan","task_text":"x","phase":"execute"}`)
+	payload := []byte(`{"project_id":"my-cool-app","task_text":"x","phase":"execute"}`)
 
 	_, err := InvokeWithLogger(context.Background(), unconfigured.New(), "get_context", payload, recorder)
 	if err == nil {

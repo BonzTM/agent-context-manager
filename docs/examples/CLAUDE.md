@@ -7,7 +7,7 @@ Claude-specific companion for a repository whose primary contract is `AGENTS.md`
 - Follow `AGENTS.md` startup order and rules.
 - If any instruction conflicts, prefer `AGENTS.md`.
 
-## Minimal ctx Flow
+## Minimal acm Flow
 
 1. Retrieve task context with `get_context`.
 2. Read only required artifacts via `fetch`.

@@ -3,7 +3,7 @@
   "command": "fetch",
   "request_id": "req-fetch-001",
   "payload": {
-    "project_id": "soundspan",
+    "project_id": "my-cool-app",
     "receipt_id": "replace-from-get-context-receipt"
   }
 }

@@ -1,3 +1,0 @@
-interface:
-  display_name: "Context Broker"
-  short_description: "Use ctx CLI/MCP for scoped context, completion reporting, and memory proposals"

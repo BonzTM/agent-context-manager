@@ -15,10 +15,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/logging"
-	"github.com/joshd/agents-context/internal/runtime"
-	postgressvc "github.com/joshd/agents-context/internal/service/postgres"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/runtime"
+	postgressvc "github.com/joshd/agent-context-manager/internal/service/postgres"
 )
 
 const (

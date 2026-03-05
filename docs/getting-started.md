@@ -1,22 +1,22 @@
 # Getting Started
 
-This guide walks you through setting up ctx in a project from scratch. By the end, you'll have a working context broker with rules, indexed pointers, and an agent-ready workflow.
+This guide walks you through setting up acm in a project from scratch. By the end, you'll have a working context broker with rules, indexed pointers, and an agent-ready workflow.
 
 ## Prerequisites
 
 - Go 1.22+ installed
-- A git repository you want to manage with ctx
+- A git repository you want to manage with acm
 
-## Step 1: Install ctx
+## Step 1: Install acm
 
 ```bash
-go install github.com/joshd/agents-context/cmd/ctx@latest
+go install github.com/joshd/agent-context-manager/cmd/acm@latest
 ```
 
 Verify it works:
 
 ```bash
-ctx --help
+acm --help
 ```
 
 ## Step 2: Bootstrap your index
@@ -24,15 +24,15 @@ ctx --help
 From your project root, generate an initial set of pointer candidates:
 
 ```bash
-ctx bootstrap --project myproject --project-root . --respect-gitignore
+acm bootstrap --project myproject --project-root . --respect-gitignore
 ```
 
-This scans your repo and creates pointer entries for discovered files. The `--project` flag is your project's identifier — use a short, stable name (e.g., `myapp`, `soundspan`).
+This scans your repo and creates pointer entries for discovered files. The `--project` flag is your project's identifier — use a short, stable name (e.g., `my-cool-app`).
 
 Check what was indexed:
 
 ```bash
-ctx coverage --project myproject --project-root .
+acm coverage --project myproject --project-root .
 ```
 
 ## Step 3: Write your rules
@@ -40,10 +40,10 @@ ctx coverage --project myproject --project-root .
 Create the directory and ruleset file:
 
 ```bash
-mkdir -p .ctx
+mkdir -p .acm
 ```
 
-Create `.ctx/canonical-ruleset.yaml`:
+Create `.acm/canonical-ruleset.yaml`:
 
 ```yaml
 version: ctx.rules.v1
@@ -69,16 +69,16 @@ rules:
 
 These are starter rules. Add, remove, or modify them to match how you want agents to behave in your project. See [concepts.md](concepts.md) for the rule format reference.
 
-## Step 4: Sync rules into ctx
+## Step 4: Sync rules into acm
 
 ```bash
-ctx health-fix --project myproject --apply --fixer sync_ruleset
+acm health-fix --project myproject --apply --fixer sync_ruleset
 ```
 
 Verify they landed:
 
 ```bash
-ctx health --project myproject --include-details
+acm health --project myproject --include-details
 ```
 
 ## Step 5: Try the workflow
@@ -86,7 +86,7 @@ ctx health --project myproject --include-details
 ### Retrieve context
 
 ```bash
-ctx get-context --project myproject \
+acm get-context --project myproject \
   --task-text "add input validation to the signup form" \
   --phase execute
 ```
@@ -105,13 +105,13 @@ Save the `receipt_id` from `_meta` — you'll need it for the next steps.
 To get full content for a specific pointer from the suggestions:
 
 ```bash
-ctx fetch --project myproject --key "myproject:src/signup.go#validate"
+acm fetch --project myproject --key "myproject:src/signup.go#validate"
 ```
 
 Or fetch everything referenced by the receipt:
 
 ```bash
-ctx fetch --project myproject --receipt-id <receipt-id>
+acm fetch --project myproject --receipt-id <receipt-id>
 ```
 
 ### Track work
@@ -129,7 +129,7 @@ Create a `work-items.json` file:
 ```
 
 ```bash
-ctx work --project myproject --receipt-id <receipt-id> --items-file work-items.json
+acm work --project myproject --receipt-id <receipt-id> --items-file work-items.json
 ```
 
 Update status as work progresses by resubmitting with updated statuses — work items are upserted by key.
@@ -137,7 +137,7 @@ Update status as work progresses by resubmitting with updated statuses — work 
 ### Report completion
 
 ```bash
-ctx report-completion --project myproject \
+acm report-completion --project myproject \
   --receipt-id <receipt-id> \
   --file-changed src/signup.go \
   --file-changed src/signup_test.go \
@@ -149,7 +149,7 @@ ctx report-completion --project myproject \
 If the agent discovered something worth remembering:
 
 ```bash
-ctx propose-memory --project myproject \
+acm propose-memory --project myproject \
   --receipt-id <receipt-id> \
   --category gotcha \
   --subject "signup form requires CSRF token" \
@@ -172,7 +172,7 @@ Install the slash command pack into your project:
 ./scripts/install-skill-pack.sh --claude-target .
 ```
 
-This gives agents `/ctx-get`, `/ctx-report`, and `/ctx-memory` commands.
+This gives agents `/acm-get`, `/acm-report`, and `/acm-memory` commands.
 
 Add a thin `CLAUDE.md` to your project root. A starter template is at [docs/examples/CLAUDE.md](examples/CLAUDE.md).
 
@@ -191,8 +191,8 @@ Add an `AGENTS.md` to your project root. A starter template is at [docs/examples
 For models with native tool support, use the MCP adapter:
 
 ```bash
-ctx-mcp tools          # list available tools
-ctx-mcp invoke --tool get_context --in payload.json
+acm-mcp tools          # list available tools
+acm-mcp invoke --tool get_context --in payload.json
 ```
 
 ## Step 7: Ongoing maintenance
@@ -202,25 +202,25 @@ ctx-mcp invoke --tool get_context --in payload.json
 After code changes:
 
 ```bash
-ctx sync --project myproject --mode changed --git-range HEAD~1..HEAD
+acm sync --project myproject --mode changed --git-range HEAD~1..HEAD
 ```
 
 Or sync against the working tree (includes uncommitted changes):
 
 ```bash
-ctx sync --project myproject --mode working_tree --project-root .
+acm sync --project myproject --mode working_tree --project-root .
 ```
 
 ### Update rules
 
-1. Edit `.ctx/canonical-ruleset.yaml`
-2. Run `ctx health-fix --project myproject --apply --fixer sync_ruleset`
-3. Run `ctx health --project myproject` to verify
+1. Edit `.acm/canonical-ruleset.yaml`
+2. Run `acm health-fix --project myproject --apply --fixer sync_ruleset`
+3. Run `acm health --project myproject` to verify
 
 ### Check health
 
 ```bash
-ctx health --project myproject --include-details
+acm health --project myproject --include-details
 ```
 
 Reports stale pointers, orphan relations, unknown tags, and other drift.
@@ -228,7 +228,7 @@ Reports stale pointers, orphan relations, unknown tags, and other drift.
 ### Fix issues automatically
 
 ```bash
-ctx health-fix --project myproject --apply
+acm health-fix --project myproject --apply
 ```
 
 Available fixers:
@@ -251,12 +251,12 @@ Create an eval suite to verify retrieval quality:
 ```
 
 ```bash
-ctx regress --project myproject --eval-suite-path ./eval.json --minimum-recall 0.8
+acm regress --project myproject --eval-suite-path ./eval.json --minimum-recall 0.8
 ```
 
 ## Storage
 
-ctx uses SQLite by default with zero configuration. The database is created automatically at `<user-cache-dir>/agents-context/context.db`.
+acm uses SQLite by default with zero configuration. The database is created automatically at `<user-cache-dir>/agent-context-manager/context.db`.
 
 To set a specific path:
 
@@ -275,5 +275,5 @@ See [SQLITE_OPERATIONS.md](SQLITE_OPERATIONS.md) for backup, restore, and rotati
 ## Next Steps
 
 - Read [Concepts](concepts.md) if any terms are unclear
-- Browse [example request templates](../skills/ctx-broker/references/templates.md) for all command formats
+- Browse [example request templates](../skills/acm-broker/references/templates.md) for all command formats
 - Review [ADR-001](ADR-001-context-broker.md) for architecture and design decisions

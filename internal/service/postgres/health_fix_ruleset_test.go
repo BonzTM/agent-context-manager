@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/core"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/core"
 )
 
 type trackingRuleSyncRepository struct {
@@ -108,10 +108,10 @@ func TestHealthFix_DryRunPlansSafeFixers(t *testing.T) {
 
 func TestHealthFix_ApplySyncRulesetUsesCanonicalParser(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".ctx"), 0o755); err != nil {
-		t.Fatalf("mkdir .ctx: %v", err)
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
 	}
-	rulesetPath := filepath.Join(root, ".ctx", "canonical-ruleset.yaml")
+	rulesetPath := filepath.Join(root, ".acm", "canonical-ruleset.yaml")
 	ruleset := strings.Join([]string{
 		"version: ctx.rules.v1",
 		"rules:",
@@ -159,12 +159,12 @@ func TestHealthFix_ApplySyncRulesetUsesCanonicalParser(t *testing.T) {
 	if result.AppliedActions[0].Count != 3 {
 		t.Fatalf("unexpected applied count: %d", result.AppliedActions[0].Count)
 	}
-	if len(repo.ruleSyncCalls) != 2 {
-		t.Fatalf("expected 2 rule sync calls (existing + missing source), got %d", len(repo.ruleSyncCalls))
+	if len(repo.ruleSyncCalls) != 4 {
+		t.Fatalf("expected 4 rule sync calls (acm + legacy sources), got %d", len(repo.ruleSyncCalls))
 	}
 	firstCall := repo.ruleSyncCalls[0]
-	if firstCall.SourcePath != ".ctx/canonical-ruleset.yaml" {
-		t.Fatalf("unexpected primary source path: %q", firstCall.SourcePath)
+	if firstCall.SourcePath != ".acm/canonical-ruleset.yaml" {
+		t.Fatalf("unexpected acm primary source path: %q", firstCall.SourcePath)
 	}
 	if len(firstCall.Pointers) != 2 {
 		t.Fatalf("unexpected primary pointer count: %d", len(firstCall.Pointers))
@@ -199,10 +199,10 @@ func TestHealthFix_ApplySyncRulesetUsesCanonicalParser(t *testing.T) {
 
 func TestSync_IntegratesCanonicalRulesetSync(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".ctx"), 0o755); err != nil {
-		t.Fatalf("mkdir .ctx: %v", err)
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".ctx", "canonical-ruleset.yaml"), []byte("version: ctx.rules.v1\nrules:\n  - summary: Keep tests green\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".acm", "canonical-ruleset.yaml"), []byte("version: ctx.rules.v1\nrules:\n  - summary: Keep tests green\n"), 0o644); err != nil {
 		t.Fatalf("write canonical ruleset: %v", err)
 	}
 
@@ -233,8 +233,8 @@ func TestSync_IntegratesCanonicalRulesetSync(t *testing.T) {
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if len(repo.ruleSyncCalls) != 2 {
-		t.Fatalf("expected ruleset sync during sync flow, got %d calls", len(repo.ruleSyncCalls))
+	if len(repo.ruleSyncCalls) != 4 {
+		t.Fatalf("expected ruleset sync during sync flow across acm+legacy sources, got %d calls", len(repo.ruleSyncCalls))
 	}
 	if len(repo.ruleSyncCalls[0].Pointers) != 1 {
 		t.Fatalf("expected parsed canonical pointer in first sync call, got %d", len(repo.ruleSyncCalls[0].Pointers))
@@ -243,13 +243,13 @@ func TestSync_IntegratesCanonicalRulesetSync(t *testing.T) {
 
 func TestBootstrap_ReportsDiscoveredRulesetArtifacts(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".ctx"), 0o755); err != nil {
-		t.Fatalf("mkdir .ctx: %v", err)
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644); err != nil {
 		t.Fatalf("write a.txt: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".ctx", "canonical-ruleset.yaml"), []byte("version: ctx.rules.v1\nrules:\n  - summary: Keep docs current\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".acm", "canonical-ruleset.yaml"), []byte("version: ctx.rules.v1\nrules:\n  - summary: Keep docs current\n"), 0o644); err != nil {
 		t.Fatalf("write canonical ruleset: %v", err)
 	}
 
@@ -271,7 +271,7 @@ func TestBootstrap_ReportsDiscoveredRulesetArtifacts(t *testing.T) {
 
 	hasRulesetWarning := false
 	for _, warning := range result.Warnings {
-		if strings.Contains(warning, ".ctx/canonical-ruleset.yaml") {
+		if strings.Contains(warning, ".acm/canonical-ruleset.yaml") {
 			hasRulesetWarning = true
 			break
 		}

@@ -2,7 +2,7 @@
 
 ## Goal
 
-`agents-context` uses centralized structured logging for runtime wiring, service execution, and adapter ingress/dispatch flow. Logging is contract-driven and enforced by deterministic tests.
+`agent-context-manager` uses centralized structured logging for runtime wiring, service execution, and adapter ingress/dispatch flow. Logging is contract-driven and enforced by deterministic tests.
 
 ## Logger Contract
 

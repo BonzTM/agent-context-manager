@@ -17,7 +17,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/joshd/agents-context/internal/core"
+	"github.com/joshd/agent-context-manager/internal/core"
 )
 
 const (

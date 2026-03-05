@@ -14,13 +14,15 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/joshd/agents-context/internal/core"
+	"github.com/joshd/agent-context-manager/internal/core"
 )
 
 const (
 	canonicalRulesVersionV1             = "ctx.rules.v1"
-	canonicalRulesetPrimarySourcePath   = ".ctx/canonical-ruleset.yaml"
-	canonicalRulesetSecondarySourcePath = "ctx-rules.yaml"
+	canonicalRulesetPrimarySourcePath   = ".acm/canonical-ruleset.yaml"
+	canonicalRulesetSecondarySourcePath = "acm-rules.yaml"
+	canonicalRulesetLegacyPrimaryPath   = ".ctx/canonical-ruleset.yaml"
+	canonicalRulesetLegacySecondaryPath = "ctx-rules.yaml"
 
 	ruleTagCanonical       = "canonical-rule"
 	ruleTagEnforcementHard = "enforcement-hard"
@@ -31,6 +33,8 @@ var (
 	canonicalRulesetDefaultPaths = []string{
 		canonicalRulesetPrimarySourcePath,
 		canonicalRulesetSecondarySourcePath,
+		canonicalRulesetLegacyPrimaryPath,
+		canonicalRulesetLegacySecondaryPath,
 	}
 	ruleIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 )

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agents-context.dev/spec/v1/cli.command.schema.json",
-  "title": "ctx CLI v1 command envelope",
+  "$id": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json",
+  "title": "acm CLI v1 command envelope",
   "type": "object",
   "additionalProperties": false,
   "required": [

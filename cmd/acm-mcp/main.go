@@ -8,10 +8,10 @@ import (
 	"io"
 	"os"
 
-	"github.com/joshd/agents-context/internal/adapters/mcp"
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/logging"
-	"github.com/joshd/agents-context/internal/runtime"
+	"github.com/joshd/agent-context-manager/internal/adapters/mcp"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/runtime"
 )
 
 func main() {
@@ -101,11 +101,11 @@ func printJSON(v any) {
 }
 
 func usage() {
-	fmt.Println("ctx-mcp - MCP adapter surface")
+	fmt.Println("acm-mcp - MCP adapter surface")
 	fmt.Println("")
 	fmt.Println("Usage:")
-	fmt.Println("  ctx-mcp tools")
-	fmt.Println("  ctx-mcp invoke --tool <name> --in <input.json|->")
+	fmt.Println("  acm-mcp tools")
+	fmt.Println("  acm-mcp invoke --tool <name> --in <input.json|->")
 	fmt.Println("")
 	fmt.Println("MCP v1.1 tools (index-first):")
 	fmt.Println("  get_context, fetch, work, propose_memory, report_completion")

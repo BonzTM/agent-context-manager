@@ -1,11 +1,11 @@
 # AGENTS.md (Starter)
 
-Minimal startup contract for repositories using `ctx`.
+Minimal startup contract for repositories using `acm`.
 
 ## Required Startup Order
 
 1. Read this file.
-2. Confirm canonical rules exist at `.ctx/canonical-ruleset.yaml` (or `ctx-rules.yaml`).
+2. Confirm canonical rules exist at `.acm/canonical-ruleset.yaml` (or `acm-rules.yaml`).
 3. Run `get_context` for the task.
 4. Run `fetch` only for needed keys.
 5. Implement the task.

@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"github.com/joshd/agents-context/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
 )
 
 type Service interface {

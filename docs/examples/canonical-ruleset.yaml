@@ -1,6 +1,6 @@
 # canonical-ruleset.yaml
-# Canonical rule file consumed by ctx sync and health_fix.
-# Save this as .ctx/canonical-ruleset.yaml (preferred) or ctx-rules.yaml.
+# Canonical rule file consumed by acm sync and health_fix.
+# Save this as .acm/canonical-ruleset.yaml (preferred) or acm-rules.yaml.
 
 version: ctx.rules.v1
 rules:
@@ -23,7 +23,7 @@ rules:
     tags: [completion, audit]
 
 # Field notes:
-# - id: optional; when omitted, ctx generates a deterministic stable id.
+# - id: optional; when omitted, acm generates a deterministic stable id.
 # - summary: required (title or content may substitute, but summary is preferred).
 # - content: optional; defaults to summary when omitted.
 # - enforcement: optional; defaults to "hard" (allowed: hard|soft).

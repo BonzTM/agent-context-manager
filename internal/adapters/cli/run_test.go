@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshd/agents-context/internal/contracts/v1"
-	"github.com/joshd/agents-context/internal/core"
-	"github.com/joshd/agents-context/internal/logging"
-	"github.com/joshd/agents-context/internal/service/unconfigured"
+	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/joshd/agent-context-manager/internal/service/unconfigured"
 )
 
 type fakeService struct{}
@@ -66,7 +66,7 @@ func TestRun_SuccessEnvelope(t *testing.T) {
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"task_text":"x",
 			"phase":"execute"
 		}
@@ -115,7 +115,7 @@ func TestRun_UnconfiguredServiceNotImplementedEnvelope(t *testing.T) {
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"task_text":"x",
 			"phase":"execute"
 		}
@@ -152,27 +152,27 @@ func TestRun_DispatchesHealthCheckRegressAndBootstrap(t *testing.T) {
 		{
 			name:    "health_check",
 			command: "health_check",
-			payload: `{"project_id":"soundspan"}`,
+			payload: `{"project_id":"my-cool-app"}`,
 		},
 		{
 			name:    "health_fix",
 			command: "health_fix",
-			payload: `{"project_id":"soundspan"}`,
+			payload: `{"project_id":"my-cool-app"}`,
 		},
 		{
 			name:    "coverage",
 			command: "coverage",
-			payload: `{"project_id":"soundspan"}`,
+			payload: `{"project_id":"my-cool-app"}`,
 		},
 		{
 			name:    "regress",
 			command: "regress",
-			payload: `{"project_id":"soundspan","eval_suite_inline":[{"task_text":"x","phase":"execute"}]}`,
+			payload: `{"project_id":"my-cool-app","eval_suite_inline":[{"task_text":"x","phase":"execute"}]}`,
 		},
 		{
 			name:    "bootstrap",
 			command: "bootstrap",
-			payload: `{"project_id":"soundspan","project_root":"."}`,
+			payload: `{"project_id":"my-cool-app","project_root":"."}`,
 		},
 	}
 
@@ -215,12 +215,12 @@ func TestDispatch_RoutesFetchAndWork(t *testing.T) {
 		{
 			name:    "fetch",
 			command: commandFetch,
-			payload: v1.FetchPayload{ProjectID: "soundspan", Keys: []string{"docs/runtime.md"}},
+			payload: v1.FetchPayload{ProjectID: "my-cool-app", Keys: []string{"docs/runtime.md"}},
 		},
 		{
 			name:    "work",
 			command: commandWork,
-			payload: v1.WorkPayload{ProjectID: "soundspan", PlanKey: "plan.alpha", Items: []v1.WorkItemPayload{{Key: "x.go", Summary: "x", Status: v1.WorkItemStatusPending}}},
+			payload: v1.WorkPayload{ProjectID: "my-cool-app", PlanKey: "plan.alpha", Items: []v1.WorkItemPayload{{Key: "x.go", Summary: "x", Status: v1.WorkItemStatusPending}}},
 		},
 	}
 
@@ -245,13 +245,13 @@ func TestDispatch_RoutesFetchAndWork(t *testing.T) {
 }
 
 func TestProjectIDFromPayload_ExtractsFromMapAndStruct(t *testing.T) {
-	if got := projectIDFromPayload(map[string]any{"project_id": "  soundspan  "}); got != "soundspan" {
+	if got := projectIDFromPayload(map[string]any{"project_id": "  my-cool-app  "}); got != "my-cool-app" {
 		t.Fatalf("unexpected map project id: %q", got)
 	}
-	if got := projectIDFromPayload(struct{ ProjectID string }{ProjectID: "  soundspan  "}); got != "soundspan" {
+	if got := projectIDFromPayload(struct{ ProjectID string }{ProjectID: "  my-cool-app  "}); got != "my-cool-app" {
 		t.Fatalf("unexpected struct project id: %q", got)
 	}
-	if got := projectIDFromPayload(&struct{ ProjectID string }{ProjectID: "  soundspan  "}); got != "soundspan" {
+	if got := projectIDFromPayload(&struct{ ProjectID string }{ProjectID: "  my-cool-app  "}); got != "my-cool-app" {
 		t.Fatalf("unexpected pointer struct project id: %q", got)
 	}
 }
@@ -262,7 +262,7 @@ func TestRunWithLogger_LogsIngressDispatchAndResultOnSuccess(t *testing.T) {
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"task_text":"x",
 			"phase":"execute"
 		}
@@ -297,7 +297,7 @@ func TestRunWithLogger_LogsIngressDispatchAndResultOnSuccess(t *testing.T) {
 		t.Fatalf("unexpected result entry: %+v", entries[4])
 	}
 	for _, idx := range []int{1, 2, 3, 4} {
-		if got := entries[idx].Fields["project_id"]; got != "soundspan" {
+		if got := entries[idx].Fields["project_id"]; got != "my-cool-app" {
 			t.Fatalf("entry[%d] missing project_id: %+v", idx, entries[idx])
 		}
 	}
@@ -364,7 +364,7 @@ func TestRunWithLogger_LogsDispatchFailure(t *testing.T) {
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
-			"project_id":"soundspan",
+			"project_id":"my-cool-app",
 			"task_text":"x",
 			"phase":"execute"
 		}

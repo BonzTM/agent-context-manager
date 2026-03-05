@@ -17,9 +17,9 @@ Steps:
    - evidence pointer keys from the active receipt scope
    - `auto_promote=true`
 3. Validate:
-   - `go run ./cmd/ctx validate --in <request.json>`
+   - `go run ./cmd/acm validate --in <request.json>`
 4. Execute:
-   - `go run ./cmd/ctx run --in <request.json>`
+   - `go run ./cmd/acm run --in <request.json>`
 5. Return status (`pending|promoted|rejected`) and ids.
 
 Constraints:
