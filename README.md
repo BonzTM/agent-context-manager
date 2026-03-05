@@ -1,131 +1,194 @@
-# agents-context
+# ctx — Context Manager for LLM Agents
 
-Deterministic context broker for LLM agents.
+ctx is a deterministic context broker that sits between you and your LLM agents. It does four things:
 
-## Scope
+1. **Keeps context windows light** — stores an index of your codebase as pointers (key + one-line summary). Agents retrieve only what's relevant to the current task, then fetch full content on demand.
+2. **Enforces your rules** — you write the rules, ctx stores them, and delivers them as hard constraints that agents must follow. Rules aren't suggestions buried in a long file — they're structured, scoped, and delivered at the right time.
+3. **Provides canonical memory** — durable facts learned from completed work, stored outside any model's memory system. Any agent, any session, any model can access them.
+4. **Tracks work across sessions** — stateful, idempotent work items that survive context compaction. When an agent loses its place, it can pick up where it left off.
 
-This repository hosts:
+ctx is infrastructure, not opinions. It doesn't ship default rules or enforce a workflow. You define the rules, you seed the index, ctx enforces and delivers.
 
-- shared core service interfaces
-- `ctx` CLI adapter
-- `ctx-mcp` adapter surface
-- versioned wire contracts in `spec/v1`
-
-Current implementation focus is contract-accurate request/response handling and command/tool dispatch wiring.
-
-## Quick start
+## Install
 
 ```bash
-go test ./...
-go run ./cmd/ctx --help
-go run ./cmd/ctx-mcp --help
+go install github.com/joshd/agents-context/cmd/ctx@latest
+go install github.com/joshd/agents-context/cmd/ctx-mcp@latest
 ```
 
-## CLI usage
+Or build from source:
 
-The v1 JSON envelope flow is still available:
+```bash
+git clone https://github.com/joshd/agents-context.git
+cd agents-context
+go build ./cmd/ctx
+go build ./cmd/ctx-mcp
+```
+
+## Quick Start (5 minutes)
+
+### 1. Bootstrap your project
+
+Scan your repo and generate an initial pointer index:
+
+```bash
+ctx bootstrap --project myapp --project-root .
+```
+
+### 2. Write your rules
+
+Create `.ctx/canonical-ruleset.yaml`:
+
+```yaml
+version: ctx.rules.v1
+rules:
+  - id: rule_get_context_first
+    summary: Always call get_context before reading or editing files.
+    enforcement: hard
+    tags: [startup]
+
+  - id: rule_report_completion
+    summary: Close every task with report_completion.
+    enforcement: hard
+    tags: [completion]
+```
+
+### 3. Sync rules into ctx
+
+```bash
+ctx health-fix --project myapp --apply --fixer sync_ruleset
+```
+
+### 4. Retrieve context for a task
+
+```bash
+ctx get-context --project myapp --task-text "fix the login timeout bug" --phase execute
+```
+
+This returns a receipt with:
+- **Rules** — hard constraints the agent must follow
+- **Suggestions** — code/doc/test pointers relevant to the task (advisory, not mandatory)
+- **Memories** — durable facts from past work
+- **Plans** — active work items
+
+### 5. Fetch full content
+
+The receipt contains keys and summaries. To get full content for a specific pointer:
+
+```bash
+ctx fetch --project myapp --key "myapp:src/auth/login.go#handleTimeout"
+```
+
+Or fetch everything from the receipt at once:
+
+```bash
+ctx fetch --project myapp --receipt-id <receipt-id-from-step-4>
+```
+
+### 6. Report completion
+
+```bash
+ctx report-completion --project myapp \
+  --receipt-id <receipt-id> \
+  --file-changed src/auth/login.go \
+  --outcome "Fixed timeout by increasing session TTL"
+```
+
+That's it. For the full workflow (including work tracking and memory), see [Getting Started](docs/getting-started.md).
+
+## Agent Integration
+
+### Claude Code (slash commands)
+
+```bash
+./scripts/install-skill-pack.sh --claude-target /path/to/your/project
+```
+
+This installs `/ctx-get`, `/ctx-report`, and `/ctx-memory` slash commands.
+
+### Codex (skill pack)
+
+```bash
+./scripts/install-skill-pack.sh --skip-claude
+```
+
+Installs the ctx-broker skill to `~/.codex/skills/ctx-broker`.
+
+### MCP (tool-native models)
+
+```bash
+ctx-mcp invoke --tool get_context --in payload.json
+```
+
+Five tools exposed: `get_context`, `fetch`, `work`, `propose_memory`, `report_completion`.
+
+## CLI Reference
+
+All commands support `--help` for full flag documentation.
+
+### Core workflow
+
+```bash
+ctx get-context   --project <id> --task-text <text> --phase <plan|execute|review>
+ctx fetch         --project <id> --key <pointer-key> [--receipt-id <id>]
+ctx work          --project <id> --receipt-id <id> [--items-file <path>]
+ctx propose-memory --project <id> --receipt-id <id> --category <cat> --subject <text> --content <text> --confidence <1-5> --evidence-key <key>
+ctx report-completion --project <id> --receipt-id <id> --file-changed <path> --outcome <text>
+```
+
+### Maintenance
+
+```bash
+ctx sync          --project <id> --mode <changed|full|working_tree>
+ctx health        --project <id> [--include-details]
+ctx health-fix    --project <id> --apply [--fixer <name>]
+ctx coverage      --project <id> --project-root .
+ctx regress       --project <id> --eval-suite-path ./eval.json
+ctx bootstrap     --project <id> --project-root .
+```
+
+### JSON envelope mode
+
+The original JSON envelope interface is still available for programmatic use:
 
 ```bash
 ctx run --in request.json
 ctx validate --in request.json
 ```
 
-Convenience subcommands build the same v1 envelope internally:
+## Storage Backend
+
+SQLite by default (zero config). Set `CTX_PG_DSN` for Postgres when you need write concurrency.
 
 ```bash
-# Context retrieval
-ctx get-context --project soundspan --task-text "Add health checks" --phase execute
-ctx fetch --project soundspan --key plan:req-12345678 --expect plan:req-12345678=v3
+# SQLite (default)
+export CTX_SQLITE_PATH=/path/to/context.db
 
-# Work + memory
-ctx work --project soundspan --receipt-id req-12345678 --items-file ./work-items.json
-ctx propose-memory --project soundspan --receipt-id req-12345678 --category decision --subject "Use shared logger" --content "Prefer wrappers" --confidence 4 --evidence-key rule:ctx/rule-1
-ctx report-completion --project soundspan --receipt-id req-12345678 --file-changed cmd/ctx/main.go --outcome "Implemented convenience commands"
-
-# Maintenance
-ctx sync --project soundspan --mode changed --git-range HEAD~1..HEAD
-ctx health --project soundspan --include-details
-ctx health-fix --project soundspan --apply --fixer sync_working_tree
-ctx coverage --project soundspan --project-root .
-ctx regress --project soundspan --eval-suite-path ./eval/ctx.json --minimum-recall 0.9
-ctx bootstrap --project soundspan --project-root . --respect-gitignore
-```
-
-## Canonical Rules Onboarding Examples
-
-Starter templates for downstream onboarding:
-
-- `docs/examples/canonical-ruleset.yaml`
-- `docs/examples/AGENTS.md`
-- `docs/examples/CLAUDE.md`
-
-Canonical ruleset files are discovered at `.ctx/canonical-ruleset.yaml` (preferred) or `ctx-rules.yaml` and must use `version: ctx.rules.v1`.
-
-Rule maintenance flow:
-
-1. Add/remove/update rule entries in your canonical ruleset.
-2. Run `sync` or `health_fix apply`.
-3. Run `health_check` and resolve blocking findings.
-
-See `docs/ADR-001-context-broker.md` for command intent and maintenance context.
-
-## Runtime backend
-
-- Default: `ctx run` and `ctx-mcp invoke` use the SQLite-backed runtime service.
-- Postgres override: set `CTX_PG_DSN` to wire both commands to the Postgres-backed service.
-- SQLite path override: set `CTX_SQLITE_PATH` to choose the SQLite database file location.
-  - default path: `<user-cache-dir>/agents-context/context.db` (falls back to `/tmp/agents-context-context.db` when user cache dir is unavailable).
-  - operational guidance: `docs/SQLITE_OPERATIONS.md`
-
-```bash
+# Postgres
 export CTX_PG_DSN='postgres://user:pass@localhost:5432/agents_context?sslmode=disable'
-export CTX_SQLITE_PATH='/absolute/path/to/agents-context.db'
 ```
 
-## SQLite hardening checklist
+See [SQLite Operations](docs/SQLITE_OPERATIONS.md) for deployment, backup, and rotation guidance.
 
-1. Set `CTX_SQLITE_PATH` explicitly for deployed environments.
-2. Keep the DB on persistent storage (not `/tmp`).
-3. Restrict permissions (`0700` directory, `0600` database file).
-4. Schedule online backups and retention cleanup.
-5. Switch to Postgres (`CTX_PG_DSN`) when write concurrency/volume grows.
+## Documentation
 
-## Skills integration
+- [Getting Started](docs/getting-started.md) — full walkthrough from zero to working ctx setup
+- [Concepts](docs/concepts.md) — what pointers, receipts, rules, memories, and work items are
+- [Architecture (ADR-001)](docs/ADR-001-context-broker.md) — design decisions and data model
+- [SQLite Operations](docs/SQLITE_OPERATIONS.md) — deployment and backup procedures
+- [Logging Standards](docs/LOGGING_STANDARDS.md) — structured logging contract (for contributors)
+- [Schema Reference](spec/v1/README.md) — v1 wire contract schemas
+- [Skill Templates](skills/ctx-broker/references/templates.md) — request/response examples
 
-This repo includes a portable skill package for skill-capable agents:
+## Canonical Rules
 
-- `skills/ctx-broker/SKILL.md`
-- `skills/ctx-broker/references/templates.md`
-- `skills/ctx-broker/assets/requests/*.json`
+ctx doesn't ship rules. You author them in `.ctx/canonical-ruleset.yaml` (or `ctx-rules.yaml`), and ctx ingests and enforces them.
 
-Install locally into Codex skills:
+See [docs/examples/canonical-ruleset.yaml](docs/examples/canonical-ruleset.yaml) for the format, and [Getting Started](docs/getting-started.md) for the full rule authoring and maintenance workflow.
 
-```bash
-mkdir -p "$HOME/.codex/skills"
-cp -R skills/ctx-broker "$HOME/.codex/skills/ctx-broker"
-```
-
-Then restart the client to load the skill metadata.
-
-Claude Code install (slash-command pack):
+## Logging
 
 ```bash
-mkdir -p .claude/commands
-cp skills/ctx-broker/claude/commands/*.md .claude/commands/
-```
-
-Then restart Claude Code to reload commands.
-
-One-command installer (Codex + Claude):
-
-```bash
-./scripts/install-skill-pack.sh
-```
-
-Optional flags:
-
-```bash
-./scripts/install-skill-pack.sh --claude-target /path/to/project
-./scripts/install-skill-pack.sh --skip-claude
-./scripts/install-skill-pack.sh --skip-codex
+export CTX_LOG_LEVEL=debug   # debug|info|warn|error (default: info)
+export CTX_LOG_SINK=stderr   # stderr|stdout|discard (default: stderr)
 ```

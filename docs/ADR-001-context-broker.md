@@ -1,5 +1,7 @@
 # ADR-001: Deterministic Context Broker (`ctx`) for LLM Task Context and Memory
 
+> This is an architecture decision record. For getting started, see [getting-started.md](getting-started.md). For terminology, see [concepts.md](concepts.md).
+
 - Status: Proposed
 - Date: 2026-03-04
 - Owners: Human operator + agent maintainers
@@ -28,32 +30,36 @@ No model runtime gets direct SQL access. Models only interact via broker operati
 
 ### Shared Core
 
-`context-core/` provides:
+`internal/` provides:
 
-- `queries.ts`: SQL retrieval and upsert logic.
-- `validation.ts`: schema checks, canonical tag normalization, input hardening.
-- `scoring.ts`: deterministic ranking with phase-specific weights.
-- `sync.ts`: git-diff-driven pointer/hash maintenance.
-- `health.ts`: index integrity diagnostics.
-- `regress.ts`: retrieval evaluation runner.
+- `core/`: service interface, repository interface, error types, logging decorator.
+- `contracts/v1/`: payload types, validation, wire contract.
+- `service/postgres/`: retrieval, scoring, sync, health, health_fix, ruleset ingestion.
+- `adapters/cli/`: CLI request dispatch.
+- `adapters/mcp/`: MCP tool dispatch.
+- `adapters/postgres/`, `adapters/sqlite/`: storage backends.
 
 ### Interfaces
 
-#### CLI (`ctx-cli/`)
+#### CLI (`cmd/ctx/`)
 
-Commands:
+Convenience subcommands (build v1 envelopes internally):
 
-- `ctx get` -> `get_context(task_text, phase, project_id)`
+- `ctx get-context` -> `get_context(task_text, phase, project_id)`
 - `ctx fetch` -> `fetch(project_id, keys?, receipt_id?, expected_versions?)`
 - `ctx work` -> `work(project_id, receipt_id, plan_key?, items?)`
 - `ctx propose-memory` -> `propose_memory(receipt_id, payload_json)`
 - `ctx report-completion` -> `report_completion(receipt_id, files_changed, outcome)`
 - `ctx sync` -> pointer/hash upkeep from git diff
-- `ctx health-check` -> integrity and drift report
+- `ctx health` / `ctx health-check` -> integrity and drift report
+- `ctx health-fix` -> apply safe remediations (sync_working_tree, index_uncovered_files, sync_ruleset)
 - `ctx regress` -> retrieval regression suite
 - `ctx bootstrap` -> initial pointer candidate generation
+- `ctx coverage` -> file coverage analysis
 
-#### MCP (`ctx-mcp/`)
+JSON envelope mode is also available via `ctx run --in request.json` and `ctx validate --in request.json`.
+
+#### MCP (`cmd/ctx-mcp/`)
 
 Tools:
 
@@ -330,11 +336,13 @@ Load a small packet (~150 words) for every task:
 
 ## Rollout Plan
 
-1. Implement schema + `context-core` + CLI (`get`, `propose-memory`, `report-completion`).
-2. Add sync, health-check, health_fix, regress.
-3. Add MCP adapter over same core.
-4. Add CI gates (scope + regression threshold).
-5. Pilot in one project, then templatize.
+1. ~~Implement schema + core + CLI (get_context, propose_memory, report_completion).~~ Done.
+2. ~~Add sync, health_check, health_fix, regress, coverage, bootstrap.~~ Done.
+3. ~~Add MCP adapter over same core.~~ Done.
+4. ~~Add convenience CLI subcommands (flag-based, no JSON construction).~~ Done.
+5. ~~Add canonical ruleset ingestion and rule pointer sync.~~ Done.
+6. Add CI gates (scope + regression threshold).
+7. Pilot in one project, then templatize.
 
 ## Rejected Alternatives
 
