@@ -2815,6 +2815,18 @@ func TestFetchPayloadKeys_DerivesPlanKeyFromPayloadReceiptID(t *testing.T) {
 	}
 }
 
+func TestParsePlanFetchKey_RejectsMixedCasePrefix(t *testing.T) {
+	if _, ok := parsePlanFetchKey("PLAN:receipt.abc123"); ok {
+		t.Fatal("expected PLAN: prefix to be rejected")
+	}
+}
+
+func TestParsePlanFetchKey_RejectsInvalidReceiptID(t *testing.T) {
+	if _, ok := parsePlanFetchKey("plan:short"); ok {
+		t.Fatal("expected invalid receipt_id suffix to be rejected")
+	}
+}
+
 func TestFetch_PointerKeyReturnsContentWhenReadable(t *testing.T) {
 	tmpDir := t.TempDir()
 	pointerPath := filepath.Join(tmpDir, "pointer.txt")
@@ -2966,6 +2978,34 @@ func TestFetch_LookupErrorMapsInternalError(t *testing.T) {
 		t.Fatalf("expected map details, got %T", apiErr.Details)
 	}
 	if details["operation"] != "lookup_work_plan" {
+		t.Fatalf("unexpected operation detail: %#v", details)
+	}
+}
+
+func TestFetch_LegacyLookupErrorMapsLegacyOperation(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupErrors: []error{errors.New("legacy lookup failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{"plan:receipt.abc123"},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["operation"] != "lookup_fetch_state" {
 		t.Fatalf("unexpected operation detail: %#v", details)
 	}
 }

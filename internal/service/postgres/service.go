@@ -46,6 +46,7 @@ const (
 )
 
 var healthTagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
 
 type gitRunnerFunc func(ctx context.Context, projectRoot string, args ...string) (string, error)
 
@@ -60,6 +61,11 @@ type syncOperationError struct {
 	err       error
 }
 
+type fetchOperationError struct {
+	operation string
+	err       error
+}
+
 func (e *syncOperationError) Error() string {
 	if e == nil || e.err == nil {
 		return ""
@@ -68,6 +74,20 @@ func (e *syncOperationError) Error() string {
 }
 
 func (e *syncOperationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func (e *fetchOperationError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *fetchOperationError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
@@ -111,7 +131,7 @@ func (s *Service) Fetch(ctx context.Context, payload v1.FetchPayload) (v1.FetchR
 		if receiptID, ok := parsePlanFetchKey(key); ok {
 			item, found, err = s.fetchPlanItem(ctx, projectID, key, receiptID)
 			if err != nil {
-				return v1.FetchResult{}, fetchInternalError("lookup_work_plan", err)
+				return v1.FetchResult{}, fetchInternalError(fetchOperationFromError(err), err)
 			}
 		} else if memoryID, ok := parseMemoryFetchKey(key); ok {
 			item, found, err = s.fetchMemoryItem(ctx, projectID, key, memoryID)
@@ -706,11 +726,11 @@ func fetchPayloadKeysWithReceipt(keys []string, receiptID string) []string {
 
 func parsePlanFetchKey(raw string) (string, bool) {
 	key := strings.TrimSpace(raw)
-	if !strings.HasPrefix(strings.ToLower(key), "plan:") {
+	if !strings.HasPrefix(key, "plan:") {
 		return "", false
 	}
 	receiptID := strings.TrimSpace(key[len("plan:"):])
-	if receiptID == "" {
+	if !requestIDPattern.MatchString(receiptID) {
 		return "", false
 	}
 	return receiptID, true
@@ -767,7 +787,7 @@ func (s *Service) fetchPlanItem(ctx context.Context, projectID, key, receiptID s
 		}
 
 		if !errors.Is(err, core.ErrWorkPlanNotFound) {
-			return v1.FetchItem{}, false, err
+			return v1.FetchItem{}, false, wrapFetchOperationError("lookup_work_plan", err)
 		}
 	}
 
@@ -779,7 +799,7 @@ func (s *Service) fetchPlanItem(ctx context.Context, projectID, key, receiptID s
 		if errors.Is(err, core.ErrFetchLookupNotFound) {
 			return v1.FetchItem{}, false, nil
 		}
-		return v1.FetchItem{}, false, err
+		return v1.FetchItem{}, false, wrapFetchOperationError("lookup_fetch_state", err)
 	}
 
 	workItems := normalizeWorkItems(lookup.WorkItems)
@@ -1658,12 +1678,27 @@ func wrapSyncOperationError(operation string, err error) error {
 	return &syncOperationError{operation: operation, err: err}
 }
 
+func wrapFetchOperationError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &fetchOperationError{operation: operation, err: err}
+}
+
 func syncOperationFromError(err error) string {
 	var opErr *syncOperationError
 	if errors.As(err, &opErr) && strings.TrimSpace(opErr.operation) != "" {
 		return opErr.operation
 	}
 	return "sync"
+}
+
+func fetchOperationFromError(err error) string {
+	var opErr *fetchOperationError
+	if errors.As(err, &opErr) && strings.TrimSpace(opErr.operation) != "" {
+		return opErr.operation
+	}
+	return "lookup_work_plan"
 }
 
 func syncInternalError(operation string, err error) *core.APIError {
