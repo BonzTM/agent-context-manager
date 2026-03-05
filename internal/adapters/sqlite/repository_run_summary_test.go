@@ -33,7 +33,7 @@ func TestSaveRunReceiptSummary_PersistsDefinitionOfDoneIssuesInRunSummaryJSON(t 
 	}
 
 	var summaryJSON string
-	if err := repo.db.QueryRowContext(ctx, `SELECT summary_json FROM ctx_runs WHERE run_id = ?`, ids.RunID).Scan(&summaryJSON); err != nil {
+	if err := repo.db.QueryRowContext(ctx, `SELECT summary_json FROM acm_runs WHERE run_id = ?`, ids.RunID).Scan(&summaryJSON); err != nil {
 		t.Fatalf("query persisted run summary json: %v", err)
 	}
 

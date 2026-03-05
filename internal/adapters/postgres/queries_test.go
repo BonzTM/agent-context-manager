@@ -157,7 +157,7 @@ func TestBuildInsertMemoryCandidateQuery_DeterministicArgs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(sql, "INSERT INTO ctx_memory_candidates") {
+	if !strings.Contains(sql, "INSERT INTO acm_memory_candidates") {
 		t.Fatalf("expected candidate insert SQL, got:\n%s", sql)
 	}
 	if !strings.Contains(sql, "RETURNING candidate_id") {
@@ -222,7 +222,7 @@ func TestBuildInsertDurableMemoryQuery_DeterministicArgs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(sql, "INSERT INTO ctx_memories") || !strings.Contains(sql, "ON CONFLICT DO NOTHING") {
+	if !strings.Contains(sql, "INSERT INTO acm_memories") || !strings.Contains(sql, "ON CONFLICT DO NOTHING") {
 		t.Fatalf("expected durable memory insert with conflict handling, got:\n%s", sql)
 	}
 	if got, ok := args[5].([]string); !ok || !reflect.DeepEqual(got, []string{"a", "b"}) {
@@ -242,7 +242,7 @@ func TestBuildUpdateMemoryCandidateStatusQuery_ValidatesInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "UPDATE ctx_memory_candidates") {
+	if !strings.Contains(sql, "UPDATE acm_memory_candidates") {
 		t.Fatalf("expected candidate update SQL, got:\n%s", sql)
 	}
 	wantArgs := []any{int64(7), candidateStatusPromoted, int64(11)}
@@ -256,7 +256,7 @@ func TestBuildMarkDeletedPointersStaleQuery_DeterministicAndValidated(t *testing
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "UPDATE ctx_pointers") || !strings.Contains(sql, "path = ANY") {
+	if !strings.Contains(sql, "UPDATE acm_pointers") || !strings.Contains(sql, "path = ANY") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	wantArgs := []any{"project-a", []string{"a/path.go", "b/path.go"}}
@@ -277,7 +277,7 @@ func TestBuildMarkMissingPointersStaleQuery_DeterministicAndValidated(t *testing
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "UPDATE ctx_pointers") || !strings.Contains(sql, "NOT (path = ANY") {
+	if !strings.Contains(sql, "UPDATE acm_pointers") || !strings.Contains(sql, "NOT (path = ANY") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	wantArgs := []any{"project-a", []string{"a/path.go", "b/path.go"}}
@@ -299,7 +299,7 @@ func TestBuildRefreshPointersQuery_DeterministicAndValidated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "UPDATE ctx_pointers p") || !strings.Contains(sql, "content_hash") {
+	if !strings.Contains(sql, "UPDATE acm_pointers p") || !strings.Contains(sql, "content_hash") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	wantArgs := []any{"project-a", "a/path.go", "aaaa", "b/path.go", "bbbb"}
@@ -324,7 +324,7 @@ func TestBuildInsertPointerCandidatesQuery_DeterministicAndValidated(t *testing.
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "INSERT INTO ctx_pointer_candidates") || !strings.Contains(sql, "ON CONFLICT (project_id, path) DO NOTHING") {
+	if !strings.Contains(sql, "INSERT INTO acm_pointer_candidates") || !strings.Contains(sql, "ON CONFLICT (project_id, path) DO NOTHING") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	wantArgs := []any{"project-a", "a/path.go", "aaaa", "b/path.go", "bbbb"}
@@ -348,7 +348,7 @@ func TestBuildLookupFetchStateQuery_DeterministicAndValidated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "FROM ctx_receipts") || !strings.Contains(sql, "LEFT JOIN LATERAL") {
+	if !strings.Contains(sql, "FROM acm_receipts") || !strings.Contains(sql, "LEFT JOIN LATERAL") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	if !strings.Contains(sql, "ORDER BY created_at DESC, run_id DESC") {
@@ -375,7 +375,7 @@ func TestBuildLookupPointerByKeyQuery_DeterministicAndValidated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "FROM ctx_pointers") || !strings.Contains(sql, "pointer_key = $2") {
+	if !strings.Contains(sql, "FROM acm_pointers") || !strings.Contains(sql, "pointer_key = $2") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	wantArgs := []any{"project-a", "pointer-123"}
@@ -399,7 +399,7 @@ func TestBuildLookupMemoryByIDQuery_DeterministicAndValidated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "FROM ctx_memories") || !strings.Contains(sql, "memory_id = $2") {
+	if !strings.Contains(sql, "FROM acm_memories") || !strings.Contains(sql, "memory_id = $2") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	wantArgs := []any{"project-a", int64(42)}
@@ -423,7 +423,7 @@ func TestBuildListWorkItemsQuery_DeterministicAndValidated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "FROM ctx_work_items") || !strings.Contains(sql, "ORDER BY item_key ASC") {
+	if !strings.Contains(sql, "FROM acm_work_items") || !strings.Contains(sql, "ORDER BY item_key ASC") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	wantArgs := []any{"project-a", "receipt-123"}
@@ -453,7 +453,7 @@ func TestBuildUpsertWorkItemsQuery_DeterministicAndValidated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "INSERT INTO ctx_work_items") || !strings.Contains(sql, "ON CONFLICT (project_id, receipt_id, item_key) DO UPDATE") {
+	if !strings.Contains(sql, "INSERT INTO acm_work_items") || !strings.Contains(sql, "ON CONFLICT (project_id, receipt_id, item_key) DO UPDATE") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	if !strings.Contains(sql, "WITH incoming(item_key, status)") {

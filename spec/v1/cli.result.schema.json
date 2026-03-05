@@ -13,7 +13,7 @@
   ],
   "properties": {
     "version": {
-      "const": "ctx.v1"
+      "const": "acm.v1"
     },
     "command": {
       "type": "string",
@@ -467,7 +467,7 @@
       "additionalProperties": false,
       "required": [
         "candidate_count",
-        "output_candidates_path"
+        "candidates_persisted"
       ],
       "properties": {
         "candidate_count": {
@@ -485,6 +485,9 @@
             "type": "string",
             "maxLength": 500
           }
+        },
+        "candidates_persisted": {
+          "type": "boolean"
         }
       }
     },
@@ -678,6 +681,10 @@
           ]
         },
         "updated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "task_count": {
           "type": "integer",
           "minimum": 0
         }

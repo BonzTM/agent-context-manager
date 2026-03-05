@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshd/agent-context-manager/internal/contracts/v1"
 	"github.com/joshd/agent-context-manager/internal/core"
@@ -42,6 +43,12 @@ type fakeRepository struct {
 	workUpsertErrors     []error
 	workListResults      [][]core.WorkItem
 	workListErrors       []error
+	workPlanUpsertResult []core.WorkPlanUpsertResult
+	workPlanUpsertErrors []error
+	workPlanLookupResult []core.WorkPlan
+	workPlanLookupErrors []error
+	workPlanListResults  [][]core.WorkPlanSummary
+	workPlanListErrors   []error
 
 	candidateCalls       []core.CandidatePointerQuery
 	hopCalls             []core.RelatedHopPointersQuery
@@ -58,6 +65,9 @@ type fakeRepository struct {
 	memoryLookupCalls    []core.MemoryLookupQuery
 	workUpsertCalls      []core.WorkItemsUpsertInput
 	workListCalls        []core.FetchLookupQuery
+	workPlanUpsertCalls  []core.WorkPlanUpsertInput
+	workPlanLookupCalls  []core.WorkPlanLookupQuery
+	workPlanListCalls    []core.WorkPlanListQuery
 
 	saveResult core.RunReceiptIDs
 	saveError  error
@@ -231,6 +241,63 @@ func (f *fakeRepository) ListWorkItems(_ context.Context, input core.FetchLookup
 		return nil, nil
 	}
 	return append([]core.WorkItem(nil), f.workListResults[idx]...), nil
+}
+
+func (f *fakeRepository) UpsertWorkPlan(_ context.Context, input core.WorkPlanUpsertInput) (core.WorkPlanUpsertResult, error) {
+	f.workPlanUpsertCalls = append(f.workPlanUpsertCalls, input)
+	idx := len(f.workPlanUpsertCalls) - 1
+	if idx < len(f.workPlanUpsertErrors) && f.workPlanUpsertErrors[idx] != nil {
+		return core.WorkPlanUpsertResult{}, f.workPlanUpsertErrors[idx]
+	}
+	if idx < len(f.workPlanUpsertResult) {
+		return f.workPlanUpsertResult[idx], nil
+	}
+
+	plan := core.WorkPlan{
+		ProjectID:   input.ProjectID,
+		PlanKey:     input.PlanKey,
+		ReceiptID:   input.ReceiptID,
+		Title:       input.Title,
+		Objective:   input.Objective,
+		Status:      input.Status,
+		Stages:      input.Stages,
+		InScope:     append([]string(nil), input.InScope...),
+		OutOfScope:  append([]string(nil), input.OutOfScope...),
+		Constraints: append([]string(nil), input.Constraints...),
+		References:  append([]string(nil), input.References...),
+		Tasks:       append([]core.WorkItem(nil), input.Tasks...),
+	}
+	if strings.TrimSpace(plan.Status) == "" {
+		plan.Status = core.PlanStatusPending
+	}
+	return core.WorkPlanUpsertResult{
+		Plan:    plan,
+		Updated: len(input.Tasks),
+	}, nil
+}
+
+func (f *fakeRepository) LookupWorkPlan(_ context.Context, input core.WorkPlanLookupQuery) (core.WorkPlan, error) {
+	f.workPlanLookupCalls = append(f.workPlanLookupCalls, input)
+	idx := len(f.workPlanLookupCalls) - 1
+	if idx < len(f.workPlanLookupErrors) && f.workPlanLookupErrors[idx] != nil {
+		return core.WorkPlan{}, f.workPlanLookupErrors[idx]
+	}
+	if idx >= len(f.workPlanLookupResult) {
+		return core.WorkPlan{}, core.ErrWorkPlanNotFound
+	}
+	return f.workPlanLookupResult[idx], nil
+}
+
+func (f *fakeRepository) ListWorkPlans(_ context.Context, input core.WorkPlanListQuery) ([]core.WorkPlanSummary, error) {
+	f.workPlanListCalls = append(f.workPlanListCalls, input)
+	idx := len(f.workPlanListCalls) - 1
+	if idx < len(f.workPlanListErrors) && f.workPlanListErrors[idx] != nil {
+		return nil, f.workPlanListErrors[idx]
+	}
+	if idx >= len(f.workPlanListResults) {
+		return nil, nil
+	}
+	return append([]core.WorkPlanSummary(nil), f.workPlanListResults[idx]...), nil
 }
 
 func (f *fakeRepository) PersistProposedMemory(_ context.Context, input core.ProposeMemoryPersistence) (core.ProposeMemoryPersistenceResult, error) {
@@ -2000,7 +2067,7 @@ func TestRegress_LoadSuiteErrorMapsInternalError(t *testing.T) {
 	}
 }
 
-func TestBootstrap_DefaultOutputPathAndDeterministicEnumeration(t *testing.T) {
+func TestBootstrap_DefaultEphemeralAndDeterministicEnumeration(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "dir"), 0o755); err != nil {
 		t.Fatalf("mkdir dir: %v", err)
@@ -2028,7 +2095,67 @@ func TestBootstrap_DefaultOutputPathAndDeterministicEnumeration(t *testing.T) {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
 
-	outputPath := filepath.Join(root, "bootstrap_candidates.json")
+	if result.CandidatesPersisted {
+		t.Fatalf("expected candidates_persisted=false by default")
+	}
+	if result.OutputCandidatesPath != "" {
+		t.Fatalf("expected empty output path when not persisting, got %q", result.OutputCandidatesPath)
+	}
+	if result.CandidateCount != 2 {
+		t.Fatalf("unexpected candidate count: got %d want 2", result.CandidateCount)
+	}
+	defaultPersistPath := filepath.Join(root, ".acm", "bootstrap_candidates.json")
+	if _, err := os.Stat(defaultPersistPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no persisted candidates file by default, stat err=%v", err)
+	}
+
+	again, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error on second run: %+v", apiErr)
+	}
+	if again.CandidateCount != 2 {
+		t.Fatalf("expected deterministic candidate count across runs, got %d", again.CandidateCount)
+	}
+}
+
+func TestBootstrap_PersistCandidatesWritesDefaultAcmPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "dir"), 0o755); err != nil {
+		t.Fatalf("mkdir dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dir", "b.go"), []byte("package dir"), 0o644); err != nil {
+		t.Fatalf("write b.go: %v", err)
+	}
+
+	persist := true
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:         "project.alpha",
+		ProjectRoot:       root,
+		PersistCandidates: &persist,
+		RespectGitIgnore:  &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	outputPath := filepath.Join(root, ".acm", "bootstrap_candidates.json")
+	if !result.CandidatesPersisted {
+		t.Fatalf("expected candidates_persisted=true")
+	}
 	if result.OutputCandidatesPath != outputPath {
 		t.Fatalf("unexpected output path: got %q want %q", result.OutputCandidatesPath, outputPath)
 	}
@@ -2049,18 +2176,6 @@ func TestBootstrap_DefaultOutputPathAndDeterministicEnumeration(t *testing.T) {
 	wantCandidates := []string{"a.txt", "dir/b.go"}
 	if !reflect.DeepEqual(parsed.Candidates, wantCandidates) {
 		t.Fatalf("unexpected candidates: got %v want %v", parsed.Candidates, wantCandidates)
-	}
-
-	again, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
-		ProjectID:        "project.alpha",
-		ProjectRoot:      root,
-		RespectGitIgnore: &respectGitIgnore,
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error on second run: %+v", apiErr)
-	}
-	if again.CandidateCount != 2 {
-		t.Fatalf("expected deterministic candidate count across runs, got %d", again.CandidateCount)
 	}
 }
 
@@ -2089,6 +2204,9 @@ func TestBootstrap_CustomOutputPathAndWarningsDeterministic(t *testing.T) {
 	wantPath := filepath.Join(root, "reports", "candidates.json")
 	if result.OutputCandidatesPath != wantPath {
 		t.Fatalf("unexpected output path: got %q want %q", result.OutputCandidatesPath, wantPath)
+	}
+	if !result.CandidatesPersisted {
+		t.Fatalf("expected candidates_persisted=true when output path is explicit")
 	}
 	if result.CandidateCount != 1 {
 		t.Fatalf("unexpected candidate count: got %d want 1", result.CandidateCount)
@@ -2584,13 +2702,14 @@ func TestCoverage_InventoryErrorMapsInternalError(t *testing.T) {
 
 func TestFetch_PlanKeyReturnsLookupSummary(t *testing.T) {
 	repo := &fakeRepository{
-		fetchLookupResults: []core.FetchLookup{{
-			ProjectID:  "project.alpha",
-			ReceiptID:  "receipt.abc123",
-			RunID:      17,
-			RunStatus:  "accepted",
-			PlanStatus: core.PlanStatusCompleted,
-			WorkItems: []core.WorkItem{{
+		workPlanLookupResult: []core.WorkPlan{{
+			ProjectID: "project.alpha",
+			PlanKey:   "plan:receipt.abc123",
+			ReceiptID: "receipt.abc123",
+			Title:     "Execution plan",
+			Status:    core.PlanStatusCompleted,
+			UpdatedAt: time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC),
+			Tasks: []core.WorkItem{{
 				ItemKey: "src/a.go",
 				Status:  core.WorkItemStatusCompleted,
 			}},
@@ -2605,9 +2724,6 @@ func TestFetch_PlanKeyReturnsLookupSummary(t *testing.T) {
 	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
 		ProjectID: "project.alpha",
 		Keys:      []string{key},
-		ExpectedVersions: map[string]string{
-			key: "17",
-		},
 	})
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
@@ -2616,17 +2732,23 @@ func TestFetch_PlanKeyReturnsLookupSummary(t *testing.T) {
 		t.Fatalf("expected one fetch item, got %+v", result)
 	}
 	item := result.Items[0]
-	if item.Key != key || item.Type != "plan" || item.Status != core.PlanStatusComplete || item.Version != "17" {
+	if item.Key != key || item.Type != "plan" || item.Status != core.PlanStatusComplete {
 		t.Fatalf("unexpected fetch item: %+v", item)
+	}
+	if strings.TrimSpace(item.Version) == "" {
+		t.Fatalf("expected non-empty plan version: %+v", item)
+	}
+	if !strings.Contains(item.Content, "\"plan_key\":\"plan:receipt.abc123\"") {
+		t.Fatalf("expected serialized plan content, got %q", item.Content)
 	}
 	if len(result.NotFound) != 0 || len(result.VersionMismatches) != 0 {
 		t.Fatalf("unexpected fetch metadata: %+v", result)
 	}
-	if len(repo.fetchLookupCalls) != 1 {
-		t.Fatalf("expected one fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	if len(repo.workPlanLookupCalls) != 1 {
+		t.Fatalf("expected one plan lookup call, got %d", len(repo.workPlanLookupCalls))
 	}
-	if repo.fetchLookupCalls[0].ProjectID != "project.alpha" || repo.fetchLookupCalls[0].ReceiptID != "receipt.abc123" {
-		t.Fatalf("unexpected fetch lookup query: %+v", repo.fetchLookupCalls[0])
+	if repo.workPlanLookupCalls[0].ProjectID != "project.alpha" || repo.workPlanLookupCalls[0].ReceiptID != "receipt.abc123" {
+		t.Fatalf("unexpected plan lookup query: %+v", repo.workPlanLookupCalls[0])
 	}
 }
 
@@ -2782,7 +2904,7 @@ func TestFetch_UnknownKeyReturnsNotFound(t *testing.T) {
 
 func TestFetch_LookupErrorMapsInternalError(t *testing.T) {
 	repo := &fakeRepository{
-		fetchLookupErrors: []error{errors.New("lookup failed")},
+		workPlanLookupErrors: []error{errors.New("lookup failed")},
 	}
 	svc, err := New(repo)
 	if err != nil {
@@ -2810,11 +2932,12 @@ func TestFetch_LookupErrorMapsInternalError(t *testing.T) {
 
 func TestFetch_VersionMismatchIsReported(t *testing.T) {
 	repo := &fakeRepository{
-		fetchLookupResults: []core.FetchLookup{{
-			ProjectID:  "project.alpha",
-			ReceiptID:  "receipt.abc123",
-			RunID:      17,
-			PlanStatus: core.PlanStatusCompleted,
+		workPlanLookupResult: []core.WorkPlan{{
+			ProjectID: "project.alpha",
+			PlanKey:   "plan:receipt.abc123",
+			ReceiptID: "receipt.abc123",
+			Status:    core.PlanStatusCompleted,
+			UpdatedAt: time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC),
 		}},
 	}
 	svc, err := New(repo)
@@ -2837,23 +2960,13 @@ func TestFetch_VersionMismatchIsReported(t *testing.T) {
 		t.Fatalf("expected one version mismatch, got %+v", result.VersionMismatches)
 	}
 	mismatch := result.VersionMismatches[0]
-	if mismatch.Key != key || mismatch.Expected != "99" || mismatch.Actual != "17" {
+	if mismatch.Key != key || mismatch.Expected != "99" || strings.TrimSpace(mismatch.Actual) == "" || mismatch.Actual == "99" {
 		t.Fatalf("unexpected version mismatch: %+v", mismatch)
 	}
 }
 
 func TestWork_PersistsCompletedWorkItemsAndDerivesPlanStatus(t *testing.T) {
-	repo := &fakeRepository{
-		fetchLookupResults: []core.FetchLookup{{
-			ProjectID: "project.alpha",
-			ReceiptID: "receipt.abc123",
-			RunID:     41,
-		}},
-		workListResults: [][]core.WorkItem{{
-			{ItemKey: "src/a.go", Status: core.WorkItemStatusCompleted},
-			{ItemKey: "src/b.go", Status: core.WorkItemStatusCompleted},
-		}},
-	}
+	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -2872,40 +2985,38 @@ func TestWork_PersistsCompletedWorkItemsAndDerivesPlanStatus(t *testing.T) {
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusComplete || result.Updated != 2 {
+	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusComplete || result.Updated != 2 || result.TaskCount != 2 {
 		t.Fatalf("unexpected work result: %+v", result)
 	}
-	if len(repo.fetchLookupCalls) != 1 {
-		t.Fatalf("expected one fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	if len(repo.fetchLookupCalls) != 0 {
+		t.Fatalf("did not expect fetch lookup calls, got %d", len(repo.fetchLookupCalls))
+	}
+	if len(repo.workPlanUpsertCalls) != 1 {
+		t.Fatalf("expected one work plan upsert call, got %d", len(repo.workPlanUpsertCalls))
 	}
 	if len(repo.workUpsertCalls) != 1 {
-		t.Fatalf("expected one work upsert call, got %d", len(repo.workUpsertCalls))
+		t.Fatalf("expected one mirrored work upsert call, got %d", len(repo.workUpsertCalls))
 	}
-	if len(repo.workListCalls) != 1 {
-		t.Fatalf("expected one work list call, got %d", len(repo.workListCalls))
+	if len(repo.workListCalls) != 0 {
+		t.Fatalf("did not expect work list calls, got %d", len(repo.workListCalls))
 	}
 
-	call := repo.workUpsertCalls[0]
+	call := repo.workPlanUpsertCalls[0]
 	wantItems := []core.WorkItem{
 		{ItemKey: "src/a.go", Status: core.WorkItemStatusComplete},
 		{ItemKey: "src/b.go", Status: core.WorkItemStatusComplete},
 	}
-	if !reflect.DeepEqual(call.Items, wantItems) {
-		t.Fatalf("unexpected work upsert items: got %+v want %+v", call.Items, wantItems)
+	if !reflect.DeepEqual(call.Tasks, wantItems) {
+		t.Fatalf("unexpected work plan tasks: got %+v want %+v", call.Tasks, wantItems)
+	}
+	mirrorCall := repo.workUpsertCalls[0]
+	if !reflect.DeepEqual(mirrorCall.Items, wantItems) {
+		t.Fatalf("unexpected mirrored work items: got %+v want %+v", mirrorCall.Items, wantItems)
 	}
 }
 
 func TestWork_DerivesReceiptIDFromPlanKeyWhenReceiptIDOmitted(t *testing.T) {
-	repo := &fakeRepository{
-		fetchLookupResults: []core.FetchLookup{{
-			ProjectID: "project.alpha",
-			ReceiptID: "receipt.abc123",
-			RunID:     41,
-		}},
-		workListResults: [][]core.WorkItem{{
-			{ItemKey: "src/a.go", Status: core.WorkItemStatusInProgress},
-		}},
-	}
+	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -2921,40 +3032,31 @@ func TestWork_DerivesReceiptIDFromPlanKeyWhenReceiptIDOmitted(t *testing.T) {
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusInProgress || result.Updated != 1 {
+	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusInProgress || result.Updated != 1 || result.TaskCount != 1 {
 		t.Fatalf("unexpected work result: %+v", result)
 	}
-	if len(repo.fetchLookupCalls) != 1 {
-		t.Fatalf("expected one fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	if len(repo.fetchLookupCalls) != 0 {
+		t.Fatalf("did not expect fetch lookup calls, got %d", len(repo.fetchLookupCalls))
 	}
-	if repo.fetchLookupCalls[0].ReceiptID != "receipt.abc123" {
-		t.Fatalf("expected derived receipt id for lookup, got %q", repo.fetchLookupCalls[0].ReceiptID)
+	if len(repo.workPlanUpsertCalls) != 1 {
+		t.Fatalf("expected one work plan upsert call, got %d", len(repo.workPlanUpsertCalls))
+	}
+	if repo.workPlanUpsertCalls[0].ReceiptID != "receipt.abc123" {
+		t.Fatalf("expected derived receipt id for plan upsert, got %q", repo.workPlanUpsertCalls[0].ReceiptID)
 	}
 	if len(repo.workUpsertCalls) != 1 {
-		t.Fatalf("expected one work upsert call, got %d", len(repo.workUpsertCalls))
+		t.Fatalf("expected one mirrored work upsert call, got %d", len(repo.workUpsertCalls))
 	}
 	if repo.workUpsertCalls[0].ReceiptID != "receipt.abc123" {
-		t.Fatalf("expected derived receipt id for upsert, got %q", repo.workUpsertCalls[0].ReceiptID)
+		t.Fatalf("expected derived receipt id for mirrored upsert, got %q", repo.workUpsertCalls[0].ReceiptID)
 	}
-	if len(repo.workListCalls) != 1 {
-		t.Fatalf("expected one work list call, got %d", len(repo.workListCalls))
-	}
-	if repo.workListCalls[0].ReceiptID != "receipt.abc123" {
-		t.Fatalf("expected derived receipt id for list, got %q", repo.workListCalls[0].ReceiptID)
+	if len(repo.workListCalls) != 0 {
+		t.Fatalf("did not expect work list calls, got %d", len(repo.workListCalls))
 	}
 }
 
 func TestWork_ReceiptIDOnlyAllowsStatusCheckAndDerivesPlanKey(t *testing.T) {
-	repo := &fakeRepository{
-		fetchLookupResults: []core.FetchLookup{{
-			ProjectID: "project.alpha",
-			ReceiptID: "receipt.abc123",
-			RunID:     41,
-		}},
-		workListResults: [][]core.WorkItem{{
-			{ItemKey: "src/a.go", Status: core.WorkItemStatusInProgress},
-		}},
-	}
+	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -2967,27 +3069,25 @@ func TestWork_ReceiptIDOnlyAllowsStatusCheckAndDerivesPlanKey(t *testing.T) {
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusInProgress || result.Updated != 0 {
+	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusPending || result.Updated != 0 || result.TaskCount != 0 {
 		t.Fatalf("unexpected work result: %+v", result)
 	}
-	if len(repo.fetchLookupCalls) != 1 {
-		t.Fatalf("expected one fetch lookup call, got %d", len(repo.fetchLookupCalls))
-	}
-	if repo.fetchLookupCalls[0].ReceiptID != "receipt.abc123" {
-		t.Fatalf("unexpected receipt id in lookup call: %q", repo.fetchLookupCalls[0].ReceiptID)
+	if len(repo.workPlanUpsertCalls) != 1 {
+		t.Fatalf("expected one work plan upsert call, got %d", len(repo.workPlanUpsertCalls))
 	}
 	if len(repo.workUpsertCalls) != 0 {
 		t.Fatalf("did not expect work upsert calls, got %d", len(repo.workUpsertCalls))
 	}
-	if len(repo.workListCalls) != 1 {
-		t.Fatalf("expected one work list call, got %d", len(repo.workListCalls))
+	if len(repo.workListCalls) != 0 {
+		t.Fatalf("did not expect work list calls, got %d", len(repo.workListCalls))
 	}
-	if repo.workListCalls[0].ReceiptID != "receipt.abc123" {
-		t.Fatalf("unexpected receipt id in list call: %q", repo.workListCalls[0].ReceiptID)
+	upsert := repo.workPlanUpsertCalls[0]
+	if upsert.PlanKey != "plan:receipt.abc123" || upsert.ReceiptID != "receipt.abc123" {
+		t.Fatalf("unexpected plan upsert identifiers: %+v", upsert)
 	}
 }
 
-func TestWork_MissingReceiptAndInvalidPlanKeyReturnsInvalidInput(t *testing.T) {
+func TestWork_MissingPlanAndReceiptReturnsInvalidInput(t *testing.T) {
 	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
@@ -2996,7 +3096,6 @@ func TestWork_MissingReceiptAndInvalidPlanKeyReturnsInvalidInput(t *testing.T) {
 
 	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
 		ProjectID: "project.alpha",
-		PlanKey:   "receipt.abc123",
 		Items: []v1.WorkItemPayload{
 			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
 		},
@@ -3007,14 +3106,14 @@ func TestWork_MissingReceiptAndInvalidPlanKeyReturnsInvalidInput(t *testing.T) {
 	if apiErr.Code != "INVALID_INPUT" {
 		t.Fatalf("unexpected API error code: %q", apiErr.Code)
 	}
-	if !strings.Contains(apiErr.Message, "plan:<receipt_id>") {
+	if !strings.Contains(apiErr.Message, "plan_key or receipt_id is required") {
 		t.Fatalf("unexpected API error message: %q", apiErr.Message)
 	}
 	details, ok := apiErr.Details.(map[string]any)
 	if !ok {
 		t.Fatalf("expected map details, got %T", apiErr.Details)
 	}
-	if details["plan_key"] != "receipt.abc123" {
+	if details["plan_key"] != "" {
 		t.Fatalf("unexpected plan_key detail: %#v", details)
 	}
 	if len(repo.fetchLookupCalls) != 0 {
@@ -3022,9 +3121,9 @@ func TestWork_MissingReceiptAndInvalidPlanKeyReturnsInvalidInput(t *testing.T) {
 	}
 }
 
-func TestWork_LookupNotFoundMapsNotFound(t *testing.T) {
+func TestWork_UpsertPlanErrorMapsInternalError(t *testing.T) {
 	repo := &fakeRepository{
-		fetchLookupErrors: []error{core.ErrFetchLookupNotFound},
+		workPlanUpsertErrors: []error{errors.New("plan upsert failed")},
 	}
 	svc, err := New(repo)
 	if err != nil {
@@ -3042,8 +3141,15 @@ func TestWork_LookupNotFoundMapsNotFound(t *testing.T) {
 	if apiErr == nil {
 		t.Fatal("expected API error")
 	}
-	if apiErr.Code != "NOT_FOUND" {
+	if apiErr.Code != "INTERNAL_ERROR" {
 		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["operation"] != "upsert_work_plan" {
+		t.Fatalf("unexpected operation detail: %#v", details)
 	}
 }
 
@@ -3084,13 +3190,8 @@ func TestWork_UpsertErrorMapsInternalError(t *testing.T) {
 	}
 }
 
-func TestWork_ListErrorMapsInternalError(t *testing.T) {
+func TestWork_ListErrorsAreIgnoredWhenPlanRepositoryAvailable(t *testing.T) {
 	repo := &fakeRepository{
-		fetchLookupResults: []core.FetchLookup{{
-			ProjectID: "project.alpha",
-			ReceiptID: "receipt.abc123",
-			RunID:     8,
-		}},
 		workListErrors: []error{errors.New("list failed")},
 	}
 	svc, err := New(repo)
@@ -3098,7 +3199,7 @@ func TestWork_ListErrorMapsInternalError(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+	result, apiErr := svc.Work(context.Background(), v1.WorkPayload{
 		ProjectID: "project.alpha",
 		PlanKey:   "plan:receipt.abc123",
 		ReceiptID: "receipt.abc123",
@@ -3106,18 +3207,14 @@ func TestWork_ListErrorMapsInternalError(t *testing.T) {
 			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
 		},
 	})
-	if apiErr == nil {
-		t.Fatal("expected API error")
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if apiErr.Code != "INTERNAL_ERROR" {
-		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	if result.PlanStatus != core.PlanStatusComplete || result.Updated != 1 {
+		t.Fatalf("unexpected work result: %+v", result)
 	}
-	details, ok := apiErr.Details.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map details, got %T", apiErr.Details)
-	}
-	if details["operation"] != "list_work_items" {
-		t.Fatalf("unexpected operation detail: %#v", details)
+	if len(repo.workListCalls) != 0 {
+		t.Fatalf("did not expect list_work_items calls, got %d", len(repo.workListCalls))
 	}
 }
 
@@ -3158,5 +3255,145 @@ func TestDerivePlanStatusFromWorkItems_Deterministic(t *testing.T) {
 		if got := derivePlanStatusFromWorkItems(tc.items); got != tc.want {
 			t.Fatalf("%s: got %q want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestWork_UpsertsPlanAndTasksWhenPlanRepositoryAvailable(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanUpsertResult: []core.WorkPlanUpsertResult{{
+			Plan: core.WorkPlan{
+				ProjectID: "project.alpha",
+				PlanKey:   "plan:receipt.abc123",
+				Status:    core.PlanStatusInProgress,
+				Tasks: []core.WorkItem{
+					{ItemKey: "task.alpha", Status: core.WorkItemStatusInProgress},
+				},
+			},
+			Updated: 1,
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   "plan:receipt.abc123",
+		ReceiptID: "receipt.abc123",
+		Mode:      v1.WorkPlanModeMerge,
+		Plan: &v1.WorkPlanPayload{
+			Title:     "Import Optimization",
+			Objective: "Track execution centrally in acm",
+		},
+		Tasks: []v1.WorkTaskPayload{
+			{
+				Key:                "task.alpha",
+				Summary:            "Audit pagination behavior",
+				Status:             v1.WorkItemStatusInProgress,
+				AcceptanceCriteria: []string{"No truncation above provider limits"},
+			},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusInProgress || result.Updated != 1 || result.TaskCount != 1 {
+		t.Fatalf("unexpected work result: %+v", result)
+	}
+	if len(repo.workPlanUpsertCalls) != 1 {
+		t.Fatalf("expected one work plan upsert call, got %d", len(repo.workPlanUpsertCalls))
+	}
+	call := repo.workPlanUpsertCalls[0]
+	if call.Mode != core.WorkPlanModeMerge {
+		t.Fatalf("unexpected plan mode: %q", call.Mode)
+	}
+	if call.Title != "Import Optimization" {
+		t.Fatalf("unexpected plan title: %q", call.Title)
+	}
+	if len(call.Tasks) != 1 {
+		t.Fatalf("expected one task in plan upsert, got %d", len(call.Tasks))
+	}
+	if call.Tasks[0].ItemKey != "task.alpha" || call.Tasks[0].Summary != "Audit pagination behavior" {
+		t.Fatalf("unexpected upserted task: %+v", call.Tasks[0])
+	}
+	if len(repo.workUpsertCalls) != 1 {
+		t.Fatalf("expected mirrored work item upsert for receipt-scoped DoD checks")
+	}
+}
+
+func TestFetchPlanItem_UsesStoredPlanRepositoryContent(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanLookupResult: []core.WorkPlan{{
+			ProjectID: "project.alpha",
+			PlanKey:   "plan:receipt.abc123",
+			ReceiptID: "receipt.abc123",
+			Title:     "Import Optimization",
+			Objective: "Consolidate planning state in acm",
+			Status:    core.PlanStatusBlocked,
+			Stages: core.WorkPlanStages{
+				SpecOutline:        core.PlanStatusComplete,
+				RefinedSpec:        core.PlanStatusInProgress,
+				ImplementationPlan: core.PlanStatusPending,
+			},
+			Tasks: []core.WorkItem{
+				{
+					ItemKey:            "kh-22",
+					Summary:            "Audit pagination",
+					Status:             core.WorkItemStatusBlocked,
+					BlockedReason:      "Awaiting upstream API quota",
+					AcceptanceCriteria: []string{"Imports paginate beyond provider limits"},
+				},
+			},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	item, found, err := svc.fetchPlanItem(context.Background(), "project.alpha", "plan:receipt.abc123", "receipt.abc123")
+	if err != nil {
+		t.Fatalf("fetchPlanItem returned error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected plan item to be found")
+	}
+	if item.Type != "plan" || item.Status != core.PlanStatusBlocked {
+		t.Fatalf("unexpected fetch item metadata: %+v", item)
+	}
+	if !strings.Contains(item.Content, "\"objective\":\"Consolidate planning state in acm\"") {
+		t.Fatalf("expected serialized plan content to include objective, got %s", item.Content)
+	}
+	if len(repo.workPlanLookupCalls) != 1 {
+		t.Fatalf("expected one plan lookup call, got %d", len(repo.workPlanLookupCalls))
+	}
+	if repo.workPlanLookupCalls[0].PlanKey != "plan:receipt.abc123" {
+		t.Fatalf("unexpected plan lookup key: %+v", repo.workPlanLookupCalls[0])
+	}
+}
+
+func TestMakeContextPlans_UsesStoredPlanSummariesWhenAvailable(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanListResults: [][]core.WorkPlanSummary{{
+			{
+				PlanKey: "plan:receipt.abc123",
+				Summary: "Import Optimization (3 tasks)",
+				Status:  core.PlanStatusInProgress,
+			},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	plans := svc.makeContextPlans(context.Background(), "project.alpha", "receipt.abc123")
+	if len(plans) != 1 {
+		t.Fatalf("expected one persisted context plan, got %+v", plans)
+	}
+	if plans[0].Key != "plan:receipt.abc123" || plans[0].Status != v1.WorkItemStatusInProgress {
+		t.Fatalf("unexpected context plan: %+v", plans[0])
 	}
 }

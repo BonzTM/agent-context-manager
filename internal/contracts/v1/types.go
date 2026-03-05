@@ -2,7 +2,7 @@ package v1
 
 import "encoding/json"
 
-const Version = "ctx.v1"
+const Version = "acm.v1"
 
 type Command string
 
@@ -136,12 +136,51 @@ type WorkItemPayload struct {
 	Outcome string         `json:"outcome,omitempty"`
 }
 
+type WorkPlanMode string
+
+const (
+	WorkPlanModeMerge   WorkPlanMode = "merge"
+	WorkPlanModeReplace WorkPlanMode = "replace"
+)
+
+type WorkPlanStagesPayload struct {
+	SpecOutline        WorkItemStatus `json:"spec_outline,omitempty"`
+	RefinedSpec        WorkItemStatus `json:"refined_spec,omitempty"`
+	ImplementationPlan WorkItemStatus `json:"implementation_plan,omitempty"`
+}
+
+type WorkPlanPayload struct {
+	Title       string                  `json:"title,omitempty"`
+	Objective   string                  `json:"objective,omitempty"`
+	Status      WorkItemStatus          `json:"status,omitempty"`
+	Stages      *WorkPlanStagesPayload  `json:"stages,omitempty"`
+	InScope     []string                `json:"in_scope,omitempty"`
+	OutOfScope  []string                `json:"out_of_scope,omitempty"`
+	Constraints []string                `json:"constraints,omitempty"`
+	References  []string                `json:"references,omitempty"`
+}
+
+type WorkTaskPayload struct {
+	Key                string         `json:"key"`
+	Summary            string         `json:"summary"`
+	Status             WorkItemStatus `json:"status"`
+	DependsOn          []string       `json:"depends_on,omitempty"`
+	AcceptanceCriteria []string       `json:"acceptance_criteria,omitempty"`
+	References         []string       `json:"references,omitempty"`
+	BlockedReason      string         `json:"blocked_reason,omitempty"`
+	Outcome            string         `json:"outcome,omitempty"`
+	Evidence           []string       `json:"evidence,omitempty"`
+}
+
 type WorkPayload struct {
 	ProjectID string            `json:"project_id"`
 	PlanKey   string            `json:"plan_key,omitempty"`
 	PlanTitle string            `json:"plan_title,omitempty"`
 	ReceiptID string            `json:"receipt_id,omitempty"`
-	Items     []WorkItemPayload `json:"items,omitempty"`
+	Mode      WorkPlanMode      `json:"mode,omitempty"`
+	Plan      *WorkPlanPayload  `json:"plan,omitempty"`
+	Tasks     []WorkTaskPayload `json:"tasks,omitempty"`
+	Items     []WorkItemPayload `json:"items,omitempty"` // legacy alias for task updates
 }
 
 type SyncPayload struct {
@@ -149,6 +188,7 @@ type SyncPayload struct {
 	Mode                string `json:"mode,omitempty"`
 	GitRange            string `json:"git_range,omitempty"`
 	ProjectRoot         string `json:"project_root,omitempty"`
+	RulesFile           string `json:"rules_file,omitempty"`
 	InsertNewCandidates *bool  `json:"insert_new_candidates,omitempty"`
 }
 
@@ -170,6 +210,7 @@ type HealthFixPayload struct {
 	ProjectID   string        `json:"project_id"`
 	Apply       *bool         `json:"apply,omitempty"`
 	ProjectRoot string        `json:"project_root,omitempty"`
+	RulesFile   string        `json:"rules_file,omitempty"`
 	Fixers      []HealthFixer `json:"fixers,omitempty"`
 }
 
@@ -195,6 +236,8 @@ type RegressPayload struct {
 type BootstrapPayload struct {
 	ProjectID             string  `json:"project_id"`
 	ProjectRoot           string  `json:"project_root"`
+	RulesFile             string  `json:"rules_file,omitempty"`
+	PersistCandidates     *bool   `json:"persist_candidates,omitempty"`
 	RespectGitIgnore      *bool   `json:"respect_gitignore,omitempty"`
 	LLMAssistDescriptions *bool   `json:"llm_assist_descriptions,omitempty"`
 	OutputCandidatesPath  *string `json:"output_candidates_path,omitempty"`
@@ -312,6 +355,7 @@ type WorkResult struct {
 	PlanKey    string `json:"plan_key"`
 	PlanStatus string `json:"plan_status"`
 	Updated    int    `json:"updated"`
+	TaskCount  int    `json:"task_count,omitempty"`
 }
 
 type SyncResult struct {
@@ -391,6 +435,7 @@ type RegressResult struct {
 
 type BootstrapResult struct {
 	CandidateCount       int      `json:"candidate_count"`
-	OutputCandidatesPath string   `json:"output_candidates_path"`
+	CandidatesPersisted  bool     `json:"candidates_persisted"`
+	OutputCandidatesPath string   `json:"output_candidates_path,omitempty"`
 	Warnings             []string `json:"warnings,omitempty"`
 }

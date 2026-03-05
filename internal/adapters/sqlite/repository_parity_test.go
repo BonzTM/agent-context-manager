@@ -98,7 +98,7 @@ func TestRepositoryParity_ServiceFlows(t *testing.T) {
 		Memory: v1.MemoryPayload{
 			Category:            v1.MemoryCategoryDecision,
 			Subject:             "SQLite default backend enabled",
-			Content:             "Runtime defaults to SQLite when CTX_PG_DSN is unset.",
+			Content:             "Runtime defaults to SQLite when ACM_PG_DSN is unset.",
 			RelatedPointerKeys:  []string{pointerKeys[0]},
 			Tags:                []string{"runtime", "sqlite"},
 			Confidence:          4,
@@ -288,7 +288,7 @@ func seedPointer(t *testing.T, ctx context.Context, repo *Repository, row seedPo
 		t.Fatalf("encode tags: %v", err)
 	}
 	_, err = repo.db.ExecContext(ctx, `
-INSERT INTO ctx_pointers (
+INSERT INTO acm_pointers (
 	project_id,
 	pointer_key,
 	path,
@@ -337,7 +337,7 @@ func seedMemory(t *testing.T, ctx context.Context, repo *Repository, row seedMem
 	}
 
 	insertResult, err := repo.db.ExecContext(ctx, `
-INSERT INTO ctx_memories (
+INSERT INTO acm_memories (
 	project_id,
 	category,
 	subject,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,6 +98,31 @@ func TestBuildFetchEnvelope_LoadsKeysFile(t *testing.T) {
 	}
 }
 
+func TestBuildFetchEnvelope_LoadsInlineJSON(t *testing.T) {
+	env, err := buildConvenienceEnvelope("fetch", []string{
+		"--project", "myproject",
+		"--keys-json", `["plan:req-12345678","rule:myproject/rule-2"]`,
+		"--expected-versions-json", `{"plan:req-12345678":"v3","rule:myproject/rule-2":"v7"}`,
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.FetchPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if len(payload.Keys) != 2 {
+		t.Fatalf("expected 2 keys from inline json, got %d", len(payload.Keys))
+	}
+	if payload.ExpectedVersions["plan:req-12345678"] != "v3" {
+		t.Fatalf("unexpected version for plan key: %q", payload.ExpectedVersions["plan:req-12345678"])
+	}
+	if payload.ExpectedVersions["rule:myproject/rule-2"] != "v7" {
+		t.Fatalf("unexpected version for rule key: %q", payload.ExpectedVersions["rule:myproject/rule-2"])
+	}
+}
+
 func TestBuildWorkEnvelope_LoadsItemsFile(t *testing.T) {
 	itemsPath := filepath.Join(t.TempDir(), "items.json")
 	if err := os.WriteFile(itemsPath, []byte(`[
@@ -131,6 +157,126 @@ func TestBuildWorkEnvelope_LoadsItemsFile(t *testing.T) {
 	}
 	if payload.Items[0].Key != "verify:tests" {
 		t.Fatalf("unexpected first item key: %q", payload.Items[0].Key)
+	}
+}
+
+func TestBuildWorkEnvelope_LoadsItemsJSON(t *testing.T) {
+	env, err := buildConvenienceEnvelope("work", []string{
+		"--project", "myproject",
+		"--request", "req-12345678",
+		"--receipt-id", "req-87654321",
+		"--items-json", `[{"key":"verify:tests","summary":"Run tests","status":"pending"}]`,
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.WorkPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 work item, got %d", len(payload.Items))
+	}
+	if payload.Items[0].Key != "verify:tests" {
+		t.Fatalf("unexpected item key: %q", payload.Items[0].Key)
+	}
+}
+
+func TestBuildWorkEnvelope_ItemsJSONConflict(t *testing.T) {
+	itemsPath := filepath.Join(t.TempDir(), "items.json")
+	if err := os.WriteFile(itemsPath, []byte(`[]`), 0o644); err != nil {
+		t.Fatalf("failed to write test fixture: %v", err)
+	}
+
+	_, err := buildConvenienceEnvelope("work", []string{
+		"--project", "myproject",
+		"--items-file", itemsPath,
+		"--items-json", `[]`,
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+	if !strings.Contains(err.Error(), "use only one of --items-file or --items-json") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildWorkEnvelope_LoadsPlanAndTasksJSON(t *testing.T) {
+	env, err := buildConvenienceEnvelope("work", []string{
+		"--project", "myproject",
+		"--request", "req-12345678",
+		"--plan-key", "plan:req-87654321",
+		"--receipt-id", "req-87654321",
+		"--mode", "replace",
+		"--plan-json", `{
+			"title":"Bootstrap this repo",
+			"objective":"Capture spec, tasks, and outcomes in acm",
+			"status":"in_progress",
+			"stages":{
+				"spec_outline":"complete",
+				"refined_spec":"in_progress",
+				"implementation_plan":"pending"
+			},
+			"in_scope":["internal/service/postgres","cmd/acm"],
+			"out_of_scope":["release automation"],
+			"constraints":["no breaking APIs"],
+			"references":["docs/getting-started.md"]
+		}`,
+		"--tasks-json", `[{
+			"key":"task.bootstrap",
+			"summary":"Implement bootstrap flow",
+			"status":"in_progress",
+			"depends_on":["task.spec"],
+			"acceptance_criteria":["bootstrap persists canonical rules"],
+			"references":["doc:bootstrap-spec"],
+			"blocked_reason":"waiting for review",
+			"outcome":"command executes end to end",
+			"evidence":["go test ./..."]
+		}]`,
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.WorkPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.Mode != v1.WorkPlanModeReplace {
+		t.Fatalf("unexpected mode: %q", payload.Mode)
+	}
+	if payload.Plan == nil {
+		t.Fatal("expected plan payload")
+	}
+	if payload.Plan.Title != "Bootstrap this repo" || payload.Plan.Objective != "Capture spec, tasks, and outcomes in acm" {
+		t.Fatalf("unexpected plan metadata: %+v", payload.Plan)
+	}
+	if payload.Plan.Stages == nil || payload.Plan.Stages.SpecOutline != v1.WorkItemStatusComplete {
+		t.Fatalf("unexpected plan stages: %+v", payload.Plan.Stages)
+	}
+	if len(payload.Tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(payload.Tasks))
+	}
+	if payload.Tasks[0].Key != "task.bootstrap" || payload.Tasks[0].Status != v1.WorkItemStatusInProgress {
+		t.Fatalf("unexpected task payload: %+v", payload.Tasks[0])
+	}
+	if len(payload.Items) != 0 {
+		t.Fatalf("expected legacy items to be empty when tasks are provided, got %+v", payload.Items)
+	}
+}
+
+func TestBuildWorkEnvelope_TasksItemsConflict(t *testing.T) {
+	_, err := buildConvenienceEnvelope("work", []string{
+		"--project", "myproject",
+		"--tasks-json", `[{"key":"task.1","summary":"Task","status":"pending"}]`,
+		"--items-json", `[{"key":"verify:tests","summary":"Run tests","status":"pending"}]`,
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+	if !strings.Contains(err.Error(), "use tasks flags or items flags, not both") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -172,6 +318,37 @@ func TestBuildProposeMemoryEnvelope_ContentFile(t *testing.T) {
 	}
 }
 
+func TestBuildProposeMemoryEnvelope_LoadsInlineJSONArrays(t *testing.T) {
+	env, err := buildConvenienceEnvelope("propose-memory", []string{
+		"--project", "myproject",
+		"--receipt-id", "req-87654321",
+		"--category", "decision",
+		"--subject", "Use shared logger",
+		"--content", "Prefer one logger wrapper",
+		"--confidence", "4",
+		"--related-keys-json", `["rule:myproject/rule-1","rule:myproject/rule-2"]`,
+		"--tags-json", `["logging","go"]`,
+		"--evidence-keys-json", `["rule:myproject/rule-2"]`,
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.ProposeMemoryPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if len(payload.Memory.RelatedPointerKeys) != 2 {
+		t.Fatalf("expected 2 related keys, got %d", len(payload.Memory.RelatedPointerKeys))
+	}
+	if len(payload.Memory.Tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(payload.Memory.Tags))
+	}
+	if len(payload.Memory.EvidencePointerKeys) != 1 {
+		t.Fatalf("expected 1 evidence key, got %d", len(payload.Memory.EvidencePointerKeys))
+	}
+}
+
 func TestBuildReportCompletionEnvelope_FilesAndOutcomeFromFiles(t *testing.T) {
 	filesPath := filepath.Join(t.TempDir(), "files.json")
 	if err := os.WriteFile(filesPath, []byte(`["cmd/acm/main.go","cmd/acm/convenience.go"]`), 0o644); err != nil {
@@ -201,6 +378,110 @@ func TestBuildReportCompletionEnvelope_FilesAndOutcomeFromFiles(t *testing.T) {
 	}
 	if payload.Outcome != "Implemented script-friendly flags" {
 		t.Fatalf("unexpected outcome: %q", payload.Outcome)
+	}
+}
+
+func TestBuildReportCompletionEnvelope_LoadsFilesChangedJSON(t *testing.T) {
+	env, err := buildConvenienceEnvelope("report-completion", []string{
+		"--project", "myproject",
+		"--receipt-id", "req-87654321",
+		"--outcome", "Done",
+		"--files-changed-json", `["cmd/acm/main.go","cmd/acm/convenience.go"]`,
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.ReportCompletionPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if len(payload.FilesChanged) != 2 {
+		t.Fatalf("expected 2 changed files, got %d", len(payload.FilesChanged))
+	}
+}
+
+func TestBuildRegressEnvelope_LoadsInlineJSONSuite(t *testing.T) {
+	env, err := buildConvenienceEnvelope("regress", []string{
+		"--project", "myproject",
+		"--eval-suite-inline-json", `[{"task_text":"Check sync","phase":"execute","expected_pointer_keys":["rule:myproject/rule-1"]}]`,
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.RegressPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.EvalSuitePath != "" {
+		t.Fatalf("expected empty eval_suite_path, got %q", payload.EvalSuitePath)
+	}
+	if len(payload.EvalSuiteInline) != 1 {
+		t.Fatalf("expected 1 inline case, got %d", len(payload.EvalSuiteInline))
+	}
+	if payload.EvalSuiteInline[0].TaskText != "Check sync" {
+		t.Fatalf("unexpected task text: %q", payload.EvalSuiteInline[0].TaskText)
+	}
+}
+
+func TestBuildSyncEnvelope_RulesFileFlag(t *testing.T) {
+	env, err := buildConvenienceEnvelope("sync", []string{
+		"--project", "myproject",
+		"--rules-file", ".acm/acm-rules.yaml",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.SyncPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.RulesFile != ".acm/acm-rules.yaml" {
+		t.Fatalf("unexpected rules_file: %q", payload.RulesFile)
+	}
+}
+
+func TestBuildHealthFixEnvelope_RulesFileFlag(t *testing.T) {
+	env, err := buildConvenienceEnvelope("health-fix", []string{
+		"--project", "myproject",
+		"--rules-file", "custom-rules.yaml",
+		"--fixer", "sync_ruleset",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.HealthFixPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.RulesFile != "custom-rules.yaml" {
+		t.Fatalf("unexpected rules_file: %q", payload.RulesFile)
+	}
+}
+
+func TestBuildBootstrapEnvelope_RulesFileFlag(t *testing.T) {
+	env, err := buildConvenienceEnvelope("bootstrap", []string{
+		"--project", "myproject",
+		"--project-root", ".",
+		"--rules-file", "legacy-rules.yaml",
+		"--persist-candidates",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.BootstrapPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.RulesFile != "legacy-rules.yaml" {
+		t.Fatalf("unexpected rules_file: %q", payload.RulesFile)
+	}
+	if payload.PersistCandidates == nil || !*payload.PersistCandidates {
+		t.Fatalf("expected persist_candidates=true, got %+v", payload.PersistCandidates)
 	}
 }
 

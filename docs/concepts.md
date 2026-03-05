@@ -36,7 +36,7 @@ A rule is a pointer with `kind: rule` that represents a behavioral constraint fo
 
 Hard rules are always included with their full content in the receipt. Soft rules are summary-only and can be fetched on demand.
 
-You author rules in `.acm/canonical-ruleset.yaml` and sync them into acm. acm delivers the right rules at the right time based on task tags and phase.
+You author rules in `.acm/acm-rules.yaml` and sync them into acm. acm delivers the right rules at the right time based on task tags and phase.
 
 ## Memory
 
@@ -94,10 +94,10 @@ Used in `report_completion` to validate that changed files were within the recei
 
 ## Canonical Ruleset
 
-The human-authored YAML file (`.acm/canonical-ruleset.yaml` or `acm-rules.yaml`) where you define your rules. Format:
+The human-authored YAML file where you define your rules. acm discovers it automatically at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override with an explicit path. Format:
 
 ```yaml
-version: ctx.rules.v1
+version: acm.rules.v1
 rules:
   - id: rule_name
     summary: One-line description
@@ -107,3 +107,25 @@ rules:
 ```
 
 acm reads this file during `sync` or `health-fix --fixer sync_ruleset` and upserts the rules as pointers. The canonical ruleset is the source of truth — acm stores and delivers, the file defines.
+
+## File-Based Flags
+
+Most CLI commands that accept text or list values support inline flags and file-based alternatives. JSON list/object inputs also support `--*-json` variants for one-shot calls without temp files:
+
+| Inline flag | JSON inline | File alternative | Format |
+|---|---|---|---|
+| `--task-text` | - | `--task-file` | Plain text |
+| `--content` | - | `--content-file` | Plain text |
+| `--outcome` | - | `--outcome-file` | Plain text |
+| `--key` (repeatable) | `--keys-json` | `--keys-file` | JSON string array |
+| `--file-changed` (repeatable) | `--files-changed-json` | `--files-changed-file` | JSON string array |
+| `--evidence-key` (repeatable) | `--evidence-keys-json` | `--evidence-keys-file` | JSON string array |
+| `--related-key` (repeatable) | `--related-keys-json` | `--related-keys-file` | JSON string array |
+| `--tag` (repeatable) | `--tags-json` | `--tags-file` | JSON string array |
+| `--expect` (repeatable) | `--expected-versions-json` | `--expected-versions-file` | JSON object (`{"key": "version"}`) |
+| - | `--plan-json` | `--plan-file` | JSON object (work plan metadata) |
+| - | `--tasks-json` | `--tasks-file` | JSON array of work tasks |
+| - | `--items-json` | `--items-file` | JSON array of legacy work items |
+| - | `--eval-suite-inline-json` | `--eval-suite-inline-file` | JSON array of regress cases |
+
+All file flags accept `-` for stdin.

@@ -98,6 +98,13 @@
       "maxLength": 200,
       "pattern": "^.*\\S.*$"
     },
+    "workPlanMode": {
+      "type": "string",
+      "enum": [
+        "merge",
+        "replace"
+      ]
+    },
     "workItemStatus": {
       "type": "string",
       "enum": [
@@ -140,6 +147,162 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/workItem"
+      },
+      "minItems": 0,
+      "maxItems": 256
+    },
+    "workPlanStages": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spec_outline": {
+          "$ref": "#/$defs/workItemStatus"
+        },
+        "refined_spec": {
+          "$ref": "#/$defs/workItemStatus"
+        },
+        "implementation_plan": {
+          "$ref": "#/$defs/workItemStatus"
+        }
+      }
+    },
+    "workPlanPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/planTitle"
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "^.*\\S.*$"
+        },
+        "status": {
+          "$ref": "#/$defs/workItemStatus"
+        },
+        "stages": {
+          "$ref": "#/$defs/workPlanStages"
+        },
+        "in_scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "pattern": "^.*\\S.*$"
+          },
+          "maxItems": 128
+        },
+        "out_of_scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "pattern": "^.*\\S.*$"
+          },
+          "maxItems": 128
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "pattern": "^.*\\S.*$"
+          },
+          "maxItems": 128
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^.*\\S.*$"
+          },
+          "maxItems": 256
+        }
+      }
+    },
+    "workTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "summary",
+        "status"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/contractKey"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        },
+        "status": {
+          "$ref": "#/$defs/workItemStatus"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractKey"
+          },
+          "maxItems": 128
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "pattern": "^.*\\S.*$"
+          },
+          "maxItems": 128
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^.*\\S.*$"
+          },
+          "maxItems": 256
+        },
+        "blocked_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        },
+        "outcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600,
+          "pattern": "^.*\\S.*$"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600,
+            "pattern": "^.*\\S.*$"
+          },
+          "maxItems": 128
+        }
+      }
+    },
+    "workTasks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workTask"
       },
       "minItems": 0,
       "maxItems": 256

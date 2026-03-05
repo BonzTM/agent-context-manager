@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	integrationDSNEnvVar = "CTX_PG_DSN"
+	integrationDSNEnvVar = "ACM_PG_DSN"
 )
 
 func TestRuntimePostgresIntegration_Step10Evidence(t *testing.T) {
@@ -141,7 +141,7 @@ func TestRuntimePostgresIntegration_Step10Evidence(t *testing.T) {
 	var candidateReceiptID string
 	if err := pool.QueryRow(ctx, `
 SELECT status, receipt_id
-FROM ctx_memory_candidates
+FROM acm_memory_candidates
 WHERE candidate_id = $1
 `, proposeResult.CandidateID).Scan(&candidateStatus, &candidateReceiptID); err != nil {
 		t.Fatalf("query persisted memory candidate: %v", err)
@@ -175,7 +175,7 @@ WHERE candidate_id = $1
 	var persistedFiles []string
 	if err := pool.QueryRow(ctx, `
 SELECT status, outcome, files_changed
-FROM ctx_runs
+FROM acm_runs
 WHERE run_id = $1
 `, reportResult.RunID).Scan(&persistedStatus, &persistedOutcome, &persistedFiles); err != nil {
 		t.Fatalf("query persisted run summary: %v", err)
@@ -195,14 +195,14 @@ func assertMigrationsApplied(t *testing.T, ctx context.Context, pool *pgxpool.Po
 	t.Helper()
 
 	var relName string
-	if err := pool.QueryRow(ctx, `SELECT COALESCE(to_regclass('public.ctx_schema_migrations')::text, '')`).Scan(&relName); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(to_regclass('public.acm_schema_migrations')::text, '')`).Scan(&relName); err != nil {
 		t.Fatalf("query schema migration relation: %v", err)
 	}
-	if relName != "ctx_schema_migrations" {
-		t.Fatalf("expected ctx_schema_migrations relation, got %q", relName)
+	if relName != "acm_schema_migrations" {
+		t.Fatalf("expected acm_schema_migrations relation, got %q", relName)
 	}
 
-	rows, err := pool.Query(ctx, `SELECT migration_name FROM ctx_schema_migrations ORDER BY migration_name`)
+	rows, err := pool.Query(ctx, `SELECT migration_name FROM acm_schema_migrations ORDER BY migration_name`)
 	if err != nil {
 		t.Fatalf("query migration records: %v", err)
 	}
@@ -221,10 +221,11 @@ func assertMigrationsApplied(t *testing.T, ctx context.Context, pool *pgxpool.Po
 	}
 
 	want := []string{
-		"0001_ctx_foundation.sql",
-		"0002_ctx_propose_memory.sql",
-		"0003_ctx_sync.sql",
-		"0004_ctx_work_items.sql",
+		"0001_acm_foundation.sql",
+		"0002_acm_propose_memory.sql",
+		"0003_acm_sync.sql",
+		"0004_acm_work_items.sql",
+		"0005_acm_work_plans.sql",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected migration record set: got %v want %v", got, want)
@@ -243,7 +244,7 @@ func seedPointerRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, proje
 	t.Helper()
 
 	if _, err := pool.Exec(ctx, `
-INSERT INTO ctx_pointers (
+INSERT INTO acm_pointers (
 	project_id,
 	pointer_key,
 	path,
@@ -277,7 +278,7 @@ func upsertReceiptScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool, r
 	memoryIDs := receiptMemoryIDs(receipt)
 
 	if _, err := pool.Exec(ctx, `
-INSERT INTO ctx_receipts (
+INSERT INTO acm_receipts (
 	receipt_id,
 	project_id,
 	task_text,
@@ -336,7 +337,7 @@ func lookupPointerPathsByKey(t *testing.T, ctx context.Context, pool *pgxpool.Po
 
 	rows, err := pool.Query(ctx, `
 SELECT path
-FROM ctx_pointers
+FROM acm_pointers
 WHERE project_id = $1
 	AND pointer_key = ANY($2)
 ORDER BY path ASC

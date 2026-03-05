@@ -22,7 +22,7 @@ func DecodeAndValidateCommand(data []byte) (CommandEnvelope, any, *ErrorPayload)
 	}
 
 	if env.Version != Version {
-		return CommandEnvelope{}, nil, validationError("INVALID_VERSION", "version must be ctx.v1")
+		return CommandEnvelope{}, nil, validationError("INVALID_VERSION", "version must be acm.v1")
 	}
 	if !isValidCommand(env.Command) {
 		return CommandEnvelope{}, nil, validationError("INVALID_COMMAND", "command is not recognized")
@@ -311,6 +311,99 @@ func validateWorkPayload(p *WorkPayload) error {
 	if receiptID != "" && !requestIDRe.MatchString(receiptID) {
 		return fmt.Errorf("receipt_id format is invalid")
 	}
+	if p.Mode != "" && p.Mode != WorkPlanModeMerge && p.Mode != WorkPlanModeReplace {
+		return fmt.Errorf("mode must be merge|replace")
+	}
+	if len(p.Tasks) > 0 && len(p.Items) > 0 {
+		return fmt.Errorf("use only one of tasks or items")
+	}
+	if p.Plan != nil {
+		if p.Plan.Title != "" {
+			trimmed := strings.TrimSpace(p.Plan.Title)
+			if trimmed == "" || len(trimmed) > 200 {
+				return fmt.Errorf("plan.title must be 1..200 chars when provided")
+			}
+		}
+		if p.Plan.Objective != "" {
+			trimmed := strings.TrimSpace(p.Plan.Objective)
+			if trimmed == "" || len(trimmed) > 2000 {
+				return fmt.Errorf("plan.objective must be 1..2000 chars when provided")
+			}
+		}
+		if p.Plan.Status != "" {
+			if err := validateWorkItemStatusValue(p.Plan.Status, "plan.status"); err != nil {
+				return err
+			}
+		}
+		if p.Plan.Stages != nil {
+			if p.Plan.Stages.SpecOutline != "" {
+				if err := validateWorkItemStatusValue(p.Plan.Stages.SpecOutline, "plan.stages.spec_outline"); err != nil {
+					return err
+				}
+			}
+			if p.Plan.Stages.RefinedSpec != "" {
+				if err := validateWorkItemStatusValue(p.Plan.Stages.RefinedSpec, "plan.stages.refined_spec"); err != nil {
+					return err
+				}
+			}
+			if p.Plan.Stages.ImplementationPlan != "" {
+				if err := validateWorkItemStatusValue(p.Plan.Stages.ImplementationPlan, "plan.stages.implementation_plan"); err != nil {
+					return err
+				}
+			}
+		}
+		if err := validateStringList(p.Plan.InScope, 128, 600, "plan.in_scope"); err != nil {
+			return err
+		}
+		if err := validateStringList(p.Plan.OutOfScope, 128, 600, "plan.out_of_scope"); err != nil {
+			return err
+		}
+		if err := validateStringList(p.Plan.Constraints, 128, 600, "plan.constraints"); err != nil {
+			return err
+		}
+		if err := validateStringList(p.Plan.References, 256, 2048, "plan.references"); err != nil {
+			return err
+		}
+	}
+	if len(p.Tasks) > 256 {
+		return fmt.Errorf("tasks may include at most 256 entries")
+	}
+	for i, task := range p.Tasks {
+		prefix := fmt.Sprintf("tasks[%d]", i)
+		if err := validateBoundedKey(task.Key, 512); err != nil {
+			return fmt.Errorf("%s.key %w", prefix, err)
+		}
+		if strings.TrimSpace(task.Summary) == "" || len(task.Summary) > 600 {
+			return fmt.Errorf("%s.summary must be 1..600 chars", prefix)
+		}
+		if err := validateWorkItemStatusValue(task.Status, prefix+".status"); err != nil {
+			return err
+		}
+		if err := validateBoundedKeyList(task.DependsOn, 128, 512, prefix+".depends_on"); err != nil {
+			return err
+		}
+		if err := validateStringList(task.AcceptanceCriteria, 128, 600, prefix+".acceptance_criteria"); err != nil {
+			return err
+		}
+		if err := validateStringList(task.References, 256, 2048, prefix+".references"); err != nil {
+			return err
+		}
+		if task.BlockedReason != "" {
+			trimmed := strings.TrimSpace(task.BlockedReason)
+			if trimmed == "" || len(trimmed) > 600 {
+				return fmt.Errorf("%s.blocked_reason must be 1..600 chars when provided", prefix)
+			}
+		}
+		if task.Outcome != "" {
+			trimmed := strings.TrimSpace(task.Outcome)
+			if trimmed == "" || len(trimmed) > 1600 {
+				return fmt.Errorf("%s.outcome must be 1..1600 chars when provided", prefix)
+			}
+		}
+		if err := validateStringList(task.Evidence, 128, 1600, prefix+".evidence"); err != nil {
+			return err
+		}
+	}
 	if len(p.Items) > 256 {
 		return fmt.Errorf("items may include at most 256 entries")
 	}
@@ -321,16 +414,48 @@ func validateWorkPayload(p *WorkPayload) error {
 		if strings.TrimSpace(item.Summary) == "" || len(item.Summary) > 600 {
 			return fmt.Errorf("items[%d].summary must be 1..600 chars", i)
 		}
-		switch item.Status {
-		case WorkItemStatusPending, WorkItemStatusInProgress, WorkItemStatusComplete, WorkItemStatusBlocked:
-		default:
-			return fmt.Errorf("items[%d].status must be pending|in_progress|complete|blocked", i)
+		if err := validateWorkItemStatusValue(item.Status, fmt.Sprintf("items[%d].status", i)); err != nil {
+			return err
 		}
 		if item.Outcome != "" {
 			trimmedOutcome := strings.TrimSpace(item.Outcome)
 			if trimmedOutcome == "" || len(trimmedOutcome) > 1600 {
 				return fmt.Errorf("items[%d].outcome must be 1..1600 chars when provided", i)
 			}
+		}
+	}
+	return nil
+}
+
+func validateWorkItemStatusValue(status WorkItemStatus, field string) error {
+	switch status {
+	case WorkItemStatusPending, WorkItemStatusInProgress, WorkItemStatusComplete, WorkItemStatusBlocked:
+		return nil
+	default:
+		return fmt.Errorf("%s must be pending|in_progress|complete|blocked", field)
+	}
+}
+
+func validateStringList(values []string, maxItems, maxLen int, field string) error {
+	if len(values) > maxItems {
+		return fmt.Errorf("%s may include at most %d entries", field, maxItems)
+	}
+	for i, raw := range values {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || len(trimmed) > maxLen {
+			return fmt.Errorf("%s[%d] must be 1..%d chars", field, i, maxLen)
+		}
+	}
+	return nil
+}
+
+func validateBoundedKeyList(values []string, maxItems, maxKeyLen int, field string) error {
+	if len(values) > maxItems {
+		return fmt.Errorf("%s may include at most %d entries", field, maxItems)
+	}
+	for i, raw := range values {
+		if err := validateBoundedKey(raw, maxKeyLen); err != nil {
+			return fmt.Errorf("%s[%d] %w", field, i, err)
 		}
 	}
 	return nil
@@ -345,6 +470,9 @@ func validateSyncPayload(p *SyncPayload) error {
 	}
 	if p.GitRange != "" && len(p.GitRange) > 200 {
 		return fmt.Errorf("git_range too long")
+	}
+	if err := validateRulesFile(p.RulesFile); err != nil {
+		return err
 	}
 	return nil
 }
@@ -368,6 +496,9 @@ func validateHealthFixPayload(p *HealthFixPayload) error {
 	}
 	if len(p.ProjectRoot) > 2048 {
 		return fmt.Errorf("project_root too long")
+	}
+	if err := validateRulesFile(p.RulesFile); err != nil {
+		return err
 	}
 	for i, fixer := range p.Fixers {
 		switch fixer {
@@ -424,6 +555,9 @@ func validateBootstrapPayload(p *BootstrapPayload) error {
 	if strings.TrimSpace(p.ProjectRoot) == "" {
 		return fmt.Errorf("project_root is required")
 	}
+	if err := validateRulesFile(p.RulesFile); err != nil {
+		return err
+	}
 	if p.OutputCandidatesPath != nil {
 		value := strings.TrimSpace(*p.OutputCandidatesPath)
 		if value == "" {
@@ -432,6 +566,17 @@ func validateBootstrapPayload(p *BootstrapPayload) error {
 		if len(value) > 2048 {
 			return fmt.Errorf("output_candidates_path too long")
 		}
+	}
+	return nil
+}
+
+func validateRulesFile(rulesFile string) error {
+	trimmed := strings.TrimSpace(rulesFile)
+	if trimmed == "" {
+		return nil
+	}
+	if len(trimmed) > 2048 {
+		return fmt.Errorf("rules_file too long")
 	}
 	return nil
 }

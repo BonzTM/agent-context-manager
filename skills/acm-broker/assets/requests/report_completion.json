@@ -1,5 +1,5 @@
 {
-  "version": "ctx.v1",
+  "version": "acm.v1",
   "command": "report_completion",
   "request_id": "req-report-001",
   "payload": {

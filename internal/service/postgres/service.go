@@ -38,7 +38,8 @@ const (
 	requiredVerifyTestsKey      = "verify:tests"
 	requiredVerifyDiffReviewKey = "verify:diff-review"
 
-	defaultBootstrapOutputPath   = "bootstrap_candidates.json"
+	defaultBootstrapOutputPath   = ".acm/bootstrap_candidates.json"
+	defaultBootstrapPersist      = false
 	defaultBootstrapRespectGit   = true
 	defaultBootstrapLLMAssist    = true
 	maxBootstrapWalkErrorSamples = 25
@@ -159,15 +160,87 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 	projectID := strings.TrimSpace(payload.ProjectID)
 	planKey := strings.TrimSpace(payload.PlanKey)
 	receiptID := strings.TrimSpace(payload.ReceiptID)
+	if planKey == "" && receiptID != "" {
+		planKey = "plan:" + receiptID
+	}
 	if receiptID == "" {
 		if derivedReceiptID, ok := parsePlanFetchKey(planKey); ok {
 			receiptID = derivedReceiptID
 		}
 	}
+	if planKey == "" {
+		return v1.WorkResult{}, core.NewError(
+			"INVALID_INPUT",
+			"plan_key or receipt_id is required",
+			map[string]any{
+				"project_id": projectID,
+				"plan_key":   planKey,
+			},
+		)
+	}
+
+	workItems := workPayloadTasks(payload)
+	if len(workItems) == 0 {
+		workItems = workPayloadItems(payload)
+	}
+
+	if planRepo, ok := s.repo.(core.WorkPlanRepository); ok {
+		upsertInput := core.WorkPlanUpsertInput{
+			ProjectID: projectID,
+			PlanKey:   planKey,
+			ReceiptID: receiptID,
+			Mode:      normalizeWorkPlanMode(payload.Mode),
+			Title:     strings.TrimSpace(payload.PlanTitle),
+			Tasks:     workItems,
+		}
+		if payload.Plan != nil {
+			upsertInput.Title = coalesceNonEmpty(strings.TrimSpace(payload.Plan.Title), upsertInput.Title)
+			upsertInput.Objective = strings.TrimSpace(payload.Plan.Objective)
+			upsertInput.Status = string(payload.Plan.Status)
+			if payload.Plan.Stages != nil {
+				upsertInput.Stages = core.WorkPlanStages{
+					SpecOutline:        string(payload.Plan.Stages.SpecOutline),
+					RefinedSpec:        string(payload.Plan.Stages.RefinedSpec),
+					ImplementationPlan: string(payload.Plan.Stages.ImplementationPlan),
+				}
+			}
+			upsertInput.InScope = normalizeValues(payload.Plan.InScope)
+			upsertInput.OutOfScope = normalizeValues(payload.Plan.OutOfScope)
+			upsertInput.Constraints = normalizeValues(payload.Plan.Constraints)
+			upsertInput.References = normalizeValues(payload.Plan.References)
+		}
+
+		upsertResult, err := planRepo.UpsertWorkPlan(ctx, upsertInput)
+		if err != nil {
+			return v1.WorkResult{}, workInternalError("upsert_work_plan", err)
+		}
+
+		if receiptID != "" && len(workItems) > 0 {
+			if _, err := s.repo.UpsertWorkItems(ctx, core.WorkItemsUpsertInput{
+				ProjectID: projectID,
+				ReceiptID: receiptID,
+				Items:     workItems,
+			}); err != nil {
+				return v1.WorkResult{}, workInternalError("upsert_work_items", err)
+			}
+		}
+
+		planStatus := normalizePlanStatus(upsertResult.Plan.Status)
+		if planStatus == core.PlanStatusPending {
+			planStatus = derivePlanStatusFromWorkItems(normalizeWorkItems(upsertResult.Plan.Tasks))
+		}
+		return v1.WorkResult{
+			PlanKey:    upsertResult.Plan.PlanKey,
+			PlanStatus: planStatus,
+			Updated:    upsertResult.Updated,
+			TaskCount:  len(upsertResult.Plan.Tasks),
+		}, nil
+	}
+
 	if receiptID == "" {
 		return v1.WorkResult{}, core.NewError(
 			"INVALID_INPUT",
-			"receipt_id is required; provide receipt_id or plan_key in format plan:<receipt_id>",
+			"receipt_id is required when plan storage is unavailable; provide receipt_id or plan_key in format plan:<receipt_id>",
 			map[string]any{
 				"project_id": projectID,
 				"plan_key":   planKey,
@@ -192,7 +265,6 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 		return v1.WorkResult{}, workInternalError("lookup_fetch_state", err)
 	}
 
-	workItems := workPayloadItems(payload)
 	updatedCount := 0
 	if len(workItems) > 0 {
 		upserted, upsertErr := s.repo.UpsertWorkItems(ctx, core.WorkItemsUpsertInput{
@@ -421,7 +493,7 @@ func (s *Service) Sync(ctx context.Context, payload v1.SyncPayload) (v1.SyncResu
 		return v1.SyncResult{}, syncInternalError("apply_sync", err)
 	}
 
-	if _, err := s.syncCanonicalRulesets(ctx, projectID, projectRoot, true); err != nil {
+	if _, err := s.syncCanonicalRulesets(ctx, projectID, projectRoot, payload.RulesFile, true); err != nil {
 		return v1.SyncResult{}, syncInternalError("sync_ruleset", err)
 	}
 
@@ -551,28 +623,33 @@ func (s *Service) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v
 	}
 
 	projectRoot := normalizeBootstrapProjectRoot(payload.ProjectRoot)
-	outputPath := resolveBootstrapOutputPath(projectRoot, payload.OutputCandidatesPath)
+	outputPath, persistCandidates := resolveBootstrapOutputPath(projectRoot, payload.OutputCandidatesPath, payload.PersistCandidates)
 
 	paths, warnings, err := s.collectBootstrapPaths(ctx, projectRoot, outputPath, effectiveRespectGitIgnore(payload.RespectGitIgnore))
 	if err != nil {
 		return v1.BootstrapResult{}, bootstrapInternalError("collect_project_paths", err)
 	}
 
-	rulesetSync, err := s.syncCanonicalRulesets(ctx, strings.TrimSpace(payload.ProjectID), projectRoot, true)
+	rulesetSync, err := s.syncCanonicalRulesets(ctx, strings.TrimSpace(payload.ProjectID), projectRoot, payload.RulesFile, true)
 	if err != nil {
 		return v1.BootstrapResult{}, bootstrapInternalError("parse_ruleset", err)
 	}
 	warnings = append(warnings, canonicalRulesetWarnings(rulesetSync)...)
 
-	if err := writeBootstrapCandidates(outputPath, paths); err != nil {
-		return v1.BootstrapResult{}, bootstrapInternalError("write_candidates", err)
+	if persistCandidates {
+		if err := writeBootstrapCandidates(outputPath, paths); err != nil {
+			return v1.BootstrapResult{}, bootstrapInternalError("write_candidates", err)
+		}
 	}
 
 	warnings = normalizeValues(warnings)
 
 	result := v1.BootstrapResult{
-		CandidateCount:       len(paths),
-		OutputCandidatesPath: outputPath,
+		CandidateCount:      len(paths),
+		CandidatesPersisted: persistCandidates,
+	}
+	if persistCandidates {
+		result.OutputCandidatesPath = outputPath
 	}
 	if len(warnings) > 0 {
 		result.Warnings = warnings
@@ -634,6 +711,45 @@ func parseMemoryFetchKey(raw string) (int64, bool) {
 }
 
 func (s *Service) fetchPlanItem(ctx context.Context, projectID, key, receiptID string) (v1.FetchItem, bool, error) {
+	if planRepo, ok := s.repo.(core.WorkPlanRepository); ok {
+		lookupQuery := core.WorkPlanLookupQuery{
+			ProjectID: projectID,
+			PlanKey:   strings.TrimSpace(key),
+			ReceiptID: strings.TrimSpace(receiptID),
+		}
+		plan, err := planRepo.LookupWorkPlan(ctx, lookupQuery)
+		if err != nil {
+			if errors.Is(err, core.ErrWorkPlanNotFound) {
+				return v1.FetchItem{}, false, nil
+			}
+			return v1.FetchItem{}, false, err
+		}
+
+		workItems := normalizeWorkItems(plan.Tasks)
+		planStatus := normalizePlanStatus(plan.Status)
+		if planStatus == core.PlanStatusPending {
+			planStatus = derivePlanStatusFromWorkItems(workItems)
+		}
+		planSummary := strings.TrimSpace(plan.Title)
+		if planSummary == "" {
+			planSummary = fmt.Sprintf("Plan %s is %s", strings.TrimSpace(plan.PlanKey), planStatus)
+		}
+		contentJSON, err := json.Marshal(planForFetch(plan))
+		if err != nil {
+			return v1.FetchItem{}, false, err
+		}
+
+		version := indexEntryVersion(plan.PlanKey, planStatus, plan.UpdatedAt.UTC().String(), string(contentJSON))
+		return v1.FetchItem{
+			Key:     key,
+			Type:    "plan",
+			Summary: planSummary,
+			Content: string(contentJSON),
+			Status:  planStatus,
+			Version: version,
+		}, true, nil
+	}
+
 	lookup, err := s.repo.LookupFetchState(ctx, core.FetchLookupQuery{
 		ProjectID: projectID,
 		ReceiptID: receiptID,
@@ -761,6 +877,114 @@ func workPayloadItems(payload v1.WorkPayload) []core.WorkItem {
 	return normalizeWorkItems(items)
 }
 
+func workPayloadTasks(payload v1.WorkPayload) []core.WorkItem {
+	if len(payload.Tasks) == 0 {
+		return nil
+	}
+
+	items := make([]core.WorkItem, 0, len(payload.Tasks))
+	for _, task := range payload.Tasks {
+		items = append(items, core.WorkItem{
+			ItemKey:            task.Key,
+			Summary:            strings.TrimSpace(task.Summary),
+			Status:             string(task.Status),
+			DependsOn:          normalizeValues(task.DependsOn),
+			AcceptanceCriteria: normalizeValues(task.AcceptanceCriteria),
+			References:         normalizeValues(task.References),
+			BlockedReason:      strings.TrimSpace(task.BlockedReason),
+			Outcome:            strings.TrimSpace(task.Outcome),
+			Evidence:           normalizeValues(task.Evidence),
+		})
+	}
+
+	return normalizeWorkItems(items)
+}
+
+func normalizeWorkPlanMode(mode v1.WorkPlanMode) core.WorkPlanMode {
+	switch strings.TrimSpace(string(mode)) {
+	case string(core.WorkPlanModeReplace):
+		return core.WorkPlanModeReplace
+	default:
+		return core.WorkPlanModeMerge
+	}
+}
+
+func coalesceNonEmpty(primary, fallback string) string {
+	if strings.TrimSpace(primary) != "" {
+		return strings.TrimSpace(primary)
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func planForFetch(plan core.WorkPlan) map[string]any {
+	tasks := make([]map[string]any, 0, len(plan.Tasks))
+	for _, task := range normalizeWorkItems(plan.Tasks) {
+		entry := map[string]any{
+			"key":     task.ItemKey,
+			"summary": task.Summary,
+			"status":  normalizeWorkItemStatus(task.Status),
+		}
+		if len(task.DependsOn) > 0 {
+			entry["depends_on"] = normalizeValues(task.DependsOn)
+		}
+		if len(task.AcceptanceCriteria) > 0 {
+			entry["acceptance_criteria"] = normalizeValues(task.AcceptanceCriteria)
+		}
+		if len(task.References) > 0 {
+			entry["references"] = normalizeValues(task.References)
+		}
+		if strings.TrimSpace(task.BlockedReason) != "" {
+			entry["blocked_reason"] = strings.TrimSpace(task.BlockedReason)
+		}
+		if strings.TrimSpace(task.Outcome) != "" {
+			entry["outcome"] = strings.TrimSpace(task.Outcome)
+		}
+		if len(task.Evidence) > 0 {
+			entry["evidence"] = normalizeValues(task.Evidence)
+		}
+		tasks = append(tasks, entry)
+	}
+
+	content := map[string]any{
+		"plan_key": plan.PlanKey,
+		"status":   normalizePlanStatus(plan.Status),
+		"title":    strings.TrimSpace(plan.Title),
+	}
+	if strings.TrimSpace(plan.ReceiptID) != "" {
+		content["receipt_id"] = strings.TrimSpace(plan.ReceiptID)
+	}
+	if strings.TrimSpace(plan.Objective) != "" {
+		content["objective"] = strings.TrimSpace(plan.Objective)
+	}
+	stages := map[string]any{}
+	if strings.TrimSpace(plan.Stages.SpecOutline) != "" {
+		stages["spec_outline"] = normalizeWorkItemStatus(plan.Stages.SpecOutline)
+	}
+	if strings.TrimSpace(plan.Stages.RefinedSpec) != "" {
+		stages["refined_spec"] = normalizeWorkItemStatus(plan.Stages.RefinedSpec)
+	}
+	if strings.TrimSpace(plan.Stages.ImplementationPlan) != "" {
+		stages["implementation_plan"] = normalizeWorkItemStatus(plan.Stages.ImplementationPlan)
+	}
+	if len(stages) > 0 {
+		content["stages"] = stages
+	}
+	if len(plan.InScope) > 0 {
+		content["in_scope"] = normalizeValues(plan.InScope)
+	}
+	if len(plan.OutOfScope) > 0 {
+		content["out_of_scope"] = normalizeValues(plan.OutOfScope)
+	}
+	if len(plan.Constraints) > 0 {
+		content["constraints"] = normalizeValues(plan.Constraints)
+	}
+	if len(plan.References) > 0 {
+		content["references"] = normalizeValues(plan.References)
+	}
+	content["tasks"] = tasks
+	return content
+}
+
 func workItemsFromPaths(paths []string) []core.WorkItem {
 	normalizedPaths := normalizeCompletionPaths(paths)
 	if len(normalizedPaths) == 0 {
@@ -798,13 +1022,21 @@ func normalizeWorkItems(items []core.WorkItem) []core.WorkItem {
 		}
 
 		normalizedStatus := normalizeWorkItemStatus(item.Status)
+		normalizedItem := core.WorkItem{
+			ItemKey:            normalizedKey,
+			Summary:            strings.TrimSpace(item.Summary),
+			Status:             normalizedStatus,
+			DependsOn:          normalizeValues(item.DependsOn),
+			AcceptanceCriteria: normalizeValues(item.AcceptanceCriteria),
+			References:         normalizeValues(item.References),
+			BlockedReason:      strings.TrimSpace(item.BlockedReason),
+			Outcome:            strings.TrimSpace(item.Outcome),
+			Evidence:           normalizeValues(item.Evidence),
+			UpdatedAt:          item.UpdatedAt.UTC(),
+		}
 		current, exists := byItemKey[normalizedKey]
 		if !exists || priority[normalizedStatus] >= priority[current.Status] {
-			byItemKey[normalizedKey] = core.WorkItem{
-				ItemKey:   normalizedKey,
-				Status:    normalizedStatus,
-				UpdatedAt: item.UpdatedAt.UTC(),
-			}
+			byItemKey[normalizedKey] = normalizedItem
 		}
 	}
 
@@ -1823,15 +2055,20 @@ func normalizeBootstrapProjectRoot(projectRoot string) string {
 	return filepath.Clean(absRoot)
 }
 
-func resolveBootstrapOutputPath(projectRoot string, outputPath *string) string {
-	effectiveOutput := defaultBootstrapOutputPath
+func resolveBootstrapOutputPath(projectRoot string, outputPath *string, persistCandidates *bool) (string, bool) {
 	if outputPath != nil && strings.TrimSpace(*outputPath) != "" {
-		effectiveOutput = strings.TrimSpace(*outputPath)
+		effectiveOutput := strings.TrimSpace(*outputPath)
+		if filepath.IsAbs(effectiveOutput) {
+			return filepath.Clean(effectiveOutput), true
+		}
+		return filepath.Clean(filepath.Join(projectRoot, effectiveOutput)), true
 	}
-	if filepath.IsAbs(effectiveOutput) {
-		return filepath.Clean(effectiveOutput)
+
+	if !effectivePersistCandidates(persistCandidates) {
+		return "", false
 	}
-	return filepath.Clean(filepath.Join(projectRoot, effectiveOutput))
+
+	return filepath.Clean(filepath.Join(projectRoot, defaultBootstrapOutputPath)), true
 }
 
 func effectiveRespectGitIgnore(respectGitIgnore *bool) bool {
@@ -1846,6 +2083,13 @@ func effectiveLLMAssistDescriptions(llmAssistDescriptions *bool) bool {
 		return defaultBootstrapLLMAssist
 	}
 	return *llmAssistDescriptions
+}
+
+func effectivePersistCandidates(persistCandidates *bool) bool {
+	if persistCandidates == nil {
+		return defaultBootstrapPersist
+	}
+	return *persistCandidates
 }
 
 func (s *Service) collectBootstrapPaths(ctx context.Context, projectRoot, outputPath string, respectGitIgnore bool) ([]string, []string, error) {

@@ -10,7 +10,7 @@
   ],
   "properties": {
     "version": {
-      "const": "ctx.v1"
+      "const": "acm.v1"
     },
     "tools": {
       "type": "array",

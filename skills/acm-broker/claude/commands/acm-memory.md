@@ -11,7 +11,7 @@ Steps:
    - `category` (decision|gotcha|pattern|preference)
    - `subject`
    - `content`
-2. Build valid `ctx.v1` `propose_memory` JSON with:
+2. Build valid `acm.v1` `propose_memory` JSON with:
    - reasonable tags
    - confidence (default 3 if unknown)
    - evidence pointer keys from the active receipt scope

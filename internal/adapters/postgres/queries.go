@@ -96,7 +96,7 @@ SELECT
 	`)
 	sb.WriteString(scoreExpr)
 	sb.WriteString(`
-FROM ctx_pointers p
+FROM acm_pointers p
 WHERE p.project_id = `)
 	sb.WriteString(projectIDArg)
 
@@ -183,7 +183,7 @@ graph(origin_key, pointer_key, hop_count, path) AS (
 		l.to_key AS pointer_key,
 		1 AS hop_count,
 		ARRAY[l.from_key, l.to_key] AS path
-	FROM ctx_pointer_links l
+	FROM acm_pointer_links l
 	JOIN seed s ON s.pointer_key = l.from_key
 	WHERE l.project_id = `)
 	sb.WriteString(projectIDArg)
@@ -195,7 +195,7 @@ graph(origin_key, pointer_key, hop_count, path) AS (
 		g.hop_count + 1,
 		g.path || l.to_key
 	FROM graph g
-	JOIN ctx_pointer_links l
+	JOIN acm_pointer_links l
 		ON l.project_id = `)
 	sb.WriteString(projectIDArg)
 	sb.WriteString(`
@@ -227,7 +227,7 @@ SELECT
 	p.is_stale,
 	p.updated_at
 FROM dedup d
-JOIN ctx_pointers p
+JOIN acm_pointers p
 	ON p.project_id = `)
 	sb.WriteString(projectIDArg)
 	sb.WriteString(`
@@ -282,7 +282,7 @@ SELECT
 	m.tags,
 	m.related_pointer_keys,
 	m.updated_at
-FROM ctx_memories m
+FROM acm_memories m
 WHERE m.project_id = `)
 	sb.WriteString(projectIDArg)
 	sb.WriteString(" AND ")
@@ -317,9 +317,9 @@ SELECT
 		ARRAY_AGG(DISTINCT p.path ORDER BY p.path) FILTER (WHERE p.path IS NOT NULL),
 		ARRAY[]::text[]
 	) AS pointer_paths
-FROM ctx_receipts r
+FROM acm_receipts r
 LEFT JOIN LATERAL unnest(r.pointer_keys) AS pk(pointer_key) ON TRUE
-LEFT JOIN ctx_pointers p
+LEFT JOIN acm_pointers p
 	ON p.project_id = r.project_id
 	AND p.pointer_key = pk.pointer_key
 WHERE r.project_id = $1
@@ -344,10 +344,10 @@ SELECT
 	COALESCE(run.run_id, 0) AS run_id,
 	COALESCE(run.status, '') AS run_status,
 	COALESCE(run.created_at, r.created_at) AS updated_at
-FROM ctx_receipts r
+FROM acm_receipts r
 LEFT JOIN LATERAL (
 	SELECT run_id, status, created_at
-	FROM ctx_runs
+	FROM acm_runs
 	WHERE project_id = r.project_id
 		AND receipt_id = r.receipt_id
 	ORDER BY created_at DESC, run_id DESC
@@ -380,7 +380,7 @@ SELECT
 	is_rule,
 	is_stale,
 	updated_at
-FROM ctx_pointers
+FROM acm_pointers
 WHERE project_id = $1
 	AND pointer_key = $2
 `, []any{projectID, pointerKey}, nil
@@ -405,7 +405,7 @@ SELECT
 	tags,
 	related_pointer_keys,
 	updated_at
-FROM ctx_memories
+FROM acm_memories
 WHERE project_id = $1
 	AND memory_id = $2
 `, []any{projectID, input.MemoryID}, nil
@@ -426,7 +426,7 @@ SELECT
 	item_key,
 	status,
 	updated_at
-FROM ctx_work_items
+FROM acm_work_items
 WHERE project_id = $1
 	AND receipt_id = $2
 ORDER BY item_key ASC
@@ -466,7 +466,7 @@ func buildUpsertWorkItemsQuery(input core.WorkItemsUpsertInput) (string, []any, 
 WITH incoming(item_key, status) AS (
 	VALUES ` + strings.Join(valuesRows, ", ") + `
 )
-INSERT INTO ctx_work_items (
+INSERT INTO acm_work_items (
 	project_id,
 	receipt_id,
 	item_key,
@@ -532,7 +532,7 @@ func buildInsertMemoryCandidateQuery(input core.ProposeMemoryPersistence, status
 	}
 
 	return `
-INSERT INTO ctx_memory_candidates (
+INSERT INTO acm_memory_candidates (
 	project_id,
 	receipt_id,
 	category,
@@ -603,7 +603,7 @@ func buildInsertDurableMemoryQuery(input core.ProposeMemoryPersistence) (string,
 	}
 
 	return `
-INSERT INTO ctx_memories (
+INSERT INTO acm_memories (
 	project_id,
 	category,
 	subject,
@@ -639,7 +639,7 @@ func buildUpdateMemoryCandidateStatusQuery(candidateID int64, status string, pro
 	}
 
 	return `
-UPDATE ctx_memory_candidates
+UPDATE acm_memory_candidates
 SET
 	status = $2,
 	promoted_memory_id = CASE WHEN $3::bigint > 0 THEN $3 ELSE NULL END,
@@ -659,7 +659,7 @@ func buildMarkDeletedPointersStaleQuery(projectID string, deletedPaths []string)
 	}
 
 	return `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = TRUE,
 	stale_at = NOW(),
@@ -678,7 +678,7 @@ func buildMarkMissingPointersStaleQuery(projectID string, presentPaths []string)
 	normalizedPaths := normalizeSyncPaths(presentPaths)
 	if len(normalizedPaths) == 0 {
 		return `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = TRUE,
 	stale_at = NOW(),
@@ -689,7 +689,7 @@ WHERE project_id = $1
 	}
 
 	return `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = TRUE,
 	stale_at = NOW(),
@@ -726,7 +726,7 @@ func buildRefreshPointersQuery(projectID string, paths []core.SyncPath) (string,
 WITH sync(path, content_hash) AS (
 	VALUES ` + strings.Join(valuesRows, ", ") + `
 )
-UPDATE ctx_pointers p
+UPDATE acm_pointers p
 SET
 	content_hash = sync.content_hash,
 	is_stale = FALSE,
@@ -769,12 +769,12 @@ WITH sync(path, content_hash) AS (
 missing AS (
 	SELECT s.path, s.content_hash
 	FROM sync s
-	LEFT JOIN ctx_pointers p
+	LEFT JOIN acm_pointers p
 		ON p.project_id = ` + projectIDArg + `
 		AND p.path = s.path
 	WHERE p.pointer_id IS NULL
 )
-INSERT INTO ctx_pointer_candidates (
+INSERT INTO acm_pointer_candidates (
 	project_id,
 	path,
 	content_hash

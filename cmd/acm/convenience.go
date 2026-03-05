@@ -48,7 +48,7 @@ func runConvenienceWithDeps(
 	runAdapter adapterRunner,
 ) int {
 	logger = logging.Normalize(logger)
-	logger.Info(ctx, logging.EventCtxRun, "stage", "start", "subcommand", subcommand)
+	logger.Info(ctx, logging.EventACMRun, "stage", "start", "subcommand", subcommand)
 
 	if out == nil {
 		out = os.Stdout
@@ -66,31 +66,31 @@ func runConvenienceWithDeps(
 	env, err := buildConvenienceEnvelope(subcommand, args, now)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			logger.Info(ctx, logging.EventCtxRun, "stage", "finish", "subcommand", subcommand, "exit_code", 0)
+			logger.Info(ctx, logging.EventACMRun, "stage", "finish", "subcommand", subcommand, "exit_code", 0)
 			return 0
 		}
-		logger.Error(ctx, logging.EventCtxRun, "stage", "parse_flags", "subcommand", subcommand, "ok", false, "error_code", "INVALID_FLAGS")
+		logger.Error(ctx, logging.EventACMRun, "stage", "parse_flags", "subcommand", subcommand, "ok", false, "error_code", "INVALID_FLAGS")
 		fmt.Fprintf(os.Stderr, "failed to parse %s flags: %v\n", subcommand, err)
 		return 2
 	}
 
 	request, err := json.Marshal(env)
 	if err != nil {
-		logger.Error(ctx, logging.EventCtxRun, "stage", "marshal", "subcommand", subcommand, "ok", false, "error_code", "INTERNAL_ERROR")
+		logger.Error(ctx, logging.EventACMRun, "stage", "marshal", "subcommand", subcommand, "ok", false, "error_code", "INTERNAL_ERROR")
 		fmt.Fprintf(os.Stderr, "failed to build request: %v\n", err)
 		return 1
 	}
 
 	svc, closeService, err := newService(ctx, logger)
 	if err != nil {
-		logger.Error(ctx, logging.EventCtxRun, "stage", "service_init", "subcommand", subcommand, "ok", false, "error_code", "SERVICE_INIT_FAILED")
+		logger.Error(ctx, logging.EventACMRun, "stage", "service_init", "subcommand", subcommand, "ok", false, "error_code", "SERVICE_INIT_FAILED")
 		fmt.Fprintf(os.Stderr, "failed to initialize service: %v\n", err)
 		return 1
 	}
 	defer closeService()
 
 	code := runAdapter(ctx, svc, bytes.NewReader(request), out, now, logger)
-	logger.Info(ctx, logging.EventCtxRun, "stage", "finish", "subcommand", subcommand, "exit_code", code)
+	logger.Info(ctx, logging.EventACMRun, "stage", "finish", "subcommand", subcommand, "exit_code", code)
 	return code
 }
 
@@ -221,13 +221,15 @@ func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnv
 func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"fetch",
-		"acm fetch --project <id> [--key <pointer>]... [--keys-file <path>] [--receipt-id <id>] [--expect <key=version>]... [--expected-versions-file <path>]",
+		"acm fetch --project <id> [--key <pointer>]... [--keys-file <path>] [--keys-json <json>] [--receipt-id <id>] [--expect <key=version>]... [--expected-versions-file <path>] [--expected-versions-json <json>]",
 		"acm fetch --project myproject --key plan:req-12345678 --expect plan:req-12345678=v3",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	receiptID := fs.String("receipt-id", "", "receipt ID to fetch via shorthand")
 	keysFile := fs.String("keys-file", "", "JSON file containing an array of keys")
+	keysJSON := fs.String("keys-json", "", "inline JSON array of keys")
 	expectedVersionsFile := fs.String("expected-versions-file", "", "JSON file containing an object map of key->version")
+	expectedVersionsJSON := fs.String("expected-versions-json", "", "inline JSON object map of key->version")
 	var keys repeatedStringFlag
 	var expects repeatedStringFlag
 	fs.Var(&keys, "key", "key to fetch (repeatable)")
@@ -247,6 +249,13 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 		}
 		allKeys = mergeUnique(allKeys, fileKeys)
 	}
+	if trimmedKeysJSON := strings.TrimSpace(*keysJSON); trimmedKeysJSON != "" {
+		inlineKeys, err := readStringListFromJSON(trimmedKeysJSON, "--keys-json")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allKeys = mergeUnique(allKeys, inlineKeys)
+	}
 
 	expectedVersions := map[string]string{}
 	if trimmedExpectedVersionsFile := strings.TrimSpace(*expectedVersionsFile); trimmedExpectedVersionsFile != "" {
@@ -255,6 +264,15 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 			return v1.CommandEnvelope{}, err
 		}
 		for k, v := range fileMap {
+			expectedVersions[k] = v
+		}
+	}
+	if trimmedExpectedVersionsJSON := strings.TrimSpace(*expectedVersionsJSON); trimmedExpectedVersionsJSON != "" {
+		inlineMap, err := readStringMapFromJSON(trimmedExpectedVersionsJSON, "--expected-versions-json")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		for k, v := range inlineMap {
 			expectedVersions[k] = v
 		}
 	}
@@ -292,8 +310,11 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 	contentFile := fs.String("content-file", "", "file containing memory content ('-' for stdin)")
 	confidence := fs.Int("confidence", 0, "memory confidence (1-5)")
 	relatedKeysFile := fs.String("related-keys-file", "", "JSON file containing an array of related pointer keys")
+	relatedKeysJSON := fs.String("related-keys-json", "", "inline JSON array of related pointer keys")
 	tagsFile := fs.String("tags-file", "", "JSON file containing an array of tags")
+	tagsJSON := fs.String("tags-json", "", "inline JSON array of tags")
 	evidenceKeysFile := fs.String("evidence-keys-file", "", "JSON file containing an array of evidence pointer keys")
+	evidenceKeysJSON := fs.String("evidence-keys-json", "", "inline JSON array of evidence pointer keys")
 	var relatedKeys repeatedStringFlag
 	var tags repeatedStringFlag
 	var evidenceKeys repeatedStringFlag
@@ -348,6 +369,13 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 		}
 		allRelatedKeys = mergeUnique(allRelatedKeys, fileValues)
 	}
+	if trimmedRelatedKeysJSON := strings.TrimSpace(*relatedKeysJSON); trimmedRelatedKeysJSON != "" {
+		inlineValues, err := readStringListFromJSON(trimmedRelatedKeysJSON, "--related-keys-json")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allRelatedKeys = mergeUnique(allRelatedKeys, inlineValues)
+	}
 
 	allTags := tags.Values()
 	if trimmedTagsFile := strings.TrimSpace(*tagsFile); trimmedTagsFile != "" {
@@ -357,6 +385,13 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 		}
 		allTags = mergeUnique(allTags, fileValues)
 	}
+	if trimmedTagsJSON := strings.TrimSpace(*tagsJSON); trimmedTagsJSON != "" {
+		inlineValues, err := readStringListFromJSON(trimmedTagsJSON, "--tags-json")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allTags = mergeUnique(allTags, inlineValues)
+	}
 
 	allEvidenceKeys := evidenceKeys.Values()
 	if trimmedEvidenceKeysFile := strings.TrimSpace(*evidenceKeysFile); trimmedEvidenceKeysFile != "" {
@@ -365,6 +400,13 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 			return v1.CommandEnvelope{}, err
 		}
 		allEvidenceKeys = mergeUnique(allEvidenceKeys, fileValues)
+	}
+	if trimmedEvidenceKeysJSON := strings.TrimSpace(*evidenceKeysJSON); trimmedEvidenceKeysJSON != "" {
+		inlineValues, err := readStringListFromJSON(trimmedEvidenceKeysJSON, "--evidence-keys-json")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allEvidenceKeys = mergeUnique(allEvidenceKeys, inlineValues)
 	}
 
 	payload := v1.ProposeMemoryPayload{
@@ -390,14 +432,20 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"work",
-		"acm work --project <id> [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--items-file <path>]",
-		"acm work --project myproject --receipt-id req-12345678 --items-file ./work-items.json",
+		"acm work --project <id> [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>] [--items-file <path>|--items-json <json>]",
+		"acm work --project myproject --receipt-id req-12345678 --tasks-json '[{\"key\":\"verify:tests\",\"summary\":\"Run tests\",\"status\":\"pending\"}]'",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	planKey := fs.String("plan-key", "", "plan key")
 	planTitle := fs.String("plan-title", "", "plan title")
 	receiptID := fs.String("receipt-id", "", "receipt ID")
+	mode := fs.String("mode", "", "work plan update mode: merge|replace")
+	planFile := fs.String("plan-file", "", "JSON file containing work plan metadata")
+	planJSON := fs.String("plan-json", "", "inline JSON object containing work plan metadata")
+	tasksFile := fs.String("tasks-file", "", "JSON file containing an array of plan tasks")
+	tasksJSON := fs.String("tasks-json", "", "inline JSON array containing plan tasks")
 	itemsFile := fs.String("items-file", "", "JSON file containing an array of work items")
+	itemsJSON := fs.String("items-json", "", "inline JSON array of work items")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
@@ -410,9 +458,65 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 		PlanKey:   strings.TrimSpace(*planKey),
 		PlanTitle: strings.TrimSpace(*planTitle),
 		ReceiptID: strings.TrimSpace(*receiptID),
+		Mode:      v1.WorkPlanMode(strings.TrimSpace(*mode)),
 	}
-	if trimmedItemsFile := strings.TrimSpace(*itemsFile); trimmedItemsFile != "" {
+	trimmedPlanFile := strings.TrimSpace(*planFile)
+	trimmedPlanJSON := strings.TrimSpace(*planJSON)
+	if trimmedPlanFile != "" && trimmedPlanJSON != "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --plan-file or --plan-json")
+	}
+	if trimmedPlanFile != "" {
+		plan, err := readWorkPlanFromFile(trimmedPlanFile)
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		payload.Plan = &plan
+	}
+	if trimmedPlanJSON != "" {
+		plan, err := readWorkPlanFromJSON(trimmedPlanJSON)
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		payload.Plan = &plan
+	}
+
+	trimmedTasksFile := strings.TrimSpace(*tasksFile)
+	trimmedTasksJSON := strings.TrimSpace(*tasksJSON)
+	if trimmedTasksFile != "" && trimmedTasksJSON != "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --tasks-file or --tasks-json")
+	}
+
+	trimmedItemsFile := strings.TrimSpace(*itemsFile)
+	trimmedItemsJSON := strings.TrimSpace(*itemsJSON)
+	if trimmedItemsFile != "" && trimmedItemsJSON != "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --items-file or --items-json")
+	}
+	if (trimmedTasksFile != "" || trimmedTasksJSON != "") && (trimmedItemsFile != "" || trimmedItemsJSON != "") {
+		return v1.CommandEnvelope{}, fmt.Errorf("use tasks flags or items flags, not both")
+	}
+	if trimmedTasksFile != "" {
+		tasks, err := readWorkTasksFromFile(trimmedTasksFile)
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		payload.Tasks = tasks
+	}
+	if trimmedTasksJSON != "" {
+		tasks, err := readWorkTasksFromJSON(trimmedTasksJSON)
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		payload.Tasks = tasks
+	}
+	if trimmedItemsFile != "" {
 		items, err := readWorkItemsFromFile(trimmedItemsFile)
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		payload.Items = items
+	}
+	if trimmedItemsJSON != "" {
+		items, err := readWorkItemsFromJSON(trimmedItemsJSON)
 		if err != nil {
 			return v1.CommandEnvelope{}, err
 		}
@@ -425,7 +529,7 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"report-completion",
-		"acm report-completion --project <id> --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--scope-mode <mode>]",
+		"acm report-completion --project <id> --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--files-changed-json <json>] [--scope-mode <mode>]",
 		"acm report-completion --project myproject --receipt-id req-12345678 --file-changed cmd/acm/main.go --outcome \"Done\"",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
@@ -434,6 +538,7 @@ func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.Comm
 	outcomeFile := fs.String("outcome-file", "", "file containing completion outcome ('-' for stdin)")
 	scopeMode := fs.String("scope-mode", "", "scope mode: strict|warn|auto_index")
 	filesChangedFile := fs.String("files-changed-file", "", "JSON file containing an array of changed file paths")
+	filesChangedJSON := fs.String("files-changed-json", "", "inline JSON array of changed file paths")
 	var filesChanged repeatedStringFlag
 	fs.Var(&filesChanged, "file-changed", "repository-relative changed file path (repeatable)")
 	if err := parseCommandFlags(fs, args); err != nil {
@@ -473,6 +578,13 @@ func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.Comm
 		}
 		allFilesChanged = mergeUnique(allFilesChanged, fileValues)
 	}
+	if trimmedFilesChangedJSON := strings.TrimSpace(*filesChangedJSON); trimmedFilesChangedJSON != "" {
+		inlineValues, err := readStringListFromJSON(trimmedFilesChangedJSON, "--files-changed-json")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allFilesChanged = mergeUnique(allFilesChanged, inlineValues)
+	}
 
 	payload := v1.ReportCompletionPayload{
 		ProjectID:    strings.TrimSpace(*projectID),
@@ -490,13 +602,14 @@ func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.Comm
 func buildSyncEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"sync",
-		"acm sync --project <id> [--mode changed|full|working_tree] [--git-range <range>] [--project-root <path>] [--insert-new-candidates[=true|false]]",
+		"acm sync --project <id> [--mode changed|full|working_tree] [--git-range <range>] [--project-root <path>] [--rules-file <path>] [--insert-new-candidates[=true|false]]",
 		"acm sync --project myproject --mode changed --git-range HEAD~1..HEAD",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	mode := fs.String("mode", "", "sync mode: changed|full|working_tree")
 	gitRange := fs.String("git-range", "", "git revision range")
 	projectRoot := fs.String("project-root", "", "project root for sync")
+	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
 	insertNewCandidates := optionalBoolFlag{}
 	fs.Var(&insertNewCandidates, "insert-new-candidates", "insert uncovered candidates (optional bool)")
 	if err := parseCommandFlags(fs, args); err != nil {
@@ -511,6 +624,7 @@ func buildSyncEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 		Mode:        strings.TrimSpace(*mode),
 		GitRange:    strings.TrimSpace(*gitRange),
 		ProjectRoot: strings.TrimSpace(*projectRoot),
+		RulesFile:   strings.TrimSpace(*rulesFile),
 	}
 	if insertNewCandidates.IsSet() {
 		payload.InsertNewCandidates = insertNewCandidates.Ptr()
@@ -550,13 +664,14 @@ func buildHealthCheckEnvelope(args []string, now func() time.Time) (v1.CommandEn
 func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"health-fix",
-		"acm health-fix --project <id> [--apply[=true|false>] [--project-root <path>] [--fixer <name>]...",
+		"acm health-fix --project <id> [--apply[=true|false>] [--project-root <path>] [--rules-file <path>] [--fixer <name>]...",
 		"acm health-fix --project myproject --apply --fixer sync_working_tree",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	applyChanges := optionalBoolFlag{}
 	fs.Var(&applyChanges, "apply", "apply actions instead of dry-run (optional bool)")
 	projectRoot := fs.String("project-root", "", "project root for fixers")
+	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
 	var fixers repeatedStringFlag
 	fs.Var(&fixers, "fixer", "fixer to run (repeatable): sync_working_tree|index_uncovered_files|sync_ruleset")
 	if err := parseCommandFlags(fs, args); err != nil {
@@ -569,6 +684,7 @@ func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 	payload := v1.HealthFixPayload{
 		ProjectID:   strings.TrimSpace(*projectID),
 		ProjectRoot: strings.TrimSpace(*projectRoot),
+		RulesFile:   strings.TrimSpace(*rulesFile),
 	}
 	if applyChanges.IsSet() {
 		payload.Apply = applyChanges.Ptr()
@@ -608,12 +724,13 @@ func buildCoverageEnvelope(args []string, now func() time.Time) (v1.CommandEnvel
 func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"regress",
-		"acm regress --project <id> (--eval-suite-path <path> | --eval-suite-inline-file <path>) [--minimum-recall <0..1>]",
+		"acm regress --project <id> (--eval-suite-path <path> | --eval-suite-inline-file <path> | --eval-suite-inline-json <json>) [--minimum-recall <0..1>]",
 		"acm regress --project myproject --eval-suite-path ./eval.json --minimum-recall 0.9",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	evalSuitePath := fs.String("eval-suite-path", "", "path to eval suite JSON file")
 	evalSuiteInlineFile := fs.String("eval-suite-inline-file", "", "path to JSON array of inline regress cases")
+	evalSuiteInlineJSON := fs.String("eval-suite-inline-json", "", "inline JSON array of regress cases")
 	minimumRecall := fs.Float64("minimum-recall", -1, "minimum recall threshold (0..1)")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
@@ -624,11 +741,22 @@ func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelo
 
 	trimmedEvalSuitePath := strings.TrimSpace(*evalSuitePath)
 	trimmedEvalSuiteInlineFile := strings.TrimSpace(*evalSuiteInlineFile)
-	if trimmedEvalSuitePath == "" && trimmedEvalSuiteInlineFile == "" {
-		return v1.CommandEnvelope{}, fmt.Errorf("--eval-suite-path or --eval-suite-inline-file is required")
+	trimmedEvalSuiteInlineJSON := strings.TrimSpace(*evalSuiteInlineJSON)
+	selectedSources := 0
+	if trimmedEvalSuitePath != "" {
+		selectedSources++
 	}
-	if trimmedEvalSuitePath != "" && trimmedEvalSuiteInlineFile != "" {
-		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --eval-suite-path or --eval-suite-inline-file")
+	if trimmedEvalSuiteInlineFile != "" {
+		selectedSources++
+	}
+	if trimmedEvalSuiteInlineJSON != "" {
+		selectedSources++
+	}
+	if selectedSources == 0 {
+		return v1.CommandEnvelope{}, fmt.Errorf("--eval-suite-path, --eval-suite-inline-file, or --eval-suite-inline-json is required")
+	}
+	if selectedSources > 1 {
+		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --eval-suite-path, --eval-suite-inline-file, or --eval-suite-inline-json")
 	}
 
 	payload := v1.RegressPayload{
@@ -637,6 +765,13 @@ func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelo
 	}
 	if trimmedEvalSuiteInlineFile != "" {
 		evalSuiteInline, err := readRegressCasesFromFile(trimmedEvalSuiteInlineFile)
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		payload.EvalSuiteInline = evalSuiteInline
+	}
+	if trimmedEvalSuiteInlineJSON != "" {
+		evalSuiteInline, err := readRegressCasesFromJSON(trimmedEvalSuiteInlineJSON)
 		if err != nil {
 			return v1.CommandEnvelope{}, err
 		}
@@ -652,16 +787,19 @@ func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelo
 func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"bootstrap",
-		"acm bootstrap --project <id> --project-root <path> [--respect-gitignore[=true|false]] [--llm-assist-descriptions[=true|false]] [--output-candidates-path <path>]",
+		"acm bootstrap --project <id> --project-root <path> [--rules-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--llm-assist-descriptions[=true|false]] [--output-candidates-path <path>]",
 		"acm bootstrap --project myproject --project-root . --respect-gitignore",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	projectRoot := fs.String("project-root", "", "project root to analyze")
+	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
+	persistCandidates := optionalBoolFlag{}
+	fs.Var(&persistCandidates, "persist-candidates", "persist bootstrap candidates to disk (optional bool)")
 	respectGitIgnore := optionalBoolFlag{}
 	fs.Var(&respectGitIgnore, "respect-gitignore", "respect .gitignore while scanning (optional bool)")
 	llmAssistDescriptions := optionalBoolFlag{}
 	fs.Var(&llmAssistDescriptions, "llm-assist-descriptions", "enable generated description assistance (optional bool)")
-	outputCandidatesPath := fs.String("output-candidates-path", "", "output file for bootstrap candidates")
+	outputCandidatesPath := fs.String("output-candidates-path", "", "output file for bootstrap candidates (implies persistence)")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
@@ -675,9 +813,13 @@ func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 	payload := v1.BootstrapPayload{
 		ProjectID:   strings.TrimSpace(*projectID),
 		ProjectRoot: strings.TrimSpace(*projectRoot),
+		RulesFile:   strings.TrimSpace(*rulesFile),
 	}
 	if respectGitIgnore.IsSet() {
 		payload.RespectGitIgnore = respectGitIgnore.Ptr()
+	}
+	if persistCandidates.IsSet() {
+		payload.PersistCandidates = persistCandidates.Ptr()
 	}
 	if llmAssistDescriptions.IsSet() {
 		payload.LLMAssistDescriptions = llmAssistDescriptions.Ptr()
@@ -816,10 +958,58 @@ func readWorkItemsFromFile(path string) ([]v1.WorkItemPayload, error) {
 	return items, nil
 }
 
+func readWorkPlanFromFile(path string) (v1.WorkPlanPayload, error) {
+	var plan v1.WorkPlanPayload
+	if err := readJSONFileStrict(path, &plan); err != nil {
+		return v1.WorkPlanPayload{}, fmt.Errorf("read --plan-file %s: %w", path, err)
+	}
+	return plan, nil
+}
+
+func readWorkPlanFromJSON(raw string) (v1.WorkPlanPayload, error) {
+	var plan v1.WorkPlanPayload
+	if err := readJSONInlineStrict(raw, &plan); err != nil {
+		return v1.WorkPlanPayload{}, fmt.Errorf("read --plan-json: %w", err)
+	}
+	return plan, nil
+}
+
+func readWorkTasksFromFile(path string) ([]v1.WorkTaskPayload, error) {
+	var tasks []v1.WorkTaskPayload
+	if err := readJSONFileStrict(path, &tasks); err != nil {
+		return nil, fmt.Errorf("read --tasks-file %s: %w", path, err)
+	}
+	return tasks, nil
+}
+
+func readWorkTasksFromJSON(raw string) ([]v1.WorkTaskPayload, error) {
+	var tasks []v1.WorkTaskPayload
+	if err := readJSONInlineStrict(raw, &tasks); err != nil {
+		return nil, fmt.Errorf("read --tasks-json: %w", err)
+	}
+	return tasks, nil
+}
+
+func readWorkItemsFromJSON(raw string) ([]v1.WorkItemPayload, error) {
+	var items []v1.WorkItemPayload
+	if err := readJSONInlineStrict(raw, &items); err != nil {
+		return nil, fmt.Errorf("read --items-json: %w", err)
+	}
+	return items, nil
+}
+
 func readRegressCasesFromFile(path string) ([]v1.RegressCase, error) {
 	var cases []v1.RegressCase
 	if err := readJSONFileStrict(path, &cases); err != nil {
 		return nil, fmt.Errorf("read --eval-suite-inline-file %s: %w", path, err)
+	}
+	return cases, nil
+}
+
+func readRegressCasesFromJSON(raw string) ([]v1.RegressCase, error) {
+	var cases []v1.RegressCase
+	if err := readJSONInlineStrict(raw, &cases); err != nil {
+		return nil, fmt.Errorf("read --eval-suite-inline-json: %w", err)
 	}
 	return cases, nil
 }
@@ -832,10 +1022,35 @@ func readStringListFromFile(path, flagName string) ([]string, error) {
 	return mergeUnique(nil, values), nil
 }
 
+func readStringListFromJSON(raw, flagName string) ([]string, error) {
+	var values []string
+	if err := readJSONInlineStrict(raw, &values); err != nil {
+		return nil, fmt.Errorf("read %s: %w", flagName, err)
+	}
+	return mergeUnique(nil, values), nil
+}
+
 func readStringMapFromFile(path, flagName string) (map[string]string, error) {
 	values := map[string]string{}
 	if err := readJSONFileStrict(path, &values); err != nil {
 		return nil, fmt.Errorf("read %s %s: %w", flagName, path, err)
+	}
+	normalized := make(map[string]string, len(values))
+	for k, v := range values {
+		key := strings.TrimSpace(k)
+		value := strings.TrimSpace(v)
+		if key == "" || value == "" {
+			continue
+		}
+		normalized[key] = value
+	}
+	return normalized, nil
+}
+
+func readStringMapFromJSON(raw, flagName string) (map[string]string, error) {
+	values := map[string]string{}
+	if err := readJSONInlineStrict(raw, &values); err != nil {
+		return nil, fmt.Errorf("read %s: %w", flagName, err)
 	}
 	normalized := make(map[string]string, len(values))
 	for k, v := range values {
@@ -863,6 +1078,14 @@ func readJSONFileStrict(path string, out any) error {
 		return err
 	}
 
+	return decodeJSONStrict(data, out)
+}
+
+func readJSONInlineStrict(raw string, out any) error {
+	return decodeJSONStrict([]byte(raw), out)
+}
+
+func decodeJSONStrict(data []byte, out any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(out); err != nil {

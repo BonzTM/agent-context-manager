@@ -2,7 +2,7 @@
 
 ## Deployment Defaults
 
-- Always set `CTX_SQLITE_PATH` explicitly in non-local environments.
+- Always set `ACM_SQLITE_PATH` explicitly in non-local environments.
 - Store the DB on persistent storage (not `/tmp`).
 - Recommended location pattern: `/var/lib/agent-context-manager/context.db`.
 - Recommended ownership/permissions:
@@ -15,7 +15,7 @@ Example:
 install -d -m 0700 /var/lib/agent-context-manager
 touch /var/lib/agent-context-manager/context.db
 chmod 0600 /var/lib/agent-context-manager/context.db
-export CTX_SQLITE_PATH=/var/lib/agent-context-manager/context.db
+export ACM_SQLITE_PATH=/var/lib/agent-context-manager/context.db
 ```
 
 ## Backup
@@ -24,7 +24,7 @@ Use SQLite online backup mode (safe with concurrent readers/writers):
 
 ```bash
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-sqlite3 "$CTX_SQLITE_PATH" ".timeout 5000" ".backup '/var/backups/agent-context-manager/context-$STAMP.sqlite'"
+sqlite3 "$ACM_SQLITE_PATH" ".timeout 5000" ".backup '/var/backups/agent-context-manager/context-$STAMP.sqlite'"
 ```
 
 ## Restore
@@ -32,8 +32,8 @@ sqlite3 "$CTX_SQLITE_PATH" ".timeout 5000" ".backup '/var/backups/agent-context-
 Stop writers, then restore from a selected backup:
 
 ```bash
-cp /var/backups/agent-context-manager/context-<stamp>.sqlite "$CTX_SQLITE_PATH"
-chmod 0600 "$CTX_SQLITE_PATH"
+cp /var/backups/agent-context-manager/context-<stamp>.sqlite "$ACM_SQLITE_PATH"
+chmod 0600 "$ACM_SQLITE_PATH"
 ```
 
 ## Retention and Rotation
@@ -51,4 +51,4 @@ find /var/backups/agent-context-manager -type f -name 'context-*.sqlite' -mtime 
 
 ## Escalation Threshold
 
-If multiple concurrent writers or high write volume become normal, use Postgres (`CTX_PG_DSN`) as the primary backend.
+If multiple concurrent writers or high write volume become normal, use Postgres (`ACM_PG_DSN`) as the primary backend.

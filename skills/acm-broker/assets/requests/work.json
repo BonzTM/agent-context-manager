@@ -1,10 +1,10 @@
 {
-  "version": "ctx.v1",
+  "version": "acm.v1",
   "command": "work",
   "request_id": "req-work-001",
   "payload": {
     "project_id": "my-cool-app",
     "receipt_id": "replace-from-get-context-receipt",
-    "items": []
+    "tasks": []
   }
 }

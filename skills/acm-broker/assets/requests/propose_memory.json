@@ -1,5 +1,5 @@
 {
-  "version": "ctx.v1",
+  "version": "acm.v1",
   "command": "propose_memory",
   "request_id": "req-memory-001",
   "payload": {

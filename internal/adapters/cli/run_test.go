@@ -62,7 +62,7 @@ func (f fakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.Boo
 
 func TestRun_SuccessEnvelope(t *testing.T) {
 	in := bytes.NewBufferString(`{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
@@ -90,7 +90,7 @@ func TestRun_SuccessEnvelope(t *testing.T) {
 }
 
 func TestRun_ValidationFailure(t *testing.T) {
-	in := bytes.NewBufferString(`{"version":"ctx.v1","command":"get_context","request_id":"bad","payload":{}}`)
+	in := bytes.NewBufferString(`{"version":"acm.v1","command":"get_context","request_id":"bad","payload":{}}`)
 	out := &bytes.Buffer{}
 	code := Run(context.Background(), fakeService{}, in, out, time.Now)
 	if code == 0 {
@@ -111,7 +111,7 @@ func TestRun_ValidationFailure(t *testing.T) {
 
 func TestRun_UnconfiguredServiceNotImplementedEnvelope(t *testing.T) {
 	in := bytes.NewBufferString(`{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
@@ -179,7 +179,7 @@ func TestRun_DispatchesHealthCheckRegressAndBootstrap(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			in := bytes.NewBufferString(`{
-				"version":"ctx.v1",
+				"version":"acm.v1",
 				"command":"` + tc.command + `",
 				"request_id":"req-12345",
 				"payload":` + tc.payload + `
@@ -258,7 +258,7 @@ func TestProjectIDFromPayload_ExtractsFromMapAndStruct(t *testing.T) {
 
 func TestRunWithLogger_LogsIngressDispatchAndResultOnSuccess(t *testing.T) {
 	in := bytes.NewBufferString(`{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
@@ -328,7 +328,7 @@ func TestRunWithLogger_LogsReadFailure(t *testing.T) {
 }
 
 func TestRunWithLogger_LogsValidationFailure(t *testing.T) {
-	in := bytes.NewBufferString(`{"version":"ctx.v1","command":"get_context","request_id":"bad","payload":{}}`)
+	in := bytes.NewBufferString(`{"version":"acm.v1","command":"get_context","request_id":"bad","payload":{}}`)
 	out := &bytes.Buffer{}
 	recorder := logging.NewRecorder()
 
@@ -360,7 +360,7 @@ func TestRunWithLogger_LogsValidationFailure(t *testing.T) {
 
 func TestRunWithLogger_LogsDispatchFailure(t *testing.T) {
 	in := bytes.NewBufferString(`{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{

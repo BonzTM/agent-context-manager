@@ -54,7 +54,7 @@ Convenience subcommands (build v1 envelopes internally):
 - `acm health` / `acm health-check` -> integrity and drift report
 - `acm health-fix` -> apply safe remediations (sync_working_tree, index_uncovered_files, sync_ruleset)
 - `acm regress` -> retrieval regression suite
-- `acm bootstrap` -> initial pointer candidate generation
+- `acm bootstrap` -> initial pointer candidate generation (respects .gitignore, LLM-assisted descriptions, optional candidate persistence)
 - `acm coverage` -> file coverage analysis
 
 JSON envelope mode is also available via `acm run --in request.json` and `acm validate --in request.json`.
@@ -299,11 +299,11 @@ Reports:
 
 Use these starter examples when bootstrapping downstream repos with canonical rules:
 
-- `docs/examples/canonical-ruleset.yaml`
+- `docs/examples/acm-rules.yaml`
 - `docs/examples/AGENTS.md`
 - `docs/examples/CLAUDE.md`
 
-Canonical ruleset files are discovered at `.acm/canonical-ruleset.yaml` (preferred) or `acm-rules.yaml` and must declare `version: ctx.rules.v1`.
+Canonical ruleset files are discovered at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root and must declare `version: acm.rules.v1`. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override discovery with an explicit path.
 
 `CLAUDE.md` should remain a thin companion that maps to `AGENTS.md` as source of truth.
 Rule maintenance flow is add/remove/update, then run `sync` or `health_fix apply`, then verify with `health_check`.

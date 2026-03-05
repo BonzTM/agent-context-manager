@@ -8,7 +8,7 @@ import (
 
 func TestDecodeAndValidateCommand_GetContextSuccess(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
@@ -55,7 +55,7 @@ func TestDecodeAndValidateCommand_InvalidVersion(t *testing.T) {
 
 func TestDecodeAndValidateCommand_RejectsUnknownField(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"get_context",
 		"request_id":"req-12345",
 		"payload":{
@@ -76,7 +76,7 @@ func TestDecodeAndValidateCommand_RejectsUnknownField(t *testing.T) {
 
 func TestDecodeAndValidateCommand_ReportCompletionRejectsInvalidScopeMode(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"report_completion",
 		"request_id":"req-12345",
 		"payload":{
@@ -98,7 +98,7 @@ func TestDecodeAndValidateCommand_ReportCompletionRejectsInvalidScopeMode(t *tes
 
 func TestDecodeAndValidateCommand_CoveragePayloadValidation(t *testing.T) {
 	validJSON := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"coverage",
 		"request_id":"req-12345",
 		"payload":{
@@ -119,7 +119,7 @@ func TestDecodeAndValidateCommand_CoveragePayloadValidation(t *testing.T) {
 	}
 
 	invalidJSON := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"coverage",
 		"request_id":"req-12345",
 		"payload":{
@@ -138,7 +138,7 @@ func TestDecodeAndValidateCommand_CoveragePayloadValidation(t *testing.T) {
 
 func TestDecodeAndValidateCommand_FetchSuccess(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
@@ -167,7 +167,7 @@ func TestDecodeAndValidateCommand_FetchSuccess(t *testing.T) {
 
 func TestDecodeAndValidateCommand_FetchRejectsUnknownField(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
@@ -187,7 +187,7 @@ func TestDecodeAndValidateCommand_FetchRejectsUnknownField(t *testing.T) {
 
 func TestDecodeAndValidateCommand_FetchRejectsBlankKey(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
@@ -207,7 +207,7 @@ func TestDecodeAndValidateCommand_FetchRejectsBlankKey(t *testing.T) {
 func TestDecodeAndValidateCommand_FetchRejectsLongKey(t *testing.T) {
 	longKey := strings.Repeat("k", 513)
 	json := fmt.Sprintf(`{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
@@ -226,7 +226,7 @@ func TestDecodeAndValidateCommand_FetchRejectsLongKey(t *testing.T) {
 
 func TestDecodeAndValidateCommand_WorkSuccess(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
@@ -258,7 +258,7 @@ func TestDecodeAndValidateCommand_WorkSuccess(t *testing.T) {
 
 func TestDecodeAndValidateCommand_WorkRejectsInvalidStatus(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
@@ -280,7 +280,7 @@ func TestDecodeAndValidateCommand_WorkRejectsInvalidStatus(t *testing.T) {
 
 func TestDecodeAndValidateCommand_WorkRejectsEmptyPlanKey(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
@@ -302,7 +302,7 @@ func TestDecodeAndValidateCommand_WorkRejectsEmptyPlanKey(t *testing.T) {
 
 func TestDecodeAndValidateCommand_WorkRejectsEmptyItemKey(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
@@ -324,7 +324,7 @@ func TestDecodeAndValidateCommand_WorkRejectsEmptyItemKey(t *testing.T) {
 
 func TestDecodeAndValidateCommand_FetchReceiptIDOnlySuccess(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
@@ -347,7 +347,7 @@ func TestDecodeAndValidateCommand_FetchReceiptIDOnlySuccess(t *testing.T) {
 
 func TestDecodeAndValidateCommand_FetchRejectsMissingKeysAndReceiptID(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
@@ -365,7 +365,7 @@ func TestDecodeAndValidateCommand_FetchRejectsMissingKeysAndReceiptID(t *testing
 
 func TestDecodeAndValidateCommand_FetchRejectsExpectedVersionsWithoutKeys(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
@@ -387,7 +387,7 @@ func TestDecodeAndValidateCommand_FetchRejectsExpectedVersionsWithoutKeys(t *tes
 
 func TestDecodeAndValidateCommand_FetchRejectsInvalidReceiptID(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"fetch",
 		"request_id":"req-12345",
 		"payload":{
@@ -406,7 +406,7 @@ func TestDecodeAndValidateCommand_FetchRejectsInvalidReceiptID(t *testing.T) {
 
 func TestDecodeAndValidateCommand_WorkReceiptOnlySuccess(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
@@ -429,7 +429,7 @@ func TestDecodeAndValidateCommand_WorkReceiptOnlySuccess(t *testing.T) {
 
 func TestDecodeAndValidateCommand_WorkReceiptOnlyAllowsEmptyItems(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
@@ -453,7 +453,7 @@ func TestDecodeAndValidateCommand_WorkReceiptOnlyAllowsEmptyItems(t *testing.T) 
 
 func TestDecodeAndValidateCommand_WorkRejectsMissingPlanKeyAndReceiptID(t *testing.T) {
 	json := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"work",
 		"request_id":"req-12345",
 		"payload":{
@@ -474,13 +474,14 @@ func TestDecodeAndValidateCommand_WorkRejectsMissingPlanKeyAndReceiptID(t *testi
 
 func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 	validJSON := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"health_fix",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
 			"apply":true,
 			"project_root":".",
+			"rules_file":"custom-rules.yaml",
 			"fixers":["sync_working_tree","sync_ruleset"]
 		}
 	}`
@@ -498,12 +499,15 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 	if p.Apply == nil || !*p.Apply {
 		t.Fatalf("expected apply=true, got %+v", p.Apply)
 	}
+	if p.RulesFile != "custom-rules.yaml" {
+		t.Fatalf("unexpected rules_file: %q", p.RulesFile)
+	}
 	if len(p.Fixers) != 2 {
 		t.Fatalf("unexpected fixer count: %d", len(p.Fixers))
 	}
 
 	invalidJSON := `{
-		"version":"ctx.v1",
+		"version":"acm.v1",
 		"command":"health_fix",
 		"request_id":"req-12345",
 		"payload":{
@@ -517,5 +521,29 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 	}
 	if errp.Code != "INVALID_PAYLOAD" {
 		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
+func TestDecodeAndValidateCommand_BootstrapPayloadPersistCandidates(t *testing.T) {
+	validJSON := `{
+		"version":"acm.v1",
+		"command":"bootstrap",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"project_root":".",
+			"persist_candidates":true
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(validJSON))
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(BootstrapPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.PersistCandidates == nil || !*p.PersistCandidates {
+		t.Fatalf("expected persist_candidates=true, got %+v", p.PersistCandidates)
 	}
 }

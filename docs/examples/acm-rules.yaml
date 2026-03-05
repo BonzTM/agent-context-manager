@@ -1,8 +1,8 @@
-# canonical-ruleset.yaml
+# acm-rules.yaml
 # Canonical rule file consumed by acm sync and health_fix.
-# Save this as .acm/canonical-ruleset.yaml (preferred) or acm-rules.yaml.
+# Save this as .acm/acm-rules.yaml (preferred) or acm-rules.yaml in the project root.
 
-version: ctx.rules.v1
+version: acm.rules.v1
 rules:
   - id: rule_startup_get_context
     summary: Call get_context before reading or editing project files.

@@ -11,6 +11,7 @@ var (
 	ErrFetchLookupNotFound   = errors.New("fetch lookup not found")
 	ErrPointerLookupNotFound = errors.New("pointer lookup not found")
 	ErrMemoryLookupNotFound  = errors.New("memory lookup not found")
+	ErrWorkPlanNotFound      = errors.New("work plan not found")
 )
 
 const (
@@ -153,9 +154,16 @@ type MemoryLookupQuery struct {
 }
 
 type WorkItem struct {
-	ItemKey   string
-	Status    string
-	UpdatedAt time.Time
+	ItemKey             string
+	Summary             string
+	Status              string
+	DependsOn           []string
+	AcceptanceCriteria  []string
+	References          []string
+	BlockedReason       string
+	Outcome             string
+	Evidence            []string
+	UpdatedAt           time.Time
 }
 
 type FetchLookup struct {
@@ -244,6 +252,74 @@ type WorkItemsUpsertInput struct {
 	Items     []WorkItem
 }
 
+type WorkPlanMode string
+
+const (
+	WorkPlanModeMerge   WorkPlanMode = "merge"
+	WorkPlanModeReplace WorkPlanMode = "replace"
+)
+
+type WorkPlanStages struct {
+	SpecOutline        string
+	RefinedSpec        string
+	ImplementationPlan string
+}
+
+type WorkPlan struct {
+	ProjectID   string
+	PlanKey     string
+	ReceiptID   string
+	Title       string
+	Objective   string
+	Status      string
+	Stages      WorkPlanStages
+	InScope     []string
+	OutOfScope  []string
+	Constraints []string
+	References  []string
+	Tasks       []WorkItem
+	UpdatedAt   time.Time
+}
+
+type WorkPlanUpsertInput struct {
+	ProjectID   string
+	PlanKey     string
+	ReceiptID   string
+	Mode        WorkPlanMode
+	Title       string
+	Objective   string
+	Status      string
+	Stages      WorkPlanStages
+	InScope     []string
+	OutOfScope  []string
+	Constraints []string
+	References  []string
+	Tasks       []WorkItem
+}
+
+type WorkPlanUpsertResult struct {
+	Plan    WorkPlan
+	Updated int
+}
+
+type WorkPlanLookupQuery struct {
+	ProjectID string
+	PlanKey   string
+	ReceiptID string
+}
+
+type WorkPlanListQuery struct {
+	ProjectID string
+	Limit     int
+}
+
+type WorkPlanSummary struct {
+	PlanKey   string
+	Summary   string
+	Status    string
+	UpdatedAt time.Time
+}
+
 type Repository interface {
 	FetchCandidatePointers(context.Context, CandidatePointerQuery) ([]CandidatePointer, error)
 	FetchRelatedHopPointers(context.Context, RelatedHopPointersQuery) ([]HopPointer, error)
@@ -260,4 +336,12 @@ type Repository interface {
 	ListWorkItems(context.Context, FetchLookupQuery) ([]WorkItem, error)
 	ApplySync(context.Context, SyncApplyInput) (SyncApplyResult, error)
 	SyncRulePointers(context.Context, RulePointerSyncInput) (RulePointerSyncResult, error)
+}
+
+// WorkPlanRepository is an optional extension for richer plan/task persistence.
+// Implementations may be asserted from Repository by services that support plan-aware workflows.
+type WorkPlanRepository interface {
+	UpsertWorkPlan(context.Context, WorkPlanUpsertInput) (WorkPlanUpsertResult, error)
+	LookupWorkPlan(context.Context, WorkPlanLookupQuery) (WorkPlan, error)
+	ListWorkPlans(context.Context, WorkPlanListQuery) ([]WorkPlanSummary, error)
 }

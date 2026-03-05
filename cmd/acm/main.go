@@ -19,7 +19,7 @@ func main() {
 	ctx := context.Background()
 
 	if len(os.Args) < 2 {
-		logger.Error(ctx, logging.EventCtxRun, "stage", "parse", "ok", false, "error_code", "MISSING_SUBCOMMAND")
+		logger.Error(ctx, logging.EventACMRun, "stage", "parse", "ok", false, "error_code", "MISSING_SUBCOMMAND")
 		usage()
 		os.Exit(2)
 	}
@@ -46,7 +46,7 @@ func main() {
 		usage()
 		os.Exit(0)
 	default:
-		logger.Error(ctx, logging.EventCtxRun, "stage", "parse", "subcommand", os.Args[1], "ok", false, "error_code", "UNKNOWN_SUBCOMMAND")
+		logger.Error(ctx, logging.EventACMRun, "stage", "parse", "subcommand", os.Args[1], "ok", false, "error_code", "UNKNOWN_SUBCOMMAND")
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		usage()
 		os.Exit(2)
@@ -55,73 +55,73 @@ func main() {
 
 func run(ctx context.Context, logger logging.Logger, args []string) int {
 	logger = logging.Normalize(logger)
-	logger.Info(ctx, logging.EventCtxRun, "stage", "start", "subcommand", "run")
+	logger.Info(ctx, logging.EventACMRun, "stage", "start", "subcommand", "run")
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	inPath := fs.String("in", "-", "input request file path or '-' for stdin")
 	if err := fs.Parse(args); err != nil {
-		logger.Error(ctx, logging.EventCtxRun, "stage", "parse_flags", "subcommand", "run", "ok", false, "error_code", "INVALID_FLAGS")
+		logger.Error(ctx, logging.EventACMRun, "stage", "parse_flags", "subcommand", "run", "ok", false, "error_code", "INVALID_FLAGS")
 		return 2
 	}
 
 	in, closeInput, err := openInput(*inPath)
 	if err != nil {
-		logger.Error(ctx, logging.EventCtxIORead, "stage", "open_input", "subcommand", "run", "ok", false, "path", *inPath, "error_code", "READ_FAILED")
+		logger.Error(ctx, logging.EventACMIORead, "stage", "open_input", "subcommand", "run", "ok", false, "path", *inPath, "error_code", "READ_FAILED")
 		fmt.Fprintf(os.Stderr, "failed to open input: %v\n", err)
 		return 2
 	}
 	defer closeInput()
-	logger.Info(ctx, logging.EventCtxIORead, "stage", "open_input", "subcommand", "run", "ok", true, "path", *inPath)
+	logger.Info(ctx, logging.EventACMIORead, "stage", "open_input", "subcommand", "run", "ok", true, "path", *inPath)
 
 	svc, closeService, err := runtime.NewServiceFromEnvWithLogger(ctx, logger)
 	if err != nil {
-		logger.Error(ctx, logging.EventCtxRun, "stage", "service_init", "subcommand", "run", "ok", false, "error_code", "SERVICE_INIT_FAILED")
+		logger.Error(ctx, logging.EventACMRun, "stage", "service_init", "subcommand", "run", "ok", false, "error_code", "SERVICE_INIT_FAILED")
 		fmt.Fprintf(os.Stderr, "failed to initialize service: %v\n", err)
 		return 1
 	}
 	defer closeService()
 
 	code := cli.RunWithLogger(ctx, svc, in, os.Stdout, time.Now, logger)
-	logger.Info(ctx, logging.EventCtxRun, "stage", "finish", "subcommand", "run", "exit_code", code)
+	logger.Info(ctx, logging.EventACMRun, "stage", "finish", "subcommand", "run", "exit_code", code)
 	return code
 }
 
 func validate(ctx context.Context, logger logging.Logger, args []string) int {
 	logger = logging.Normalize(logger)
-	logger.Info(ctx, logging.EventCtxRun, "stage", "start", "subcommand", "validate")
+	logger.Info(ctx, logging.EventACMRun, "stage", "start", "subcommand", "validate")
 
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	inPath := fs.String("in", "-", "input request file path or '-' for stdin")
 	if err := fs.Parse(args); err != nil {
-		logger.Error(ctx, logging.EventCtxRun, "stage", "parse_flags", "subcommand", "validate", "ok", false, "error_code", "INVALID_FLAGS")
+		logger.Error(ctx, logging.EventACMRun, "stage", "parse_flags", "subcommand", "validate", "ok", false, "error_code", "INVALID_FLAGS")
 		return 2
 	}
 
 	in, closeFn, err := openInput(*inPath)
 	if err != nil {
-		logger.Error(ctx, logging.EventCtxIORead, "stage", "open_input", "subcommand", "validate", "ok", false, "path", *inPath, "error_code", "READ_FAILED")
+		logger.Error(ctx, logging.EventACMIORead, "stage", "open_input", "subcommand", "validate", "ok", false, "path", *inPath, "error_code", "READ_FAILED")
 		fmt.Fprintf(os.Stderr, "failed to open input: %v\n", err)
 		return 2
 	}
 	defer closeFn()
-	logger.Info(ctx, logging.EventCtxIORead, "stage", "open_input", "subcommand", "validate", "ok", true, "path", *inPath)
+	logger.Info(ctx, logging.EventACMIORead, "stage", "open_input", "subcommand", "validate", "ok", true, "path", *inPath)
 
 	b, err := io.ReadAll(in)
 	if err != nil {
-		logger.Error(ctx, logging.EventCtxIORead, "stage", "read_input", "subcommand", "validate", "ok", false, "error_code", "READ_FAILED")
+		logger.Error(ctx, logging.EventACMIORead, "stage", "read_input", "subcommand", "validate", "ok", false, "error_code", "READ_FAILED")
 		fmt.Fprintf(os.Stderr, "failed to read input: %v\n", err)
 		return 2
 	}
-	logger.Info(ctx, logging.EventCtxIORead, "stage", "read_input", "subcommand", "validate", "ok", true, "bytes", len(b))
+	logger.Info(ctx, logging.EventACMIORead, "stage", "read_input", "subcommand", "validate", "ok", true, "bytes", len(b))
 	_, _, valErr := v1.DecodeAndValidateCommand(b)
 	if valErr != nil {
-		logger.Error(ctx, logging.EventCtxRun, "stage", "validate", "subcommand", "validate", "ok", false, "error_code", valErr.Code)
+		logger.Error(ctx, logging.EventACMRun, "stage", "validate", "subcommand", "validate", "ok", false, "error_code", valErr.Code)
 		fmt.Printf("{\n  \"ok\": false,\n  \"error\": {\n    \"code\": %q,\n    \"message\": %q\n  }\n}\n", valErr.Code, valErr.Message)
 		return 1
 	}
-	logger.Info(ctx, logging.EventCtxRun, "stage", "validate", "subcommand", "validate", "ok", true)
+	logger.Info(ctx, logging.EventACMRun, "stage", "validate", "subcommand", "validate", "ok", true)
 	fmt.Println("{\n  \"ok\": true\n}")
-	logger.Info(ctx, logging.EventCtxRun, "stage", "finish", "subcommand", "validate", "exit_code", 0)
+	logger.Info(ctx, logging.EventACMRun, "stage", "finish", "subcommand", "validate", "exit_code", 0)
 	return 0
 }
 
@@ -160,10 +160,10 @@ func usage() {
 	fmt.Println("  acm get-context --project myproject --task-text \"Add sync checks\" --phase execute")
 	fmt.Println("  acm fetch --project myproject --key plan:req-12345678 --expect plan:req-12345678=v3")
 	fmt.Println("  # Work and completion")
-	fmt.Println("  acm work --project myproject --receipt-id req-12345678 --items-file ./work-items.json")
+	fmt.Println("  acm work --project myproject --receipt-id req-12345678 --tasks-json '[{\"key\":\"verify:tests\",\"summary\":\"Run tests\",\"status\":\"pending\"}]'")
 	fmt.Println("  acm report-completion --project myproject --receipt-id req-12345678 --file-changed cmd/acm/main.go --outcome \"Implemented command\"")
 	fmt.Println("  # Maintenance")
 	fmt.Println("  acm sync --project myproject --mode changed --git-range HEAD~1..HEAD")
 	fmt.Println("  acm health --project myproject --include-details")
-	fmt.Println("  acm bootstrap --project myproject --project-root .")
+	fmt.Println("  acm bootstrap --project myproject --project-root . --persist-candidates")
 }

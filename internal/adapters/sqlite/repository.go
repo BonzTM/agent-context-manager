@@ -44,6 +44,7 @@ type Repository struct {
 }
 
 var _ core.Repository = (*Repository)(nil)
+var _ core.WorkPlanRepository = (*Repository)(nil)
 
 func New(ctx context.Context, cfg Config) (*Repository, error) {
 	if err := cfg.Validate(); err != nil {
@@ -120,7 +121,7 @@ SELECT
 	is_stale,
 	stale_at,
 	updated_at
-FROM ctx_pointers
+FROM acm_pointers
 WHERE project_id = ?
 `, projectID)
 	if err != nil {
@@ -234,7 +235,7 @@ func (r *Repository) FetchRelatedHopPointers(_ context.Context, input core.Relat
 	}
 	linkRows, err := r.db.Query(`
 SELECT from_key, to_key
-FROM ctx_pointer_links
+FROM acm_pointer_links
 WHERE project_id = ?
 `, projectID)
 	if err != nil {
@@ -376,7 +377,7 @@ SELECT
 	tags_json,
 	related_pointer_keys_json,
 	updated_at
-FROM ctx_memories
+FROM acm_memories
 WHERE project_id = ?
 	AND active = 1
 `, projectID)
@@ -459,7 +460,7 @@ func (r *Repository) ListPointerInventory(ctx context.Context, projectID string)
 SELECT
 	path,
 	MAX(is_stale) AS is_stale
-FROM ctx_pointers
+FROM acm_pointers
 WHERE project_id = ?
 GROUP BY path
 ORDER BY path ASC
@@ -521,7 +522,7 @@ func (r *Repository) UpsertPointerStubs(ctx context.Context, projectID string, s
 
 		isRule := boolToInt(strings.EqualFold(stub.Kind, "rule"))
 		tag, execErr := tx.ExecContext(ctx, `
-INSERT INTO ctx_pointers (
+INSERT INTO acm_pointers (
 	project_id,
 	pointer_key,
 	path,
@@ -594,7 +595,7 @@ func (r *Repository) FetchReceiptScope(ctx context.Context, input core.ReceiptSc
 		ctx,
 		`
 SELECT task_text, phase, resolved_tags_json, pointer_keys_json, memory_ids_json
-FROM ctx_receipts
+FROM acm_receipts
 WHERE project_id = ?
 	AND receipt_id = ?
 `,
@@ -663,10 +664,10 @@ SELECT
 	COALESCE(run.run_id, 0) AS run_id,
 	COALESCE(run.status, '') AS run_status,
 	COALESCE(run.created_at, r.created_at) AS updated_at
-FROM ctx_receipts r
+FROM acm_receipts r
 LEFT JOIN (
 	SELECT run_id, status, created_at
-	FROM ctx_runs
+	FROM acm_runs
 	WHERE project_id = ?
 		AND receipt_id = ?
 	ORDER BY created_at DESC, run_id DESC
@@ -734,7 +735,7 @@ SELECT
 	is_rule,
 	is_stale,
 	updated_at
-FROM ctx_pointers
+FROM acm_pointers
 WHERE project_id = ?
 	AND pointer_key = ?
 `, projectID, pointerKey).Scan(
@@ -804,7 +805,7 @@ SELECT
 	tags_json,
 	related_pointer_keys_json,
 	updated_at
-FROM ctx_memories
+FROM acm_memories
 WHERE project_id = ?
 	AND memory_id = ?
 `, projectID, input.MemoryID).Scan(
@@ -876,7 +877,7 @@ func (r *Repository) UpsertWorkItems(ctx context.Context, input core.WorkItemsUp
 	updated := 0
 	for _, item := range items {
 		tag, execErr := tx.ExecContext(ctx, `
-INSERT INTO ctx_work_items (
+INSERT INTO acm_work_items (
 	project_id,
 	receipt_id,
 	item_key,
@@ -921,7 +922,7 @@ func (r *Repository) ListWorkItems(ctx context.Context, input core.FetchLookupQu
 
 	rows, err := r.db.QueryContext(ctx, `
 SELECT item_key, status, updated_at
-FROM ctx_work_items
+FROM acm_work_items
 WHERE project_id = ?
 	AND receipt_id = ?
 ORDER BY item_key ASC
@@ -958,6 +959,268 @@ ORDER BY item_key ASC
 	}
 
 	return items, nil
+}
+
+func (r *Repository) UpsertWorkPlan(ctx context.Context, input core.WorkPlanUpsertInput) (core.WorkPlanUpsertResult, error) {
+	if r == nil || r.db == nil {
+		return core.WorkPlanUpsertResult{}, fmt.Errorf("sqlite db is required")
+	}
+
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return core.WorkPlanUpsertResult{}, fmt.Errorf("project_id is required")
+	}
+	planKey := strings.TrimSpace(input.PlanKey)
+	if planKey == "" {
+		return core.WorkPlanUpsertResult{}, fmt.Errorf("plan_key is required")
+	}
+	mode := normalizeWorkPlanMode(input.Mode)
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.WorkPlanUpsertResult{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	current, found, err := lookupWorkPlanTx(ctx, tx, projectID, planKey)
+	if err != nil {
+		return core.WorkPlanUpsertResult{}, err
+	}
+	next := buildNextWorkPlanState(current, found, input, mode)
+	if err := upsertWorkPlanRowTx(ctx, tx, next); err != nil {
+		return core.WorkPlanUpsertResult{}, err
+	}
+
+	updated := 0
+	normalizedTasks := normalizeWorkPlanTasks(input.Tasks)
+	if mode == core.WorkPlanModeReplace {
+		tag, err := tx.ExecContext(ctx, `
+DELETE FROM acm_work_plan_tasks
+WHERE project_id = ?
+	AND plan_key = ?
+`, projectID, planKey)
+		if err != nil {
+			return core.WorkPlanUpsertResult{}, fmt.Errorf("delete work plan tasks: %w", err)
+		}
+		rowsAffected, rowsErr := tag.RowsAffected()
+		if rowsErr != nil {
+			return core.WorkPlanUpsertResult{}, fmt.Errorf("read work plan task delete rows affected: %w", rowsErr)
+		}
+		updated += int(rowsAffected)
+	}
+
+	for _, task := range normalizedTasks {
+		dependsJSON, err := encodeStringList(nonNilStringList(task.DependsOn))
+		if err != nil {
+			return core.WorkPlanUpsertResult{}, fmt.Errorf("encode task depends_on: %w", err)
+		}
+		acceptanceJSON, err := encodeStringList(nonNilStringList(task.AcceptanceCriteria))
+		if err != nil {
+			return core.WorkPlanUpsertResult{}, fmt.Errorf("encode task acceptance criteria: %w", err)
+		}
+		referencesJSON, err := encodeStringList(nonNilStringList(task.References))
+		if err != nil {
+			return core.WorkPlanUpsertResult{}, fmt.Errorf("encode task references: %w", err)
+		}
+		evidenceJSON, err := encodeStringList(nonNilStringList(task.Evidence))
+		if err != nil {
+			return core.WorkPlanUpsertResult{}, fmt.Errorf("encode task evidence: %w", err)
+		}
+
+		tag, err := tx.ExecContext(ctx, `
+INSERT INTO acm_work_plan_tasks (
+	project_id,
+	plan_key,
+	task_key,
+	summary,
+	status,
+	depends_on_json,
+	acceptance_criteria_json,
+	references_json,
+	blocked_reason,
+	outcome,
+	evidence_json,
+	created_at,
+	updated_at
+) VALUES (
+	?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()
+)
+ON CONFLICT(project_id, plan_key, task_key) DO UPDATE SET
+	summary = excluded.summary,
+	status = excluded.status,
+	depends_on_json = excluded.depends_on_json,
+	acceptance_criteria_json = excluded.acceptance_criteria_json,
+	references_json = excluded.references_json,
+	blocked_reason = excluded.blocked_reason,
+	outcome = excluded.outcome,
+	evidence_json = excluded.evidence_json,
+	updated_at = unixepoch()
+`, projectID, planKey, task.ItemKey, strings.TrimSpace(task.Summary), storageWorkItemStatus(task.Status), dependsJSON, acceptanceJSON, referencesJSON, strings.TrimSpace(task.BlockedReason), strings.TrimSpace(task.Outcome), evidenceJSON)
+		if err != nil {
+			return core.WorkPlanUpsertResult{}, fmt.Errorf("upsert work plan task: %w", err)
+		}
+		rowsAffected, rowsErr := tag.RowsAffected()
+		if rowsErr != nil {
+			return core.WorkPlanUpsertResult{}, fmt.Errorf("read work plan task upsert rows affected: %w", rowsErr)
+		}
+		updated += int(rowsAffected)
+	}
+
+	if strings.TrimSpace(input.Status) == "" {
+		tasks, err := listWorkPlanTasksTx(ctx, tx, projectID, planKey)
+		if err != nil {
+			return core.WorkPlanUpsertResult{}, err
+		}
+		derivedStatus := derivePlanStatus(tasks)
+		if _, err := tx.ExecContext(ctx, `
+UPDATE acm_work_plans
+SET status = ?, updated_at = unixepoch()
+WHERE project_id = ?
+	AND plan_key = ?
+`, storageWorkItemStatus(derivedStatus), projectID, planKey); err != nil {
+			return core.WorkPlanUpsertResult{}, fmt.Errorf("update work plan status: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return core.WorkPlanUpsertResult{}, fmt.Errorf("commit tx: %w", err)
+	}
+
+	plan, err := r.LookupWorkPlan(ctx, core.WorkPlanLookupQuery{
+		ProjectID: projectID,
+		PlanKey:   planKey,
+	})
+	if err != nil {
+		return core.WorkPlanUpsertResult{}, err
+	}
+	return core.WorkPlanUpsertResult{
+		Plan:    plan,
+		Updated: updated,
+	}, nil
+}
+
+func (r *Repository) LookupWorkPlan(ctx context.Context, input core.WorkPlanLookupQuery) (core.WorkPlan, error) {
+	if r == nil || r.db == nil {
+		return core.WorkPlan{}, fmt.Errorf("sqlite db is required")
+	}
+
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return core.WorkPlan{}, fmt.Errorf("project_id is required")
+	}
+	planKey := strings.TrimSpace(input.PlanKey)
+	receiptID := strings.TrimSpace(input.ReceiptID)
+	if planKey == "" && receiptID == "" {
+		return core.WorkPlan{}, fmt.Errorf("plan_key or receipt_id is required")
+	}
+
+	if planKey == "" {
+		err := r.db.QueryRowContext(ctx, `
+SELECT plan_key
+FROM acm_work_plans
+WHERE project_id = ?
+	AND receipt_id = ?
+ORDER BY updated_at DESC, plan_key ASC
+LIMIT 1
+`, projectID, receiptID).Scan(&planKey)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return core.WorkPlan{}, core.ErrWorkPlanNotFound
+			}
+			return core.WorkPlan{}, fmt.Errorf("query work plan key by receipt: %w", err)
+		}
+	}
+
+	plan, found, err := lookupWorkPlan(ctx, r.db, projectID, planKey)
+	if err != nil {
+		return core.WorkPlan{}, err
+	}
+	if !found {
+		return core.WorkPlan{}, core.ErrWorkPlanNotFound
+	}
+	tasks, err := listWorkPlanTasks(ctx, r.db, projectID, planKey)
+	if err != nil {
+		return core.WorkPlan{}, err
+	}
+	plan.Tasks = tasks
+	return plan, nil
+}
+
+func (r *Repository) ListWorkPlans(ctx context.Context, input core.WorkPlanListQuery) ([]core.WorkPlanSummary, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("sqlite db is required")
+	}
+
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("project_id is required")
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+SELECT
+	p.plan_key,
+	p.title,
+	p.status,
+	COUNT(t.task_id) AS task_count,
+	p.updated_at
+FROM acm_work_plans p
+LEFT JOIN acm_work_plan_tasks t
+	ON t.project_id = p.project_id
+	AND t.plan_key = p.plan_key
+WHERE p.project_id = ?
+	AND p.status <> 'completed'
+GROUP BY p.plan_key, p.title, p.status, p.updated_at
+ORDER BY p.updated_at DESC, p.plan_key ASC
+LIMIT ?
+`, projectID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query work plans: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]core.WorkPlanSummary, 0)
+	for rows.Next() {
+		var (
+			planKey   string
+			title     string
+			status    string
+			taskCount int64
+			updatedAt int64
+		)
+		if err := rows.Scan(&planKey, &title, &status, &taskCount, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan work plan summary: %w", err)
+		}
+		planKey = strings.TrimSpace(planKey)
+		if planKey == "" {
+			continue
+		}
+		normalizedStatus := normalizeWorkItemStatus(status)
+		summary := strings.TrimSpace(title)
+		if summary == "" {
+			summary = fmt.Sprintf("Plan %s is %s", planKey, normalizedStatus)
+		}
+		if taskCount > 0 {
+			summary = fmt.Sprintf("%s (%d tasks)", summary, taskCount)
+		}
+		out = append(out, core.WorkPlanSummary{
+			PlanKey:   planKey,
+			Summary:   summary,
+			Status:    normalizedStatus,
+			UpdatedAt: unixTime(updatedAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate work plans: %w", err)
+	}
+
+	return out, nil
 }
 
 func (r *Repository) PersistProposedMemory(ctx context.Context, input core.ProposeMemoryPersistence) (core.ProposeMemoryPersistenceResult, error) {
@@ -1006,7 +1269,7 @@ func (r *Repository) PersistProposedMemory(ctx context.Context, input core.Propo
 	defer func() { _ = tx.Rollback() }()
 
 	insertResult, err := tx.ExecContext(ctx, `
-INSERT INTO ctx_memory_candidates (
+INSERT INTO acm_memory_candidates (
 	project_id,
 	receipt_id,
 	category,
@@ -1066,7 +1329,7 @@ INSERT INTO ctx_memory_candidates (
 	}
 
 	insertMemoryResult, err := tx.ExecContext(ctx, `
-INSERT OR IGNORE INTO ctx_memories (
+INSERT OR IGNORE INTO acm_memories (
 	project_id,
 	category,
 	subject,
@@ -1110,7 +1373,7 @@ INSERT OR IGNORE INTO ctx_memories (
 	}
 
 	_, err = tx.ExecContext(ctx, `
-UPDATE ctx_memory_candidates
+UPDATE acm_memory_candidates
 SET
 	status = ?,
 	promoted_memory_id = CASE WHEN ? > 0 THEN ? ELSE NULL END,
@@ -1206,7 +1469,7 @@ func (r *Repository) SaveRunReceiptSummary(ctx context.Context, input core.RunRe
 	defer func() { _ = tx.Rollback() }()
 
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO ctx_receipts (
+INSERT INTO acm_receipts (
 	receipt_id,
 	project_id,
 	task_text,
@@ -1241,7 +1504,7 @@ SET
 	}
 
 	insertRunResult, err := tx.ExecContext(ctx, `
-INSERT INTO ctx_runs (
+INSERT INTO acm_runs (
 	project_id,
 	request_id,
 	receipt_id,
@@ -1308,7 +1571,7 @@ func (r *Repository) ApplySync(ctx context.Context, input core.SyncApplyInput) (
 	out := core.SyncApplyResult{}
 	if len(deletedPaths) > 0 {
 		query := `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = 1,
 	stale_at = unixepoch(),
@@ -1340,7 +1603,7 @@ WHERE project_id = ?
 		)
 		if len(presentPaths) == 0 {
 			query = `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = 1,
 	stale_at = unixepoch(),
@@ -1351,7 +1614,7 @@ WHERE project_id = ?
 			args = []any{normalized.ProjectID}
 		} else {
 			query = `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	is_stale = 1,
 	stale_at = unixepoch(),
@@ -1379,7 +1642,7 @@ WHERE project_id = ?
 
 	for _, row := range presentRows {
 		tag, err := tx.ExecContext(ctx, `
-UPDATE ctx_pointers
+UPDATE acm_pointers
 SET
 	content_hash = ?,
 	is_stale = 0,
@@ -1407,7 +1670,7 @@ WHERE project_id = ?
 	if normalized.InsertNewCandidates {
 		for _, row := range presentRows {
 			tag, err := tx.ExecContext(ctx, `
-INSERT OR IGNORE INTO ctx_pointer_candidates (
+INSERT OR IGNORE INTO acm_pointer_candidates (
 	project_id,
 	path,
 	content_hash,
@@ -1417,7 +1680,7 @@ INSERT OR IGNORE INTO ctx_pointer_candidates (
 ) SELECT ?, ?, ?, unixepoch(), unixepoch(), unixepoch()
 WHERE NOT EXISTS (
 	SELECT 1
-	FROM ctx_pointers
+	FROM acm_pointers
 	WHERE project_id = ?
 		AND path = ?
 )
@@ -1477,7 +1740,7 @@ SELECT
 	is_stale,
 	stale_at,
 	updated_at
-FROM ctx_pointers
+FROM acm_pointers
 WHERE project_id = ?
 	AND pointer_key IN (` + placeholders(len(keys)) + `)
 `
@@ -1545,7 +1808,7 @@ func (r *Repository) pointerPathsByKeys(ctx context.Context, projectID string, p
 
 	query := `
 SELECT path
-FROM ctx_pointers
+FROM acm_pointers
 WHERE project_id = ?
 	AND pointer_key IN (` + placeholders(len(pointerKeys)) + `)
 `
@@ -2113,6 +2376,404 @@ func nonNilInt64List(values []int64) []int64 {
 		return []int64{}
 	}
 	return values
+}
+
+func normalizeWorkPlanMode(raw core.WorkPlanMode) core.WorkPlanMode {
+	switch strings.TrimSpace(string(raw)) {
+	case string(core.WorkPlanModeReplace):
+		return core.WorkPlanModeReplace
+	default:
+		return core.WorkPlanModeMerge
+	}
+}
+
+func normalizeWorkPlanStages(raw core.WorkPlanStages) core.WorkPlanStages {
+	out := core.WorkPlanStages{
+		SpecOutline:        normalizeWorkItemStatus(raw.SpecOutline),
+		RefinedSpec:        normalizeWorkItemStatus(raw.RefinedSpec),
+		ImplementationPlan: normalizeWorkItemStatus(raw.ImplementationPlan),
+	}
+	if strings.TrimSpace(raw.SpecOutline) == "" {
+		out.SpecOutline = core.WorkItemStatusPending
+	}
+	if strings.TrimSpace(raw.RefinedSpec) == "" {
+		out.RefinedSpec = core.WorkItemStatusPending
+	}
+	if strings.TrimSpace(raw.ImplementationPlan) == "" {
+		out.ImplementationPlan = core.WorkItemStatusPending
+	}
+	return out
+}
+
+func normalizeWorkPlanTasks(tasks []core.WorkItem) []core.WorkItem {
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	priority := map[string]int{
+		workItemStatusComplete:   0,
+		workItemStatusCompleted:  0,
+		workItemStatusPending:    1,
+		workItemStatusInProgress: 2,
+		workItemStatusBlocked:    3,
+	}
+	byKey := make(map[string]core.WorkItem, len(tasks))
+	for _, raw := range tasks {
+		itemKey := strings.TrimSpace(raw.ItemKey)
+		if itemKey == "" {
+			continue
+		}
+		status := normalizeWorkItemStatus(raw.Status)
+		normalized := core.WorkItem{
+			ItemKey:            itemKey,
+			Summary:            strings.TrimSpace(raw.Summary),
+			Status:             status,
+			DependsOn:          normalizeStringList(raw.DependsOn),
+			AcceptanceCriteria: normalizeStringList(raw.AcceptanceCriteria),
+			References:         normalizeStringList(raw.References),
+			BlockedReason:      strings.TrimSpace(raw.BlockedReason),
+			Outcome:            strings.TrimSpace(raw.Outcome),
+			Evidence:           normalizeStringList(raw.Evidence),
+			UpdatedAt:          raw.UpdatedAt.UTC(),
+		}
+		current, exists := byKey[itemKey]
+		if !exists || priority[status] >= priority[current.Status] {
+			byKey[itemKey] = normalized
+		}
+	}
+	if len(byKey) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(byKey))
+	for key := range byKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]core.WorkItem, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, byKey[key])
+	}
+	return out
+}
+
+func buildNextWorkPlanState(current core.WorkPlan, found bool, input core.WorkPlanUpsertInput, mode core.WorkPlanMode) core.WorkPlan {
+	projectID := strings.TrimSpace(input.ProjectID)
+	planKey := strings.TrimSpace(input.PlanKey)
+	next := core.WorkPlan{
+		ProjectID: projectID,
+		PlanKey:   planKey,
+		Status:    core.PlanStatusPending,
+		Stages: core.WorkPlanStages{
+			SpecOutline:        core.PlanStatusPending,
+			RefinedSpec:        core.PlanStatusPending,
+			ImplementationPlan: core.PlanStatusPending,
+		},
+	}
+	if found {
+		next = current
+	}
+	if mode == core.WorkPlanModeReplace {
+		next = core.WorkPlan{
+			ProjectID: projectID,
+			PlanKey:   planKey,
+			Status:    core.PlanStatusPending,
+			Stages: core.WorkPlanStages{
+				SpecOutline:        core.PlanStatusPending,
+				RefinedSpec:        core.PlanStatusPending,
+				ImplementationPlan: core.PlanStatusPending,
+			},
+		}
+	}
+
+	trimmedReceipt := strings.TrimSpace(input.ReceiptID)
+	if trimmedReceipt != "" || mode == core.WorkPlanModeReplace {
+		next.ReceiptID = trimmedReceipt
+	}
+
+	trimmedTitle := strings.TrimSpace(input.Title)
+	if trimmedTitle != "" || mode == core.WorkPlanModeReplace {
+		next.Title = trimmedTitle
+	}
+
+	trimmedObjective := strings.TrimSpace(input.Objective)
+	if trimmedObjective != "" || mode == core.WorkPlanModeReplace {
+		next.Objective = trimmedObjective
+	}
+
+	trimmedStatus := strings.TrimSpace(input.Status)
+	if trimmedStatus != "" {
+		next.Status = normalizeWorkItemStatus(trimmedStatus)
+	}
+	if mode == core.WorkPlanModeReplace && trimmedStatus == "" {
+		next.Status = core.PlanStatusPending
+	}
+
+	if input.Stages.SpecOutline != "" || input.Stages.RefinedSpec != "" || input.Stages.ImplementationPlan != "" || mode == core.WorkPlanModeReplace {
+		if mode == core.WorkPlanModeReplace {
+			next.Stages = core.WorkPlanStages{}
+		}
+		next.Stages = mergeWorkPlanStages(next.Stages, input.Stages, mode)
+	}
+	next.Stages = normalizeWorkPlanStages(next.Stages)
+
+	if input.InScope != nil || mode == core.WorkPlanModeReplace {
+		next.InScope = normalizeStringList(input.InScope)
+	}
+	if input.OutOfScope != nil || mode == core.WorkPlanModeReplace {
+		next.OutOfScope = normalizeStringList(input.OutOfScope)
+	}
+	if input.Constraints != nil || mode == core.WorkPlanModeReplace {
+		next.Constraints = normalizeStringList(input.Constraints)
+	}
+	if input.References != nil || mode == core.WorkPlanModeReplace {
+		next.References = normalizeStringList(input.References)
+	}
+
+	next.ProjectID = projectID
+	next.PlanKey = planKey
+	next.Status = normalizeWorkItemStatus(next.Status)
+	return next
+}
+
+func mergeWorkPlanStages(current, incoming core.WorkPlanStages, mode core.WorkPlanMode) core.WorkPlanStages {
+	out := current
+	if mode == core.WorkPlanModeReplace {
+		out = core.WorkPlanStages{}
+	}
+	if strings.TrimSpace(incoming.SpecOutline) != "" || mode == core.WorkPlanModeReplace {
+		out.SpecOutline = normalizeWorkItemStatus(incoming.SpecOutline)
+	}
+	if strings.TrimSpace(incoming.RefinedSpec) != "" || mode == core.WorkPlanModeReplace {
+		out.RefinedSpec = normalizeWorkItemStatus(incoming.RefinedSpec)
+	}
+	if strings.TrimSpace(incoming.ImplementationPlan) != "" || mode == core.WorkPlanModeReplace {
+		out.ImplementationPlan = normalizeWorkItemStatus(incoming.ImplementationPlan)
+	}
+	return out
+}
+
+func upsertWorkPlanRowTx(ctx context.Context, tx *sql.Tx, plan core.WorkPlan) error {
+	inScopeJSON, err := encodeStringList(nonNilStringList(plan.InScope))
+	if err != nil {
+		return fmt.Errorf("encode plan in_scope: %w", err)
+	}
+	outOfScopeJSON, err := encodeStringList(nonNilStringList(plan.OutOfScope))
+	if err != nil {
+		return fmt.Errorf("encode plan out_of_scope: %w", err)
+	}
+	constraintsJSON, err := encodeStringList(nonNilStringList(plan.Constraints))
+	if err != nil {
+		return fmt.Errorf("encode plan constraints: %w", err)
+	}
+	referencesJSON, err := encodeStringList(nonNilStringList(plan.References))
+	if err != nil {
+		return fmt.Errorf("encode plan references: %w", err)
+	}
+	receiptValue := any(nil)
+	if strings.TrimSpace(plan.ReceiptID) != "" {
+		receiptValue = strings.TrimSpace(plan.ReceiptID)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO acm_work_plans (
+	project_id,
+	plan_key,
+	receipt_id,
+	title,
+	objective,
+	status,
+	stage_spec_outline,
+	stage_refined_spec,
+	stage_implementation_plan,
+	in_scope_json,
+	out_of_scope_json,
+	constraints_json,
+	references_json,
+	created_at,
+	updated_at
+) VALUES (
+	?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()
+)
+ON CONFLICT(project_id, plan_key) DO UPDATE SET
+	receipt_id = excluded.receipt_id,
+	title = excluded.title,
+	objective = excluded.objective,
+	status = excluded.status,
+	stage_spec_outline = excluded.stage_spec_outline,
+	stage_refined_spec = excluded.stage_refined_spec,
+	stage_implementation_plan = excluded.stage_implementation_plan,
+	in_scope_json = excluded.in_scope_json,
+	out_of_scope_json = excluded.out_of_scope_json,
+	constraints_json = excluded.constraints_json,
+	references_json = excluded.references_json,
+	updated_at = unixepoch()
+`, strings.TrimSpace(plan.ProjectID), strings.TrimSpace(plan.PlanKey), receiptValue, strings.TrimSpace(plan.Title), strings.TrimSpace(plan.Objective), storageWorkItemStatus(plan.Status), storageWorkItemStatus(plan.Stages.SpecOutline), storageWorkItemStatus(plan.Stages.RefinedSpec), storageWorkItemStatus(plan.Stages.ImplementationPlan), inScopeJSON, outOfScopeJSON, constraintsJSON, referencesJSON); err != nil {
+		return fmt.Errorf("upsert work plan: %w", err)
+	}
+	return nil
+}
+
+func lookupWorkPlanTx(ctx context.Context, tx *sql.Tx, projectID, planKey string) (core.WorkPlan, bool, error) {
+	return lookupWorkPlan(ctx, tx, projectID, planKey)
+}
+
+type sqlRowsQuerier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func lookupWorkPlan(ctx context.Context, q sqlRowsQuerier, projectID, planKey string) (core.WorkPlan, bool, error) {
+	var (
+		receiptID           sql.NullString
+		title               string
+		objective           string
+		status              string
+		stageSpecOutline    string
+		stageRefinedSpec    string
+		stageImplementation string
+		inScopeJSON         string
+		outOfScopeJSON      string
+		constraintsJSON     string
+		referencesJSON      string
+		updatedAt           int64
+	)
+	if err := q.QueryRowContext(ctx, `
+SELECT
+	receipt_id,
+	title,
+	objective,
+	status,
+	stage_spec_outline,
+	stage_refined_spec,
+	stage_implementation_plan,
+	in_scope_json,
+	out_of_scope_json,
+	constraints_json,
+	references_json,
+	updated_at
+FROM acm_work_plans
+WHERE project_id = ?
+	AND plan_key = ?
+`, projectID, planKey).Scan(&receiptID, &title, &objective, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScopeJSON, &outOfScopeJSON, &constraintsJSON, &referencesJSON, &updatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return core.WorkPlan{}, false, nil
+		}
+		return core.WorkPlan{}, false, fmt.Errorf("query work plan: %w", err)
+	}
+	inScope, err := decodeStringList(inScopeJSON)
+	if err != nil {
+		return core.WorkPlan{}, false, fmt.Errorf("decode plan in_scope: %w", err)
+	}
+	outOfScope, err := decodeStringList(outOfScopeJSON)
+	if err != nil {
+		return core.WorkPlan{}, false, fmt.Errorf("decode plan out_of_scope: %w", err)
+	}
+	constraints, err := decodeStringList(constraintsJSON)
+	if err != nil {
+		return core.WorkPlan{}, false, fmt.Errorf("decode plan constraints: %w", err)
+	}
+	references, err := decodeStringList(referencesJSON)
+	if err != nil {
+		return core.WorkPlan{}, false, fmt.Errorf("decode plan references: %w", err)
+	}
+
+	return core.WorkPlan{
+		ProjectID:   projectID,
+		PlanKey:     planKey,
+		ReceiptID:   strings.TrimSpace(receiptID.String),
+		Title:       strings.TrimSpace(title),
+		Objective:   strings.TrimSpace(objective),
+		Status:      normalizeWorkItemStatus(status),
+		Stages:      normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
+		InScope:     normalizeStringList(inScope),
+		OutOfScope:  normalizeStringList(outOfScope),
+		Constraints: normalizeStringList(constraints),
+		References:  normalizeStringList(references),
+		UpdatedAt:   unixTime(updatedAt),
+	}, true, nil
+}
+
+func listWorkPlanTasksTx(ctx context.Context, tx *sql.Tx, projectID, planKey string) ([]core.WorkItem, error) {
+	return listWorkPlanTasks(ctx, tx, projectID, planKey)
+}
+
+func listWorkPlanTasks(ctx context.Context, q sqlRowsQuerier, projectID, planKey string) ([]core.WorkItem, error) {
+	rows, err := q.QueryContext(ctx, `
+SELECT
+	task_key,
+	summary,
+	status,
+	depends_on_json,
+	acceptance_criteria_json,
+	references_json,
+	blocked_reason,
+	outcome,
+	evidence_json,
+	updated_at
+FROM acm_work_plan_tasks
+WHERE project_id = ?
+	AND plan_key = ?
+ORDER BY task_key ASC
+`, projectID, planKey)
+	if err != nil {
+		return nil, fmt.Errorf("query work plan tasks: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]core.WorkItem, 0)
+	for rows.Next() {
+		var (
+			itemKey        string
+			summary        string
+			status         string
+			dependsOnJSON  string
+			criteriaJSON   string
+			referencesJSON string
+			blockedReason  string
+			outcome        string
+			evidenceJSON   string
+			updatedAt      int64
+		)
+		if err := rows.Scan(&itemKey, &summary, &status, &dependsOnJSON, &criteriaJSON, &referencesJSON, &blockedReason, &outcome, &evidenceJSON, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan work plan task: %w", err)
+		}
+		itemKey = strings.TrimSpace(itemKey)
+		if itemKey == "" {
+			continue
+		}
+		dependsOn, err := decodeStringList(dependsOnJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode task depends_on: %w", err)
+		}
+		acceptanceCriteria, err := decodeStringList(criteriaJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode task acceptance criteria: %w", err)
+		}
+		references, err := decodeStringList(referencesJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode task references: %w", err)
+		}
+		evidence, err := decodeStringList(evidenceJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode task evidence: %w", err)
+		}
+		items = append(items, core.WorkItem{
+			ItemKey:            itemKey,
+			Summary:            strings.TrimSpace(summary),
+			Status:             normalizeWorkItemStatus(status),
+			DependsOn:          normalizeStringList(dependsOn),
+			AcceptanceCriteria: normalizeStringList(acceptanceCriteria),
+			References:         normalizeStringList(references),
+			BlockedReason:      strings.TrimSpace(blockedReason),
+			Outcome:            strings.TrimSpace(outcome),
+			Evidence:           normalizeStringList(evidence),
+			UpdatedAt:          unixTime(updatedAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate work plan tasks: %w", err)
+	}
+	return items, nil
 }
 
 func normalizeWorkItems(items []core.WorkItem) ([]core.WorkItem, error) {

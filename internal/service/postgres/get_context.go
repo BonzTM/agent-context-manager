@@ -101,7 +101,7 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 	budget := estimateBudget(caps.WordBudgetLimit, payload.TaskText, resolvedTags, rules, suggestions, memories)
 
 	receiptID := deterministicReceiptID(payload, resolvedTags, rules, suggestions, memories, budget)
-	plans := makeContextPlans(receiptID)
+	plans := s.makeContextPlans(ctx, payload.ProjectID, receiptID)
 
 	receipt := v1.ContextReceipt{
 		Rules:       rules,
@@ -406,7 +406,38 @@ func makeContextMemories(memories []core.ActiveMemory) []v1.ContextMemory {
 	return out
 }
 
-func makeContextPlans(receiptID string) []v1.ContextPlan {
+func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID string) []v1.ContextPlan {
+	if s != nil && s.repo != nil {
+		if planRepo, ok := s.repo.(core.WorkPlanRepository); ok {
+			planRows, err := planRepo.ListWorkPlans(ctx, core.WorkPlanListQuery{
+				ProjectID: strings.TrimSpace(projectID),
+				Limit:     8,
+			})
+			if err == nil && len(planRows) > 0 {
+				plans := make([]v1.ContextPlan, 0, len(planRows))
+				for _, row := range planRows {
+					planKey := strings.TrimSpace(row.PlanKey)
+					if planKey == "" {
+						continue
+					}
+					status := normalizePlanStatus(row.Status)
+					summary := strings.TrimSpace(row.Summary)
+					if summary == "" {
+						summary = fmt.Sprintf("Plan %s is %s", planKey, status)
+					}
+					plans = append(plans, v1.ContextPlan{
+						Key:     planKey,
+						Summary: summary,
+						Status:  v1.WorkItemStatus(status),
+					})
+				}
+				if len(plans) > 0 {
+					return plans
+				}
+			}
+		}
+	}
+
 	receiptID = strings.TrimSpace(receiptID)
 	if receiptID == "" {
 		return nil

@@ -14,7 +14,7 @@ Use this skill when a task needs brokered context retrieval, hard rule complianc
 3. Treat code/doc/test pointers as advisory suggestions for where to start.
 4. Call `fetch` for plan/work artifacts needed to execute accurately (or use `receipt_id` shorthand without explicit keys).
 5. Execute work; if context is insufficient or stale, refine task text and call `get_context` again.
-6. Call `work` with `receipt_id` (optionally without `plan_key`) to publish updates, or send zero `items` for status-only retrieval. When posting updates, include `verify:tests` and `verify:diff-review` work items.
+6. Call `work` with `receipt_id` (optionally without `plan_key`) to publish updates. Prefer `tasks` payloads; legacy `items` remain accepted. Include `verify:tests` and `verify:diff-review` verification tasks when posting updates.
 7. Call `report_completion` with files changed and outcome.
 8. Propose durable memory with `propose_memory` when appropriate.
 
@@ -31,10 +31,10 @@ Use this skill when a task needs brokered context retrieval, hard rule complianc
   - `go run ./cmd/acm-mcp invoke --tool propose_memory --in <payload.json>`
 
 Defaults:
-- SQLite backend is default when `CTX_PG_DSN` is unset.
+- SQLite backend is default when `ACM_PG_DSN` is unset.
 - Optional logging controls:
-  - `CTX_LOG_LEVEL=debug|info|warn|error`
-  - `CTX_LOG_SINK=stderr|stdout|discard`
+  - `ACM_LOG_LEVEL=debug|info|warn|error`
+  - `ACM_LOG_SINK=stderr|stdout|discard`
 
 ## Templates
 
@@ -42,12 +42,12 @@ Use templates from `references/templates.md` and `assets/requests/*.json`.
 
 ## Rules
 
-- Keep all requests valid `ctx.v1` JSON contracts.
+- Keep all requests valid `acm.v1` JSON contracts.
 - Never skip `get_context` before execution.
 - Treat the `get_context` rules block (or rule pointers) as mandatory requirements.
 - Treat code pointer paths as advisory guidance, not as mandatory edit boundaries.
 - Treat advisory scope as `warn` by default unless an explicit `scope_mode` override is required.
-- When `work.items` is non-empty, include `verify:tests` and `verify:diff-review` quality-gate items.
-- For those verification items, use mode-aware enforcement: `scope_mode=strict` is blocking, `scope_mode=warn` surfaces warnings.
+- When `work.tasks` (or legacy `work.items`) is non-empty, include `verify:tests` and `verify:diff-review` quality-gate tasks.
+- For those verification tasks, use mode-aware enforcement: `scope_mode=strict` is blocking, `scope_mode=warn` surfaces warnings.
 - If suggested pointers are insufficient, refine/re-run `get_context` before forcing progress.
 - Preserve structured JSON output for all broker interactions.

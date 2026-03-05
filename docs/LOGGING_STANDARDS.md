@@ -65,8 +65,8 @@ Required fields by stage:
 ## Runtime Configuration Boundary
 
 - Runtime logger configuration is bounded and env-driven:
-  - `CTX_LOG_LEVEL`: `debug|info|warn|error` (default `info`)
-  - `CTX_LOG_SINK`: `stderr|stdout|discard` (default `stderr`)
+  - `ACM_LOG_LEVEL`: `debug|info|warn|error` (default `info`)
+  - `ACM_LOG_SINK`: `stderr|stdout|discard` (default `stderr`)
 - Invalid or unset values must fall back to defaults (`info`, `stderr`).
 - Configuration only controls emission threshold and sink destination.
 - Contract constraints (must not drift):
