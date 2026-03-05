@@ -25,7 +25,7 @@ func (f fakeService) ProposeMemory(_ context.Context, _ v1.ProposeMemoryPayload)
 }
 
 func (f fakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *core.APIError) {
-	return v1.WorkResult{PlanKey: "plan.alpha", PlanStatus: "pending", Updated: 1}, nil
+	return v1.WorkResult{PlanKey: "plan:receipt-1234", PlanStatus: "pending", Updated: 1}, nil
 }
 
 func (f fakeService) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
@@ -86,7 +86,7 @@ func TestInvoke_FetchAndWork(t *testing.T) {
 		t.Fatalf("unexpected fetch result type: %T", fetchResult)
 	}
 
-	workPayload := []byte(`{"project_id":"my-cool-app","plan_key":"plan.alpha","items":[{"key":"x.go","summary":"x","status":"pending"}]}`)
+	workPayload := []byte(`{"project_id":"my-cool-app","plan_key":"plan:receipt-1234","items":[{"key":"x.go","summary":"x","status":"pending"}]}`)
 	workResult, workErr := Invoke(context.Background(), fakeService{}, toolWork, workPayload)
 	if workErr != nil {
 		t.Fatalf("unexpected work error: %v", workErr)

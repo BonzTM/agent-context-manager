@@ -111,7 +111,7 @@ func (s *Service) Fetch(ctx context.Context, payload v1.FetchPayload) (v1.FetchR
 		if receiptID, ok := parsePlanFetchKey(key); ok {
 			item, found, err = s.fetchPlanItem(ctx, projectID, key, receiptID)
 			if err != nil {
-				return v1.FetchResult{}, fetchInternalError("lookup_fetch_state", err)
+				return v1.FetchResult{}, fetchInternalError("lookup_work_plan", err)
 			}
 		} else if memoryID, ok := parseMemoryFetchKey(key); ok {
 			item, found, err = s.fetchMemoryItem(ctx, projectID, key, memoryID)
@@ -163,9 +163,31 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 	if planKey == "" && receiptID != "" {
 		planKey = "plan:" + receiptID
 	}
-	if receiptID == "" {
-		if derivedReceiptID, ok := parsePlanFetchKey(planKey); ok {
+	if planKey != "" {
+		derivedReceiptID, ok := parsePlanFetchKey(planKey)
+		if !ok {
+			return v1.WorkResult{}, core.NewError(
+				"INVALID_INPUT",
+				"plan_key must use format plan:<receipt_id>",
+				map[string]any{
+					"project_id": projectID,
+					"plan_key":   planKey,
+				},
+			)
+		}
+		if receiptID == "" {
 			receiptID = derivedReceiptID
+		} else if receiptID != derivedReceiptID {
+			return v1.WorkResult{}, core.NewError(
+				"INVALID_INPUT",
+				"plan_key and receipt_id must reference the same receipt",
+				map[string]any{
+					"project_id":          projectID,
+					"plan_key":            planKey,
+					"receipt_id":          receiptID,
+					"plan_key_receipt_id": derivedReceiptID,
+				},
+			)
 		}
 	}
 	if planKey == "" {
@@ -718,36 +740,35 @@ func (s *Service) fetchPlanItem(ctx context.Context, projectID, key, receiptID s
 			ReceiptID: strings.TrimSpace(receiptID),
 		}
 		plan, err := planRepo.LookupWorkPlan(ctx, lookupQuery)
-		if err != nil {
-			if errors.Is(err, core.ErrWorkPlanNotFound) {
-				return v1.FetchItem{}, false, nil
+		if err == nil {
+			workItems := normalizeWorkItems(plan.Tasks)
+			planStatus := normalizePlanStatus(plan.Status)
+			if planStatus == core.PlanStatusPending {
+				planStatus = derivePlanStatusFromWorkItems(workItems)
 			}
-			return v1.FetchItem{}, false, err
+			planSummary := strings.TrimSpace(plan.Title)
+			if planSummary == "" {
+				planSummary = fmt.Sprintf("Plan %s is %s", strings.TrimSpace(plan.PlanKey), planStatus)
+			}
+			contentJSON, err := json.Marshal(planForFetch(plan))
+			if err != nil {
+				return v1.FetchItem{}, false, err
+			}
+
+			version := indexEntryVersion(plan.PlanKey, planStatus, plan.UpdatedAt.UTC().String(), string(contentJSON))
+			return v1.FetchItem{
+				Key:     key,
+				Type:    "plan",
+				Summary: planSummary,
+				Content: string(contentJSON),
+				Status:  planStatus,
+				Version: version,
+			}, true, nil
 		}
 
-		workItems := normalizeWorkItems(plan.Tasks)
-		planStatus := normalizePlanStatus(plan.Status)
-		if planStatus == core.PlanStatusPending {
-			planStatus = derivePlanStatusFromWorkItems(workItems)
-		}
-		planSummary := strings.TrimSpace(plan.Title)
-		if planSummary == "" {
-			planSummary = fmt.Sprintf("Plan %s is %s", strings.TrimSpace(plan.PlanKey), planStatus)
-		}
-		contentJSON, err := json.Marshal(planForFetch(plan))
-		if err != nil {
+		if !errors.Is(err, core.ErrWorkPlanNotFound) {
 			return v1.FetchItem{}, false, err
 		}
-
-		version := indexEntryVersion(plan.PlanKey, planStatus, plan.UpdatedAt.UTC().String(), string(contentJSON))
-		return v1.FetchItem{
-			Key:     key,
-			Type:    "plan",
-			Summary: planSummary,
-			Content: string(contentJSON),
-			Status:  planStatus,
-			Version: version,
-		}, true, nil
 	}
 
 	lookup, err := s.repo.LookupFetchState(ctx, core.FetchLookupQuery{
@@ -870,7 +891,9 @@ func workPayloadItems(payload v1.WorkPayload) []core.WorkItem {
 	for _, item := range payload.Items {
 		items = append(items, core.WorkItem{
 			ItemKey: item.Key,
+			Summary: strings.TrimSpace(item.Summary),
 			Status:  string(item.Status),
+			Outcome: strings.TrimSpace(item.Outcome),
 		})
 	}
 

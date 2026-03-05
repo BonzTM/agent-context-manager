@@ -2752,6 +2752,46 @@ func TestFetch_PlanKeyReturnsLookupSummary(t *testing.T) {
 	}
 }
 
+func TestFetch_PlanKeyFallsBackToLegacyLookupWhenPlanRowMissing(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupResults: []core.FetchLookup{{
+			ProjectID:  "project.alpha",
+			ReceiptID:  "receipt.abc123",
+			RunID:      17,
+			PlanStatus: core.PlanStatusCompleted,
+			WorkItems: []core.WorkItem{
+				{ItemKey: "src/a.go", Status: core.WorkItemStatusCompleted},
+			},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	key := "plan:receipt.abc123"
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{key},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one fetch item, got %+v", result)
+	}
+	item := result.Items[0]
+	if item.Key != key || item.Type != "plan" || item.Status != core.PlanStatusComplete || item.Version != "17" {
+		t.Fatalf("unexpected fetch item: %+v", item)
+	}
+	if len(repo.workPlanLookupCalls) != 1 {
+		t.Fatalf("expected one plan lookup call, got %d", len(repo.workPlanLookupCalls))
+	}
+	if len(repo.fetchLookupCalls) != 1 {
+		t.Fatalf("expected one legacy fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	}
+}
+
 func TestFetchPayloadKeysWithReceipt_DerivesPlanKeyWhenKeysOmitted(t *testing.T) {
 	keys := fetchPayloadKeysWithReceipt(nil, " receipt.abc123 ")
 	if !reflect.DeepEqual(keys, []string{"plan:receipt.abc123"}) {
@@ -2925,7 +2965,7 @@ func TestFetch_LookupErrorMapsInternalError(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected map details, got %T", apiErr.Details)
 	}
-	if details["operation"] != "lookup_fetch_state" {
+	if details["operation"] != "lookup_work_plan" {
 		t.Fatalf("unexpected operation detail: %#v", details)
 	}
 }
@@ -3121,6 +3161,57 @@ func TestWork_MissingPlanAndReceiptReturnsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestWork_InvalidPlanKeyFormatReturnsInvalidInput(t *testing.T) {
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   "plan.release.v1",
+		Items: []v1.WorkItemPayload{
+			{Key: "src/a.go", Summary: "update", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INVALID_INPUT" {
+		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+	if !strings.Contains(apiErr.Message, "plan_key must use format plan:<receipt_id>") {
+		t.Fatalf("unexpected API error message: %q", apiErr.Message)
+	}
+}
+
+func TestWork_PlanKeyReceiptMismatchReturnsInvalidInput(t *testing.T) {
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   "plan:receipt.abc123",
+		ReceiptID: "receipt.other",
+		Items: []v1.WorkItemPayload{
+			{Key: "src/a.go", Summary: "update", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INVALID_INPUT" {
+		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+	if !strings.Contains(apiErr.Message, "plan_key and receipt_id must reference the same receipt") {
+		t.Fatalf("unexpected API error message: %q", apiErr.Message)
+	}
+}
+
 func TestWork_UpsertPlanErrorMapsInternalError(t *testing.T) {
 	repo := &fakeRepository{
 		workPlanUpsertErrors: []error{errors.New("plan upsert failed")},
@@ -3221,16 +3312,16 @@ func TestWork_ListErrorsAreIgnoredWhenPlanRepositoryAvailable(t *testing.T) {
 func TestWorkPayloadItems_UsesPayloadStatuses(t *testing.T) {
 	payload := v1.WorkPayload{
 		Items: []v1.WorkItemPayload{
-			{Key: " src/a.go ", Status: v1.WorkItemStatusInProgress},
-			{Key: "src/a.go", Status: v1.WorkItemStatusBlocked},
-			{Key: "src/b.go", Status: v1.WorkItemStatusComplete},
+			{Key: " src/a.go ", Summary: "implement", Status: v1.WorkItemStatusInProgress, Outcome: "started"},
+			{Key: "src/a.go", Summary: "blocked by dependency", Status: v1.WorkItemStatusBlocked, Outcome: "waiting"},
+			{Key: "src/b.go", Summary: "verify", Status: v1.WorkItemStatusComplete, Outcome: "done"},
 		},
 	}
 
 	items := workPayloadItems(payload)
 	want := []core.WorkItem{
-		{ItemKey: "src/a.go", Status: core.WorkItemStatusBlocked},
-		{ItemKey: "src/b.go", Status: core.WorkItemStatusComplete},
+		{ItemKey: "src/a.go", Summary: "blocked by dependency", Status: core.WorkItemStatusBlocked, Outcome: "waiting"},
+		{ItemKey: "src/b.go", Summary: "verify", Status: core.WorkItemStatusComplete, Outcome: "done"},
 	}
 	if !reflect.DeepEqual(items, want) {
 		t.Fatalf("unexpected normalized items: got %+v want %+v", items, want)

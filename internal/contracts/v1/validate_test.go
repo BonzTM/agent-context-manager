@@ -231,7 +231,7 @@ func TestDecodeAndValidateCommand_WorkSuccess(t *testing.T) {
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
-			"plan_key":"plan.release.v1",
+			"plan_key":"plan:receipt-1234",
 			"plan_title":"Release readiness",
 			"receipt_id":"receipt-1234",
 			"items":[
@@ -248,7 +248,7 @@ func TestDecodeAndValidateCommand_WorkSuccess(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.ProjectID != "my-cool-app" || p.PlanKey != "plan.release.v1" || len(p.Items) != 2 {
+	if p.ProjectID != "my-cool-app" || p.PlanKey != "plan:receipt-1234" || len(p.Items) != 2 {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 	if p.Items[1].Status != WorkItemStatusComplete {
@@ -263,7 +263,7 @@ func TestDecodeAndValidateCommand_WorkRejectsInvalidStatus(t *testing.T) {
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
-			"plan_key":"plan.release.v1",
+			"plan_key":"plan:receipt-1234",
 			"items":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"completed"}
 			]
@@ -307,9 +307,54 @@ func TestDecodeAndValidateCommand_WorkRejectsEmptyItemKey(t *testing.T) {
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
-			"plan_key":"plan.release.v1",
+			"plan_key":"plan:receipt-1234",
 			"items":[
 				{"key":"   ","summary":"wire dispatch","status":"pending"}
+			]
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
+func TestDecodeAndValidateCommand_WorkRejectsInvalidPlanKeyFormat(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"work",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"plan_key":"plan.release.v1",
+			"items":[
+				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
+			]
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
+func TestDecodeAndValidateCommand_WorkRejectsPlanKeyReceiptMismatch(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"work",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"plan_key":"plan:receipt-1234",
+			"receipt_id":"receipt-9999",
+			"items":[
+				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
 			]
 		}
 	}`

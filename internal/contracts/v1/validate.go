@@ -301,6 +301,16 @@ func validateWorkPayload(p *WorkPayload) error {
 		if err := validateBoundedKey(planKey, 256); err != nil {
 			return fmt.Errorf("plan_key %w", err)
 		}
+		if !strings.HasPrefix(strings.ToLower(planKey), "plan:") {
+			return fmt.Errorf("plan_key must use format plan:<receipt_id>")
+		}
+		derivedReceiptID := strings.TrimSpace(planKey[len("plan:"):])
+		if derivedReceiptID == "" || !requestIDRe.MatchString(derivedReceiptID) {
+			return fmt.Errorf("plan_key must use format plan:<receipt_id>")
+		}
+		if receiptID != "" && receiptID != derivedReceiptID {
+			return fmt.Errorf("plan_key and receipt_id must reference the same receipt")
+		}
 	}
 	if p.PlanTitle != "" {
 		trimmedTitle := strings.TrimSpace(p.PlanTitle)
