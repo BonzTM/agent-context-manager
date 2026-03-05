@@ -366,6 +366,28 @@ func TestDecodeAndValidateCommand_WorkRejectsMixedCasePlanKeyPrefix(t *testing.T
 	}
 }
 
+func TestDecodeAndValidateCommand_WorkRejectsWhitespacePaddedPlanKey(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"work",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"plan_key":" plan:receipt-1234 ",
+			"items":[
+				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
+			]
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
 func TestDecodeAndValidateCommand_WorkRejectsShortPlanReceiptID(t *testing.T) {
 	json := `{
 		"version":"acm.v1",

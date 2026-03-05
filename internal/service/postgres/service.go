@@ -178,8 +178,19 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 	}
 
 	projectID := strings.TrimSpace(payload.ProjectID)
-	planKey := strings.TrimSpace(payload.PlanKey)
+	rawPlanKey := payload.PlanKey
+	planKey := strings.TrimSpace(rawPlanKey)
 	receiptID := strings.TrimSpace(payload.ReceiptID)
+	if rawPlanKey != "" && rawPlanKey != planKey {
+		return v1.WorkResult{}, core.NewError(
+			"INVALID_INPUT",
+			"plan_key must not include surrounding whitespace",
+			map[string]any{
+				"project_id": projectID,
+				"plan_key":   rawPlanKey,
+			},
+		)
+	}
 	if planKey == "" && receiptID != "" {
 		planKey = "plan:" + receiptID
 	}

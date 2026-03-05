@@ -3104,7 +3104,7 @@ func TestWork_DerivesReceiptIDFromPlanKeyWhenReceiptIDOmitted(t *testing.T) {
 
 	result, apiErr := svc.Work(context.Background(), v1.WorkPayload{
 		ProjectID: "project.alpha",
-		PlanKey:   " plan:receipt.abc123 ",
+		PlanKey:   "plan:receipt.abc123",
 		Items: []v1.WorkItemPayload{
 			{Key: "src/a.go", Status: v1.WorkItemStatusInProgress},
 		},
@@ -3222,6 +3222,31 @@ func TestWork_InvalidPlanKeyFormatReturnsInvalidInput(t *testing.T) {
 		t.Fatalf("unexpected API error code: %q", apiErr.Code)
 	}
 	if !strings.Contains(apiErr.Message, "plan_key must use format plan:<receipt_id>") {
+		t.Fatalf("unexpected API error message: %q", apiErr.Message)
+	}
+}
+
+func TestWork_PlanKeyWhitespaceReturnsInvalidInput(t *testing.T) {
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   " plan:receipt.abc123 ",
+		Items: []v1.WorkItemPayload{
+			{Key: "src/a.go", Summary: "update", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INVALID_INPUT" {
+		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+	if !strings.Contains(apiErr.Message, "plan_key must not include surrounding whitespace") {
 		t.Fatalf("unexpected API error message: %q", apiErr.Message)
 	}
 }

@@ -292,10 +292,14 @@ func validateWorkPayload(p *WorkPayload) error {
 		return err
 	}
 
-	planKey := strings.TrimSpace(p.PlanKey)
+	rawPlanKey := p.PlanKey
+	planKey := strings.TrimSpace(rawPlanKey)
 	receiptID := strings.TrimSpace(p.ReceiptID)
 	if planKey == "" && receiptID == "" {
 		return fmt.Errorf("either plan_key or receipt_id is required")
+	}
+	if rawPlanKey != "" && rawPlanKey != planKey {
+		return fmt.Errorf("plan_key must not include surrounding whitespace")
 	}
 	if planKey != "" {
 		if err := validateBoundedKey(planKey, 256); err != nil {
