@@ -1,0 +1,5 @@
+.agents/
+/bin/
+/dist/
+*.out
+*.test

@@ -1,0 +1,16 @@
+{
+  "canonical_tags": {
+    "backend": ["backend", "api", "server", "service"],
+    "bootstrap": ["bootstrap", "bootstrapping", "seed"],
+    "docs": ["docs", "doc", "documentation", "readme"],
+    "frontend": ["frontend", "ui", "client"],
+    "governance": ["governance", "policy", "policies", "rule", "rules"],
+    "mcp": ["mcp", "modelcontextprotocol"],
+    "memory": ["memory", "memories"],
+    "ops": ["ops", "operations"],
+    "postgres": ["postgres", "postgresql", "pg"],
+    "review": ["review", "audit"],
+    "sync": ["sync", "synchronization"],
+    "test": ["test", "tests", "testing"]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "version": "ctx.v1",
+  "command": "propose_memory",
+  "request_id": "req-memory-001",
+  "payload": {
+    "project_id": "soundspan",
+    "receipt_id": "replace-from-get-context-receipt",
+    "memory": {
+      "category": "gotcha",
+      "subject": "preference save requires cache invalidation",
+      "content": "Preference persistence succeeds only when cache invalidation runs after DB commit.",
+      "related_pointer_keys": [
+        "soundspan:backend/src/services/preferences.ts"
+      ],
+      "tags": [
+        "backend",
+        "persistence",
+        "cache"
+      ],
+      "confidence": 4,
+      "evidence_pointer_keys": [
+        "soundspan:backend/src/services/preferences.ts"
+      ]
+    },
+    "auto_promote": true
+  }
+}

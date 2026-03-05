@@ -1,0 +1,718 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agents-context.dev/spec/v1/cli.command.schema.json",
+  "title": "ctx CLI v1 command envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "command",
+    "request_id",
+    "payload"
+  ],
+  "properties": {
+    "version": {
+      "const": "ctx.v1"
+    },
+    "command": {
+      "type": "string",
+      "enum": [
+        "get_context",
+        "propose_memory",
+        "report_completion",
+        "sync",
+        "health_check",
+        "health_fix",
+        "regress",
+        "bootstrap",
+        "coverage",
+        "fetch",
+        "work"
+      ]
+    },
+    "request_id": {
+      "$ref": "shared.schema.json#/$defs/requestId"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "retrievalCaps": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_non_rule_pointers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "default": 8
+        },
+        "max_rule_pointers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 512,
+          "default": 0,
+          "description": "0 means uncapped"
+        },
+        "max_hops": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "default": 1
+        },
+        "max_hop_expansion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32,
+          "default": 5
+        },
+        "max_memories": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32,
+          "default": 6
+        },
+        "min_pointer_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 2
+        },
+        "word_budget_limit": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000,
+          "default": 1200
+        }
+      }
+    },
+    "getContextPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "task_text",
+        "phase"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        },
+        "caps": {
+          "$ref": "#/$defs/retrievalCaps"
+        },
+        "allow_stale": {
+          "type": "boolean",
+          "default": false
+        },
+        "fallback_mode": {
+          "type": "string",
+          "enum": [
+            "widen_once",
+            "none"
+          ],
+          "default": "widen_once"
+        },
+        "scope_mode": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "warn",
+            "auto_index"
+          ],
+          "default": "warn"
+        }
+      }
+    },
+    "proposeMemoryPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "receipt_id",
+        "memory"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "receipt_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "memory": {
+          "$ref": "shared.schema.json#/$defs/memoryPayload"
+        },
+        "auto_promote": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "reportCompletionPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "receipt_id",
+        "files_changed",
+        "outcome"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "receipt_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "files_changed": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "outcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600
+        },
+        "scope_mode": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "warn",
+            "auto_index"
+          ],
+          "default": "warn"
+        }
+      }
+    },
+    "syncPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "changed",
+            "full",
+            "working_tree"
+          ],
+          "default": "changed"
+        },
+        "git_range": {
+          "type": "string",
+          "maxLength": 200,
+          "default": "HEAD~1..HEAD"
+        },
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "insert_new_candidates": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "healthCheckPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "include_details": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_findings_per_check": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 100
+        }
+      }
+    },
+    "healthFixPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "apply": {
+          "type": "boolean",
+          "default": false
+        },
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "fixers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "sync_working_tree",
+              "index_uncovered_files",
+              "sync_ruleset"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true
+        }
+      }
+    },
+    "regressPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "eval_suite_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "eval_suite_inline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/regressCase"
+          },
+          "maxItems": 500
+        },
+        "minimum_recall": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.8
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "eval_suite_path"
+          ]
+        },
+        {
+          "required": [
+            "eval_suite_inline"
+          ]
+        }
+      ]
+    },
+    "regressCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_text",
+        "phase"
+      ],
+      "properties": {
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        },
+        "expected_pointer_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/pointerKey"
+          },
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "expected_memory_subjects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "maxItems": 64,
+          "uniqueItems": true
+        }
+      }
+    },
+    "bootstrapPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "project_root"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "respect_gitignore": {
+          "type": "boolean",
+          "default": true
+        },
+        "llm_assist_descriptions": {
+          "type": "boolean",
+          "default": true
+        },
+        "output_candidates_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "default": "bootstrap_candidates.json"
+        }
+      }
+    },
+    "coveragePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      }
+    },
+    "fetchPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "keys": {
+          "$ref": "shared.schema.json#/$defs/contractKeyList"
+        },
+        "receipt_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "expected_versions": {
+          "$ref": "shared.schema.json#/$defs/expectedVersions"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "keys"
+          ]
+        },
+        {
+          "required": [
+            "receipt_id"
+          ]
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "expected_versions"
+            ]
+          },
+          "then": {
+            "required": [
+              "keys"
+            ]
+          }
+        }
+      ]
+    },
+    "workPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
+        },
+        "plan_title": {
+          "$ref": "shared.schema.json#/$defs/planTitle"
+        },
+        "receipt_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "items": {
+          "$ref": "shared.schema.json#/$defs/workItems"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "plan_key"
+          ]
+        },
+        {
+          "required": [
+            "receipt_id"
+          ]
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "get_context"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/getContextPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "fetch"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/fetchPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "propose_memory"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/proposeMemoryPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "report_completion"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/reportCompletionPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "work"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/workPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "sync"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/syncPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "health_check"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/healthCheckPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "health_fix"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/healthFixPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "coverage"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/coveragePayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "regress"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/regressPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "bootstrap"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/bootstrapPayload"
+          }
+        }
+      }
+    }
+  ]
+}

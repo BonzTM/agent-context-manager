@@ -1,0 +1,232 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/joshd/agents-context/internal/core"
+)
+
+func (r *Repository) SyncRulePointers(ctx context.Context, input core.RulePointerSyncInput) (core.RulePointerSyncResult, error) {
+	if r == nil || r.pool == nil {
+		return core.RulePointerSyncResult{}, fmt.Errorf("postgres pool is required")
+	}
+
+	normalized, err := normalizeRulePointerSyncInput(input)
+	if err != nil {
+		return core.RulePointerSyncResult{}, err
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return core.RulePointerSyncResult{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	result := core.RulePointerSyncResult{}
+	for _, pointer := range normalized.Pointers {
+		tag, execErr := tx.Exec(ctx, `
+INSERT INTO ctx_pointers (
+	project_id,
+	pointer_key,
+	path,
+	anchor,
+	kind,
+	label,
+	description,
+	tags,
+	is_rule,
+	is_stale,
+	stale_at,
+	content_hash,
+	updated_at
+)
+VALUES (
+	$1,
+	$2,
+	$3,
+	'',
+	'rule',
+	$4,
+	$5,
+	$6,
+	TRUE,
+	FALSE,
+	NULL,
+	NULL,
+	NOW()
+)
+ON CONFLICT (project_id, pointer_key) DO UPDATE SET
+	path = EXCLUDED.path,
+	anchor = EXCLUDED.anchor,
+	kind = EXCLUDED.kind,
+	label = EXCLUDED.label,
+	description = EXCLUDED.description,
+	tags = EXCLUDED.tags,
+	is_rule = TRUE,
+	is_stale = FALSE,
+	stale_at = NULL,
+	content_hash = NULL,
+	updated_at = NOW()
+`,
+			normalized.ProjectID,
+			pointer.PointerKey,
+			normalized.SourcePath,
+			pointer.Summary,
+			pointer.Content,
+			nonNilStringList(pointer.Tags),
+		)
+		if execErr != nil {
+			return core.RulePointerSyncResult{}, fmt.Errorf("upsert rule pointers: %w", execErr)
+		}
+		result.Upserted += int(tag.RowsAffected())
+	}
+
+	activeKeys := make([]string, 0, len(normalized.Pointers))
+	for _, pointer := range normalized.Pointers {
+		activeKeys = append(activeKeys, pointer.PointerKey)
+	}
+
+	if len(activeKeys) == 0 {
+		tag, execErr := tx.Exec(ctx, `
+UPDATE ctx_pointers
+SET
+	is_stale = TRUE,
+	stale_at = NOW(),
+	updated_at = NOW()
+WHERE project_id = $1
+	AND path = $2
+	AND is_rule = TRUE
+	AND is_stale = FALSE
+`, normalized.ProjectID, normalized.SourcePath)
+		if execErr != nil {
+			return core.RulePointerSyncResult{}, fmt.Errorf("mark stale rule pointers: %w", execErr)
+		}
+		result.MarkedStale = int(tag.RowsAffected())
+	} else {
+		tag, execErr := tx.Exec(ctx, `
+UPDATE ctx_pointers
+SET
+	is_stale = TRUE,
+	stale_at = NOW(),
+	updated_at = NOW()
+WHERE project_id = $1
+	AND path = $2
+	AND is_rule = TRUE
+	AND is_stale = FALSE
+	AND NOT (pointer_key = ANY($3::text[]))
+`, normalized.ProjectID, normalized.SourcePath, activeKeys)
+		if execErr != nil {
+			return core.RulePointerSyncResult{}, fmt.Errorf("mark stale missing rule pointers: %w", execErr)
+		}
+		result.MarkedStale = int(tag.RowsAffected())
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return core.RulePointerSyncResult{}, fmt.Errorf("commit tx: %w", err)
+	}
+	return result, nil
+}
+
+func normalizeRulePointerSyncInput(input core.RulePointerSyncInput) (core.RulePointerSyncInput, error) {
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return core.RulePointerSyncInput{}, fmt.Errorf("project_id is required")
+	}
+
+	sourcePath := normalizeSyncPath(input.SourcePath)
+	if sourcePath == "" {
+		return core.RulePointerSyncInput{}, fmt.Errorf("source_path is required")
+	}
+
+	byKey := make(map[string]core.RulePointer, len(input.Pointers))
+	for _, raw := range input.Pointers {
+		ruleID := strings.TrimSpace(raw.RuleID)
+		if ruleID == "" {
+			ruleID = ruleIDFromPointerKey(raw.PointerKey)
+		}
+		if ruleID == "" {
+			return core.RulePointerSyncInput{}, fmt.Errorf("rule_id is required")
+		}
+
+		pointerKey := strings.TrimSpace(raw.PointerKey)
+		if pointerKey == "" {
+			pointerKey = fmt.Sprintf("%s:%s#%s", projectID, sourcePath, ruleID)
+		}
+
+		summary := strings.TrimSpace(raw.Summary)
+		if summary == "" {
+			return core.RulePointerSyncInput{}, fmt.Errorf("summary is required for pointer %q", pointerKey)
+		}
+		content := strings.TrimSpace(raw.Content)
+		if content == "" {
+			content = summary
+		}
+
+		enforcement := normalizeRulePointerEnforcement(raw.Enforcement)
+		tags := normalizeRulePointerTags(raw.Tags, enforcement)
+
+		byKey[pointerKey] = core.RulePointer{
+			PointerKey:  pointerKey,
+			SourcePath:  sourcePath,
+			RuleID:      ruleID,
+			Summary:     summary,
+			Content:     content,
+			Enforcement: enforcement,
+			Tags:        tags,
+		}
+	}
+
+	keys := make([]string, 0, len(byKey))
+	for key := range byKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	pointers := make([]core.RulePointer, 0, len(keys))
+	for _, key := range keys {
+		pointers = append(pointers, byKey[key])
+	}
+
+	return core.RulePointerSyncInput{
+		ProjectID:  projectID,
+		SourcePath: sourcePath,
+		Pointers:   pointers,
+	}, nil
+}
+
+func normalizeRulePointerEnforcement(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "soft":
+		return "soft"
+	default:
+		return "hard"
+	}
+}
+
+func normalizeRulePointerTags(tags []string, enforcement string) []string {
+	all := append([]string{}, tags...)
+	all = append(all, "rule", "canonical-rule")
+	if enforcement == "soft" {
+		all = append(all, "enforcement-soft")
+	} else {
+		all = append(all, "enforcement-hard")
+	}
+	return normalizeStringList(all)
+}
+
+func ruleIDFromPointerKey(pointerKey string) string {
+	key := strings.TrimSpace(pointerKey)
+	if key == "" {
+		return ""
+	}
+	separator := strings.LastIndex(key, "#")
+	if separator < 0 || separator >= len(key)-1 {
+		return ""
+	}
+	return strings.TrimSpace(key[separator+1:])
+}

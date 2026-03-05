@@ -1,0 +1,3162 @@
+package postgres
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/joshd/agents-context/internal/contracts/v1"
+	"github.com/joshd/agents-context/internal/core"
+)
+
+type fakeRepository struct {
+	candidateResults     [][]core.CandidatePointer
+	candidateErrors      []error
+	hopResults           [][]core.HopPointer
+	memoryResults        [][]core.ActiveMemory
+	memoryErrors         []error
+	inventoryResults     []core.PointerInventory
+	inventoryErrors      []error
+	scopeResults         []core.ReceiptScope
+	scopeErrors          []error
+	proposeResults       []core.ProposeMemoryPersistenceResult
+	proposeErrors        []error
+	syncResults          []core.SyncApplyResult
+	syncErrors           []error
+	upsertStubResults    []int
+	upsertStubErrors     []error
+	fetchLookupResults   []core.FetchLookup
+	fetchLookupErrors    []error
+	pointerLookupResults []core.CandidatePointer
+	pointerLookupErrors  []error
+	memoryLookupResults  []core.ActiveMemory
+	memoryLookupErrors   []error
+	workUpsertResults    []int
+	workUpsertErrors     []error
+	workListResults      [][]core.WorkItem
+	workListErrors       []error
+
+	candidateCalls       []core.CandidatePointerQuery
+	hopCalls             []core.RelatedHopPointersQuery
+	memoryCalls          []core.ActiveMemoryQuery
+	inventoryCalls       []string
+	scopeCalls           []core.ReceiptScopeQuery
+	proposeCalls         []core.ProposeMemoryPersistence
+	saveCalls            []core.RunReceiptSummary
+	syncCalls            []core.SyncApplyInput
+	upsertStubProjectIDs []string
+	upsertStubCalls      [][]core.PointerStub
+	fetchLookupCalls     []core.FetchLookupQuery
+	pointerLookupCalls   []core.PointerLookupQuery
+	memoryLookupCalls    []core.MemoryLookupQuery
+	workUpsertCalls      []core.WorkItemsUpsertInput
+	workListCalls        []core.FetchLookupQuery
+
+	saveResult core.RunReceiptIDs
+	saveError  error
+}
+
+func (f *fakeRepository) FetchCandidatePointers(_ context.Context, input core.CandidatePointerQuery) ([]core.CandidatePointer, error) {
+	f.candidateCalls = append(f.candidateCalls, input)
+	idx := len(f.candidateCalls) - 1
+	if idx < len(f.candidateErrors) && f.candidateErrors[idx] != nil {
+		return nil, f.candidateErrors[idx]
+	}
+	if idx >= len(f.candidateResults) {
+		return nil, nil
+	}
+	return append([]core.CandidatePointer(nil), f.candidateResults[idx]...), nil
+}
+
+func (f *fakeRepository) FetchRelatedHopPointers(_ context.Context, input core.RelatedHopPointersQuery) ([]core.HopPointer, error) {
+	f.hopCalls = append(f.hopCalls, input)
+	idx := len(f.hopCalls) - 1
+	if idx >= len(f.hopResults) {
+		return nil, nil
+	}
+	return append([]core.HopPointer(nil), f.hopResults[idx]...), nil
+}
+
+func (f *fakeRepository) FetchActiveMemories(_ context.Context, input core.ActiveMemoryQuery) ([]core.ActiveMemory, error) {
+	f.memoryCalls = append(f.memoryCalls, input)
+	idx := len(f.memoryCalls) - 1
+	if idx < len(f.memoryErrors) && f.memoryErrors[idx] != nil {
+		return nil, f.memoryErrors[idx]
+	}
+	if idx >= len(f.memoryResults) {
+		return nil, nil
+	}
+	return append([]core.ActiveMemory(nil), f.memoryResults[idx]...), nil
+}
+
+func (f *fakeRepository) ListPointerInventory(_ context.Context, projectID string) ([]core.PointerInventory, error) {
+	f.inventoryCalls = append(f.inventoryCalls, strings.TrimSpace(projectID))
+	idx := len(f.inventoryCalls) - 1
+	if idx < len(f.inventoryErrors) && f.inventoryErrors[idx] != nil {
+		return nil, f.inventoryErrors[idx]
+	}
+	if len(f.inventoryResults) == 0 {
+		return nil, nil
+	}
+	return append([]core.PointerInventory(nil), f.inventoryResults...), nil
+}
+
+func (f *fakeRepository) UpsertPointerStubs(_ context.Context, projectID string, stubs []core.PointerStub) (int, error) {
+	f.upsertStubProjectIDs = append(f.upsertStubProjectIDs, strings.TrimSpace(projectID))
+	copied := make([]core.PointerStub, 0, len(stubs))
+	for _, stub := range stubs {
+		copied = append(copied, core.PointerStub{
+			PointerKey:  stub.PointerKey,
+			Path:        stub.Path,
+			Kind:        stub.Kind,
+			Label:       stub.Label,
+			Description: stub.Description,
+			Tags:        append([]string(nil), stub.Tags...),
+		})
+	}
+	f.upsertStubCalls = append(f.upsertStubCalls, copied)
+
+	idx := len(f.upsertStubCalls) - 1
+	if idx < len(f.upsertStubErrors) && f.upsertStubErrors[idx] != nil {
+		return 0, f.upsertStubErrors[idx]
+	}
+	if idx < len(f.upsertStubResults) {
+		return f.upsertStubResults[idx], nil
+	}
+	return len(copied), nil
+}
+
+func (f *fakeRepository) FetchReceiptScope(_ context.Context, input core.ReceiptScopeQuery) (core.ReceiptScope, error) {
+	f.scopeCalls = append(f.scopeCalls, input)
+	idx := len(f.scopeCalls) - 1
+	if idx < len(f.scopeErrors) && f.scopeErrors[idx] != nil {
+		return core.ReceiptScope{}, f.scopeErrors[idx]
+	}
+	if idx >= len(f.scopeResults) {
+		return core.ReceiptScope{}, core.ErrReceiptScopeNotFound
+	}
+	scope := f.scopeResults[idx]
+	scope.ResolvedTags = append([]string(nil), scope.ResolvedTags...)
+	scope.PointerKeys = append([]string(nil), scope.PointerKeys...)
+	scope.MemoryIDs = append([]int64(nil), scope.MemoryIDs...)
+	scope.PointerPaths = append([]string(nil), scope.PointerPaths...)
+	return scope, nil
+}
+
+func (f *fakeRepository) LookupFetchState(_ context.Context, input core.FetchLookupQuery) (core.FetchLookup, error) {
+	f.fetchLookupCalls = append(f.fetchLookupCalls, input)
+	idx := len(f.fetchLookupCalls) - 1
+	if idx < len(f.fetchLookupErrors) && f.fetchLookupErrors[idx] != nil {
+		return core.FetchLookup{}, f.fetchLookupErrors[idx]
+	}
+	if idx >= len(f.fetchLookupResults) {
+		return core.FetchLookup{}, core.ErrFetchLookupNotFound
+	}
+
+	lookup := f.fetchLookupResults[idx]
+	lookup.ProjectID = strings.TrimSpace(lookup.ProjectID)
+	lookup.ReceiptID = strings.TrimSpace(lookup.ReceiptID)
+	lookup.RunStatus = strings.TrimSpace(lookup.RunStatus)
+	lookup.WorkItems = append([]core.WorkItem(nil), lookup.WorkItems...)
+	return lookup, nil
+}
+
+func (f *fakeRepository) LookupPointerByKey(_ context.Context, input core.PointerLookupQuery) (core.CandidatePointer, error) {
+	f.pointerLookupCalls = append(f.pointerLookupCalls, core.PointerLookupQuery{
+		ProjectID:  strings.TrimSpace(input.ProjectID),
+		PointerKey: strings.TrimSpace(input.PointerKey),
+	})
+
+	idx := len(f.pointerLookupCalls) - 1
+	if idx < len(f.pointerLookupErrors) && f.pointerLookupErrors[idx] != nil {
+		return core.CandidatePointer{}, f.pointerLookupErrors[idx]
+	}
+	if idx >= len(f.pointerLookupResults) {
+		return core.CandidatePointer{}, core.ErrPointerLookupNotFound
+	}
+	return f.pointerLookupResults[idx], nil
+}
+
+func (f *fakeRepository) LookupMemoryByID(_ context.Context, input core.MemoryLookupQuery) (core.ActiveMemory, error) {
+	f.memoryLookupCalls = append(f.memoryLookupCalls, core.MemoryLookupQuery{
+		ProjectID: strings.TrimSpace(input.ProjectID),
+		MemoryID:  input.MemoryID,
+	})
+
+	idx := len(f.memoryLookupCalls) - 1
+	if idx < len(f.memoryLookupErrors) && f.memoryLookupErrors[idx] != nil {
+		return core.ActiveMemory{}, f.memoryLookupErrors[idx]
+	}
+	if idx >= len(f.memoryLookupResults) {
+		return core.ActiveMemory{}, core.ErrMemoryLookupNotFound
+	}
+	return f.memoryLookupResults[idx], nil
+}
+
+func (f *fakeRepository) UpsertWorkItems(_ context.Context, input core.WorkItemsUpsertInput) (int, error) {
+	f.workUpsertCalls = append(f.workUpsertCalls, core.WorkItemsUpsertInput{
+		ProjectID: strings.TrimSpace(input.ProjectID),
+		ReceiptID: strings.TrimSpace(input.ReceiptID),
+		Items:     append([]core.WorkItem(nil), input.Items...),
+	})
+
+	idx := len(f.workUpsertCalls) - 1
+	if idx < len(f.workUpsertErrors) && f.workUpsertErrors[idx] != nil {
+		return 0, f.workUpsertErrors[idx]
+	}
+	if idx < len(f.workUpsertResults) {
+		return f.workUpsertResults[idx], nil
+	}
+	return len(input.Items), nil
+}
+
+func (f *fakeRepository) ListWorkItems(_ context.Context, input core.FetchLookupQuery) ([]core.WorkItem, error) {
+	f.workListCalls = append(f.workListCalls, core.FetchLookupQuery{
+		ProjectID: strings.TrimSpace(input.ProjectID),
+		ReceiptID: strings.TrimSpace(input.ReceiptID),
+	})
+
+	idx := len(f.workListCalls) - 1
+	if idx < len(f.workListErrors) && f.workListErrors[idx] != nil {
+		return nil, f.workListErrors[idx]
+	}
+	if idx >= len(f.workListResults) {
+		return nil, nil
+	}
+	return append([]core.WorkItem(nil), f.workListResults[idx]...), nil
+}
+
+func (f *fakeRepository) PersistProposedMemory(_ context.Context, input core.ProposeMemoryPersistence) (core.ProposeMemoryPersistenceResult, error) {
+	f.proposeCalls = append(f.proposeCalls, input)
+	idx := len(f.proposeCalls) - 1
+	if idx < len(f.proposeErrors) && f.proposeErrors[idx] != nil {
+		return core.ProposeMemoryPersistenceResult{}, f.proposeErrors[idx]
+	}
+	if idx < len(f.proposeResults) {
+		result := f.proposeResults[idx]
+		if result.CandidateID == 0 {
+			result.CandidateID = int64(idx + 1)
+		}
+		return result, nil
+	}
+
+	result := core.ProposeMemoryPersistenceResult{
+		CandidateID: int64(idx + 1),
+		Status:      "pending",
+	}
+	if !input.Validation.HardPassed {
+		result.Status = "rejected"
+		return result, nil
+	}
+	if input.Promotable {
+		result.Status = "promoted"
+		result.PromotedMemoryID = int64(100 + idx)
+	}
+	return result, nil
+}
+
+func (f *fakeRepository) SaveRunReceiptSummary(_ context.Context, input core.RunReceiptSummary) (core.RunReceiptIDs, error) {
+	f.saveCalls = append(f.saveCalls, input)
+	if f.saveError != nil {
+		return core.RunReceiptIDs{}, f.saveError
+	}
+	if f.saveResult.RunID == 0 {
+		return core.RunReceiptIDs{RunID: 1, ReceiptID: input.ReceiptID}, nil
+	}
+	return f.saveResult, nil
+}
+
+func (f *fakeRepository) ApplySync(_ context.Context, input core.SyncApplyInput) (core.SyncApplyResult, error) {
+	f.syncCalls = append(f.syncCalls, input)
+	idx := len(f.syncCalls) - 1
+	if idx < len(f.syncErrors) && f.syncErrors[idx] != nil {
+		return core.SyncApplyResult{}, f.syncErrors[idx]
+	}
+	if idx < len(f.syncResults) {
+		return f.syncResults[idx], nil
+	}
+	return core.SyncApplyResult{}, nil
+}
+
+func TestGetContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			candidate("rule:startup", "AGENTS.md", true, []string{"governance"}),
+			candidate("code:service", "internal/service/postgres/get_context.go", false, []string{"backend"}),
+			candidate("doc:spec", "spec/v1/README.md", false, []string{"docs"}),
+		}},
+		hopResults: [][]core.HopPointer{{
+			hop("code:service", 1, candidate("test:get-context", "internal/service/postgres/service_test.go", false, []string{"tests"})),
+		}},
+		memoryResults: [][]core.ActiveMemory{{
+			memory(101, "Default caps behavior", "schema defaults apply when caps omitted", []string{"backend"}, []string{"code:service"}),
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	payload := v1.GetContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "implement deterministic get context flow",
+		Phase:     v1.PhaseExecute,
+	}
+
+	result, apiErr := svc.GetContext(context.Background(), payload)
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("unexpected status: %q", result.Status)
+	}
+	if result.Receipt == nil {
+		t.Fatal("expected receipt")
+	}
+	if result.Receipt.Meta.RetrievalVersion != RetrievalVersion {
+		t.Fatalf("unexpected retrieval version: %q", result.Receipt.Meta.RetrievalVersion)
+	}
+	if result.Receipt.Meta.ReceiptID == "" {
+		t.Fatal("expected non-empty receipt_id")
+	}
+	if result.Receipt.Meta.Budget.Unit != "words" {
+		t.Fatalf("unexpected budget unit: %q", result.Receipt.Meta.Budget.Unit)
+	}
+
+	rules := receiptIndexEntries(result.Receipt, "rules")
+	if got, want := receiptIndexKeys(rules), []string{"rule:startup"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected rule index keys: got %v want %v", got, want)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected one rule entry, got %d", len(rules))
+	}
+	if got, want := entryString(rules[0], "rule_id"), entryString(rules[0], "key"); got != want {
+		t.Fatalf("unexpected stable rule_id: got %q want %q", got, want)
+	}
+	suggestions := receiptIndexEntries(result.Receipt, "suggestions")
+	if got, want := receiptIndexKeys(suggestions), []string{"code:service", "doc:spec", "test:get-context"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected suggestion index keys: got %v want %v", got, want)
+	}
+	memories := receiptIndexEntries(result.Receipt, "memories")
+	if len(memories) != 1 {
+		t.Fatalf("unexpected memory index count: got %d want 1", len(memories))
+	}
+	if got := entryString(memories[0], "key"); got != "mem:101" {
+		t.Fatalf("unexpected memory key: got %q want %q", got, "mem:101")
+	}
+	if got := strings.TrimSpace(entryString(memories[0], "summary")); got == "" {
+		t.Fatalf("expected non-empty memory summary entry: %+v", memories[0])
+	}
+	plans := receiptIndexEntries(result.Receipt, "plans")
+	if len(plans) != 1 {
+		t.Fatalf("unexpected plan index count: got %d want 1", len(plans))
+	}
+	if got := entryString(plans[0], "key"); got != "plan:"+result.Receipt.Meta.ReceiptID {
+		t.Fatalf("unexpected plan key: got %q want %q", got, "plan:"+result.Receipt.Meta.ReceiptID)
+	}
+	if got := entryString(plans[0], "status"); got != core.PlanStatusPending {
+		t.Fatalf("unexpected plan status: got %q want %q", got, core.PlanStatusPending)
+	}
+	if got := strings.TrimSpace(entryString(plans[0], "summary")); got == "" {
+		t.Fatalf("expected non-empty plan summary entry: %+v", plans[0])
+	}
+
+	meta := receiptMeta(result.Receipt)
+	if got := strings.TrimSpace(anyToString(meta["receipt_id"])); got != result.Receipt.Meta.ReceiptID {
+		t.Fatalf("unexpected receipt meta receipt_id: got %q want %q", got, result.Receipt.Meta.ReceiptID)
+	}
+
+	if result.Diagnostics == nil {
+		t.Fatal("expected diagnostics")
+	}
+	if result.Diagnostics.InitialPointerCount != 4 {
+		t.Fatalf("unexpected initial pointer count: got %d want 4", result.Diagnostics.InitialPointerCount)
+	}
+	if result.Diagnostics.FallbackUsed {
+		t.Fatal("did not expect fallback")
+	}
+	if len(repo.candidateCalls) != 1 {
+		t.Fatalf("expected 1 candidate query, got %d", len(repo.candidateCalls))
+	}
+	if len(repo.memoryCalls) != 1 {
+		t.Fatalf("expected 1 memory query, got %d", len(repo.memoryCalls))
+	}
+
+	repo2 := &fakeRepository{
+		candidateResults: repo.candidateResults,
+		hopResults:       repo.hopResults,
+		memoryResults:    repo.memoryResults,
+	}
+	svc2, err := New(repo2)
+	if err != nil {
+		t.Fatalf("new service 2: %v", err)
+	}
+	result2, apiErr2 := svc2.GetContext(context.Background(), payload)
+	if apiErr2 != nil {
+		t.Fatalf("unexpected API error on second run: %+v", apiErr2)
+	}
+	if result2.Receipt == nil {
+		t.Fatal("expected second receipt")
+	}
+	if result2.Receipt.Meta.ReceiptID != result.Receipt.Meta.ReceiptID {
+		t.Fatalf("expected deterministic receipt_id, got %q and %q", result.Receipt.Meta.ReceiptID, result2.Receipt.Meta.ReceiptID)
+	}
+}
+
+func TestGetContext_InsufficientContextAfterFallback(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{
+			{candidate("rule:one", "AGENTS.md", true, []string{"governance"})},
+			{candidate("rule:two", "AGENTS.md", true, []string{"governance"})},
+		},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	payload := v1.GetContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "narrow query that should trigger fallback",
+		Phase:     v1.PhasePlan,
+	}
+
+	result, apiErr := svc.GetContext(context.Background(), payload)
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "insufficient_context" {
+		t.Fatalf("unexpected status: %q", result.Status)
+	}
+	if result.Receipt != nil {
+		t.Fatal("did not expect receipt")
+	}
+	if result.Diagnostics == nil {
+		t.Fatal("expected diagnostics")
+	}
+	if result.Diagnostics.InitialPointerCount != 1 {
+		t.Fatalf("unexpected initial pointer count: got %d want 1", result.Diagnostics.InitialPointerCount)
+	}
+	if !result.Diagnostics.FallbackUsed {
+		t.Fatal("expected fallback to be used")
+	}
+	if result.Diagnostics.FallbackMode != fallbackWidenOnce {
+		t.Fatalf("unexpected fallback mode: %q", result.Diagnostics.FallbackMode)
+	}
+	if got := len(repo.candidateCalls); got != 2 {
+		t.Fatalf("expected 2 candidate queries, got %d", got)
+	}
+	if repo.candidateCalls[1].TaskText != payload.TaskText {
+		t.Fatalf("expected fallback task text to remain for FTS-only widening, got %q", repo.candidateCalls[1].TaskText)
+	}
+	if len(repo.candidateCalls[1].Tags) != 0 {
+		t.Fatalf("expected fallback query tags to be cleared, got %v", repo.candidateCalls[1].Tags)
+	}
+	if repo.candidateCalls[1].StaleFilter.AllowStale != payload.AllowStale {
+		t.Fatalf("expected fallback stale policy to match payload allow_stale=%v, got %v", payload.AllowStale, repo.candidateCalls[1].StaleFilter.AllowStale)
+	}
+	if len(repo.memoryCalls) != 0 {
+		t.Fatalf("did not expect memory query on insufficient context, got %d", len(repo.memoryCalls))
+	}
+}
+
+func TestGetContext_CapsRulesNonRulesAndMemories(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			candidate("rule:a", "AGENTS.md", true, []string{"rules"}),
+			candidate("rule:b", "CLAUDE.md", true, []string{"rules"}),
+			candidate("code:1", "internal/a.go", false, []string{"backend"}),
+			candidate("code:2", "internal/b.go", false, []string{"backend"}),
+			candidate("doc:1", "README.md", false, []string{"docs"}),
+		}},
+		hopResults: [][]core.HopPointer{{
+			hop("code:1", 1, candidate("test:1", "internal/a_test.go", false, []string{"tests"})),
+			hop("code:1", 1, candidate("test:2", "internal/b_test.go", false, []string{"tests"})),
+		}},
+		memoryResults: [][]core.ActiveMemory{{
+			memory(7, "One", "first", []string{"backend"}, []string{"code:1"}),
+			memory(8, "Two", "second", []string{"docs"}, []string{"doc:1"}),
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	payload := v1.GetContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "validate cap handling",
+		Phase:     v1.PhaseExecute,
+		Caps: &v1.RetrievalCaps{
+			MaxNonRulePointers: 1,
+			MaxHopExpansion:    1,
+			MaxMemories:        1,
+			MinPointerCount:    1,
+		},
+	}
+
+	result, apiErr := svc.GetContext(context.Background(), payload)
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("unexpected status: %q", result.Status)
+	}
+	if result.Receipt == nil {
+		t.Fatal("expected receipt")
+	}
+
+	if got, want := receiptIndexKeys(receiptIndexEntries(result.Receipt, "rules")), []string{"rule:a", "rule:b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected rule index keys: got %v want %v", got, want)
+	}
+	if got, want := receiptIndexKeys(receiptIndexEntries(result.Receipt, "suggestions")), []string{"code:1", "test:1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected suggestion index keys: got %v want %v", got, want)
+	}
+	memoryEntries := receiptIndexEntries(result.Receipt, "memories")
+	if len(memoryEntries) != 1 {
+		t.Fatalf("unexpected memory index count: got %d want 1", len(memoryEntries))
+	}
+	if got := entryString(memoryEntries[0], "key"); got != "mem:7" {
+		t.Fatalf("unexpected memory key: got %q want %q", got, "mem:7")
+	}
+	if got := strings.TrimSpace(entryString(memoryEntries[0], "summary")); got == "" {
+		t.Fatalf("expected non-empty memory summary entry: %+v", memoryEntries[0])
+	}
+	planEntries := receiptIndexEntries(result.Receipt, "plans")
+	if len(planEntries) != 1 {
+		t.Fatalf("expected one plan entry, got %d", len(planEntries))
+	}
+	if got := entryString(planEntries[0], "status"); got != core.PlanStatusPending {
+		t.Fatalf("unexpected plan status: got %q want %q", got, core.PlanStatusPending)
+	}
+
+	if len(repo.hopCalls) != 1 {
+		t.Fatalf("expected one hop query, got %d", len(repo.hopCalls))
+	}
+	if !reflect.DeepEqual(repo.hopCalls[0].PointerKeys, []string{"code:1"}) {
+		t.Fatalf("unexpected hop pointer keys: %v", repo.hopCalls[0].PointerKeys)
+	}
+	if len(repo.memoryCalls) != 1 {
+		t.Fatalf("expected one memory query, got %d", len(repo.memoryCalls))
+	}
+	if repo.memoryCalls[0].Limit != 1 {
+		t.Fatalf("expected memory query limit 1, got %d", repo.memoryCalls[0].Limit)
+	}
+}
+
+func TestGetContext_PhaseAndCanonicalTagsThreadedToRetrieval(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			candidate("rule:a", "AGENTS.md", true, []string{"Rules"}),
+			candidate("code:svc", "internal/service/postgres/get_context.go", false, []string{"API"}),
+		}},
+		memoryResults: [][]core.ActiveMemory{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.GetContext(context.Background(), v1.GetContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "policy API tests for review",
+		Phase:     v1.PhaseReview,
+		Caps: &v1.RetrievalCaps{
+			MinPointerCount: 1,
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "ok" || result.Receipt == nil {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(repo.candidateCalls) != 1 {
+		t.Fatalf("expected one candidate call, got %d", len(repo.candidateCalls))
+	}
+	if repo.candidateCalls[0].Phase != string(v1.PhaseReview) {
+		t.Fatalf("expected review phase in candidate query, got %q", repo.candidateCalls[0].Phase)
+	}
+	wantQueryTags := []string{"backend", "governance", "review", "test"}
+	if !reflect.DeepEqual(repo.candidateCalls[0].Tags, wantQueryTags) {
+		t.Fatalf("unexpected canonical query tags: got %v want %v", repo.candidateCalls[0].Tags, wantQueryTags)
+	}
+	if len(repo.memoryCalls) != 1 {
+		t.Fatalf("expected one memory query, got %d", len(repo.memoryCalls))
+	}
+	wantMemoryTags := []string{"backend", "governance"}
+	if !reflect.DeepEqual(repo.memoryCalls[0].Tags, wantMemoryTags) {
+		t.Fatalf("unexpected canonical memory tags: got %v want %v", repo.memoryCalls[0].Tags, wantMemoryTags)
+	}
+	if !reflect.DeepEqual(result.Receipt.Meta.ResolvedTags, wantMemoryTags) {
+		t.Fatalf("unexpected resolved tags: got %v want %v", result.Receipt.Meta.ResolvedTags, wantMemoryTags)
+	}
+}
+
+func TestGetContext_MaxHopsHonored(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			candidate("rule:a", "AGENTS.md", true, []string{"rules"}),
+			candidate("code:1", "internal/a.go", false, []string{"backend"}),
+		}},
+		hopResults: [][]core.HopPointer{{
+			hop("code:1", 1, candidate("test:1", "internal/a_test.go", false, []string{"tests"})),
+			hop("code:1", 2, candidate("doc:2", "docs/ADR-001-context-broker.md", false, []string{"docs"})),
+			hop("code:1", 3, candidate("code:3", "internal/c.go", false, []string{"backend"})),
+		}},
+		memoryResults: [][]core.ActiveMemory{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.GetContext(context.Background(), v1.GetContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "hop expansion coverage",
+		Phase:     v1.PhaseExecute,
+		Caps: &v1.RetrievalCaps{
+			MaxHops:         2,
+			MaxHopExpansion: 5,
+			MinPointerCount: 1,
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "ok" || result.Receipt == nil {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(repo.hopCalls) != 1 {
+		t.Fatalf("expected one hop query, got %d", len(repo.hopCalls))
+	}
+	if repo.hopCalls[0].MaxHops != 2 {
+		t.Fatalf("expected max_hops=2, got %d", repo.hopCalls[0].MaxHops)
+	}
+	wantKeys := []string{"code:1", "doc:2", "rule:a", "test:1"}
+	if got := pointerKeys(result.Receipt); !reflect.DeepEqual(got, wantKeys) {
+		t.Fatalf("unexpected pointer keys: got %v want %v", got, wantKeys)
+	}
+	foundDocSuggestion := false
+	for _, entry := range receiptIndexEntries(result.Receipt, "suggestions") {
+		if entryString(entry, "key") != "doc:2" {
+			continue
+		}
+		foundDocSuggestion = true
+		if strings.TrimSpace(entryString(entry, "summary")) == "" {
+			t.Fatalf("expected non-empty summary for doc:2 suggestion: %+v", entry)
+		}
+		break
+	}
+	if !foundDocSuggestion {
+		t.Fatalf("expected doc:2 suggestion entry in receipt index")
+	}
+}
+
+func TestProposeMemory_AutoPromoteOmittedDefaultsTrue(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:   "project.alpha",
+			ReceiptID:   "receipt.abc123",
+			PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Deterministic persistence",
+			Content:             "Insert candidate first, then try durable promotion.",
+			RelatedPointerKeys:  []string{"ptr:scope-b"},
+			Tags:                []string{"backend"},
+			Confidence:          4,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "promoted" {
+		t.Fatalf("expected promoted status, got %+v", result)
+	}
+	if result.PromotedMemoryID == 0 {
+		t.Fatalf("expected promoted memory id, got %+v", result)
+	}
+	if len(repo.proposeCalls) != 1 {
+		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
+	}
+	if !repo.proposeCalls[0].AutoPromote || !repo.proposeCalls[0].Promotable {
+		t.Fatalf("expected auto-promote default true with promotable=true, got %+v", repo.proposeCalls[0])
+	}
+}
+
+func TestProposeMemory_AutoPromoteFalseReturnsPending(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:   "project.alpha",
+			ReceiptID:   "receipt.abc123",
+			PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID:   "project.alpha",
+		ReceiptID:   "receipt.abc123",
+		AutoPromote: boolPtr(false),
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Deterministic persistence",
+			Content:             "Insert candidate first, then try durable promotion.",
+			RelatedPointerKeys:  []string{"ptr:scope-b"},
+			Tags:                []string{"backend"},
+			Confidence:          4,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "pending" {
+		t.Fatalf("expected pending status, got %+v", result)
+	}
+	if len(repo.proposeCalls) != 1 {
+		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
+	}
+	if repo.proposeCalls[0].AutoPromote || repo.proposeCalls[0].Promotable {
+		t.Fatalf("expected auto-promote disabled call, got %+v", repo.proposeCalls[0])
+	}
+}
+
+func TestProposeMemory_AutoPromoteTrueHardAndSoftPassPromotes(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:   "project.alpha",
+			ReceiptID:   "receipt.abc123",
+			PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID:   "project.alpha",
+		ReceiptID:   "receipt.abc123",
+		AutoPromote: boolPtr(true),
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Scoped promotion",
+			Content:             "Promote when hard and soft validation pass.",
+			RelatedPointerKeys:  []string{"ptr:scope-b"},
+			Tags:                []string{"backend"},
+			Confidence:          4,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "promoted" || result.PromotedMemoryID == 0 {
+		t.Fatalf("expected promoted result, got %+v", result)
+	}
+}
+
+func TestProposeMemory_HardFailEvidenceOutsideScopeRejected(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:   "project.alpha",
+			ReceiptID:   "receipt.abc123",
+			PointerKeys: []string{"ptr:scope-a"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID:   "project.alpha",
+		ReceiptID:   "receipt.abc123",
+		AutoPromote: boolPtr(true),
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Bad evidence",
+			Content:             "Evidence points outside receipt scope.",
+			RelatedPointerKeys:  []string{"ptr:scope-a"},
+			Tags:                []string{"backend"},
+			Confidence:          3,
+			EvidencePointerKeys: []string{"ptr:outside"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "rejected" {
+		t.Fatalf("expected rejected status, got %+v", result)
+	}
+	if result.Validation.HardPassed {
+		t.Fatalf("expected hard validation failure, got %+v", result.Validation)
+	}
+	if len(result.Validation.Errors) == 0 {
+		t.Fatalf("expected hard validation errors, got %+v", result.Validation)
+	}
+	if len(repo.proposeCalls) != 1 {
+		t.Fatalf("expected candidate persistence call even on hard fail, got %d", len(repo.proposeCalls))
+	}
+}
+
+func TestProposeMemory_SoftFailWithAutoPromoteTrueReturnsPending(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:   "project.alpha",
+			ReceiptID:   "receipt.abc123",
+			PointerKeys: []string{"ptr:scope-a"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID:   "project.alpha",
+		ReceiptID:   "receipt.abc123",
+		AutoPromote: boolPtr(true),
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Soft warning",
+			Content:             "Related pointer is out of scope.",
+			RelatedPointerKeys:  []string{"ptr:outside"},
+			Tags:                []string{"backend"},
+			Confidence:          3,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "pending" {
+		t.Fatalf("expected pending status, got %+v", result)
+	}
+	if !result.Validation.HardPassed || result.Validation.SoftPassed {
+		t.Fatalf("expected hard pass + soft fail, got %+v", result.Validation)
+	}
+	if len(result.Validation.Warnings) == 0 {
+		t.Fatalf("expected soft warnings, got %+v", result.Validation)
+	}
+	if len(repo.proposeCalls) != 1 || repo.proposeCalls[0].Promotable {
+		t.Fatalf("expected persisted non-promotable candidate, got %+v", repo.proposeCalls)
+	}
+}
+
+func TestProposeMemory_DuplicateConflictReturnsRejected(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:   "project.alpha",
+			ReceiptID:   "receipt.abc123",
+			PointerKeys: []string{"ptr:scope-a"},
+		}},
+		proposeResults: []core.ProposeMemoryPersistenceResult{{
+			CandidateID:      17,
+			Status:           "rejected",
+			PromotedMemoryID: 0,
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID:   "project.alpha",
+		ReceiptID:   "receipt.abc123",
+		AutoPromote: boolPtr(true),
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Duplicate",
+			Content:             "Same durable memory already exists.",
+			RelatedPointerKeys:  []string{"ptr:scope-a"},
+			Tags:                []string{"backend"},
+			Confidence:          5,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "rejected" || result.CandidateID != 17 {
+		t.Fatalf("expected rejected duplicate result, got %+v", result)
+	}
+	if !result.Validation.HardPassed || !result.Validation.SoftPassed {
+		t.Fatalf("expected validation pass with duplicate rejection, got %+v", result.Validation)
+	}
+}
+
+func TestProposeMemory_UnknownReceiptReturnsNotFound(t *testing.T) {
+	repo := &fakeRepository{
+		scopeErrors: []error{core.ErrReceiptScopeNotFound},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.missing",
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "x",
+			Content:             "y",
+			Confidence:          3,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "NOT_FOUND" {
+		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "NOT_FOUND")
+	}
+	if len(repo.proposeCalls) != 0 {
+		t.Fatalf("did not expect persistence call, got %d", len(repo.proposeCalls))
+	}
+}
+
+func TestProposeMemory_FetchScopeErrorReturnsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		scopeErrors: []error{errors.New("scope lookup failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "x",
+			Content:             "y",
+			Confidence:          3,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "INTERNAL_ERROR")
+	}
+	if len(repo.proposeCalls) != 0 {
+		t.Fatalf("did not expect persistence call, got %d", len(repo.proposeCalls))
+	}
+}
+
+func TestProposeMemory_PersistErrorReturnsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:   "project.alpha",
+			ReceiptID:   "receipt.abc123",
+			PointerKeys: []string{"ptr:scope-a"},
+		}},
+		proposeErrors: []error{errors.New("insert failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "x",
+			Content:             "y",
+			Confidence:          3,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "INTERNAL_ERROR")
+	}
+}
+
+func TestProposeMemory_NormalizationAndDedupeKeyDeterministic(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{
+			{
+				ProjectID:   "project.alpha",
+				ReceiptID:   "receipt.abc123",
+				PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
+			},
+			{
+				ProjectID:   "project.alpha",
+				ReceiptID:   "receipt.abc123",
+				PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
+			},
+		},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	payloadA := v1.ProposeMemoryPayload{
+		ProjectID:   "project.alpha",
+		ReceiptID:   "receipt.abc123",
+		AutoPromote: boolPtr(false),
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "  Deterministic subject  ",
+			Content:             "  Deterministic content  ",
+			RelatedPointerKeys:  []string{"ptr:scope-b", "ptr:scope-a", "ptr:scope-b"},
+			Tags:                []string{"ops", "backend", "ops", " "},
+			Confidence:          4,
+			EvidencePointerKeys: []string{"ptr:scope-a", "ptr:scope-b", "ptr:scope-a"},
+		},
+	}
+	payloadB := v1.ProposeMemoryPayload{
+		ProjectID:   "project.alpha",
+		ReceiptID:   "receipt.abc123",
+		AutoPromote: boolPtr(false),
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Deterministic subject",
+			Content:             "Deterministic content",
+			RelatedPointerKeys:  []string{"ptr:scope-a", "ptr:scope-b"},
+			Tags:                []string{"backend", "ops"},
+			Confidence:          4,
+			EvidencePointerKeys: []string{"ptr:scope-b", "ptr:scope-a"},
+		},
+	}
+
+	if _, apiErr := svc.ProposeMemory(context.Background(), payloadA); apiErr != nil {
+		t.Fatalf("unexpected API error on payloadA: %+v", apiErr)
+	}
+	if _, apiErr := svc.ProposeMemory(context.Background(), payloadB); apiErr != nil {
+		t.Fatalf("unexpected API error on payloadB: %+v", apiErr)
+	}
+
+	if len(repo.proposeCalls) != 2 {
+		t.Fatalf("expected 2 persistence calls, got %d", len(repo.proposeCalls))
+	}
+
+	first := repo.proposeCalls[0]
+	second := repo.proposeCalls[1]
+	if first.DedupeKey != second.DedupeKey {
+		t.Fatalf("expected deterministic dedupe key, got %q and %q", first.DedupeKey, second.DedupeKey)
+	}
+	if first.Subject != "Deterministic subject" || first.Content != "Deterministic content" {
+		t.Fatalf("expected normalized subject/content, got %q / %q", first.Subject, first.Content)
+	}
+	if !reflect.DeepEqual(first.Tags, second.Tags) {
+		t.Fatalf("expected deterministic normalized tags, got %v and %v", first.Tags, second.Tags)
+	}
+	if !reflect.DeepEqual(first.RelatedPointerKeys, second.RelatedPointerKeys) {
+		t.Fatalf("expected deterministic normalized related keys, got %v and %v", first.RelatedPointerKeys, second.RelatedPointerKeys)
+	}
+	if !reflect.DeepEqual(first.EvidencePointerKeys, second.EvidencePointerKeys) {
+		t.Fatalf("expected deterministic normalized evidence keys, got %v and %v", first.EvidencePointerKeys, second.EvidencePointerKeys)
+	}
+}
+
+func TestProposeMemory_CanonicalTagNormalization(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:   "project.alpha",
+			ReceiptID:   "receipt.abc123",
+			PointerKeys: []string{"ptr:scope-a"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Canonical tags",
+			Content:             "Ensure propose_memory normalizes tags against canonical aliases.",
+			RelatedPointerKeys:  []string{"ptr:scope-a"},
+			Tags:                []string{"API", "backend", "Policies", "  "},
+			Confidence:          4,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(repo.proposeCalls) != 1 {
+		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
+	}
+	wantTags := []string{"backend", "governance"}
+	if !reflect.DeepEqual(repo.proposeCalls[0].Tags, wantTags) {
+		t.Fatalf("unexpected canonical propose tags: got %v want %v", repo.proposeCalls[0].Tags, wantTags)
+	}
+}
+
+func TestReportCompletion_AcceptsInScopeAndPersistsSummary(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			TaskText:     "implement completion path",
+			Phase:        "execute",
+			ResolvedTags: []string{"backend"},
+			PointerKeys:  []string{"code:repo"},
+			MemoryIDs:    []int64{7},
+			PointerPaths: []string{"internal/service/postgres/service.go", "internal/core/repository.go"},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 42, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"internal/core/repository.go"},
+		Outcome:      "completed",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected accepted result: %+v", result)
+	}
+	if result.RunID != 42 {
+		t.Fatalf("unexpected run id: got %d want 42", result.RunID)
+	}
+	if len(result.Violations) != 0 {
+		t.Fatalf("expected no violations, got %+v", result.Violations)
+	}
+	if len(repo.scopeCalls) != 1 {
+		t.Fatalf("expected one scope lookup, got %d", len(repo.scopeCalls))
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one save call, got %d", len(repo.saveCalls))
+	}
+	if repo.saveCalls[0].Status != "accepted" {
+		t.Fatalf("unexpected status persisted: %q", repo.saveCalls[0].Status)
+	}
+	if repo.saveCalls[0].TaskText != "implement completion path" || repo.saveCalls[0].Phase != "execute" {
+		t.Fatalf("expected scope metadata in persisted summary, got task=%q phase=%q", repo.saveCalls[0].TaskText, repo.saveCalls[0].Phase)
+	}
+}
+
+func TestReportCompletion_StrictModeRejectsOutOfScopeWithoutPersistence(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"internal/service/postgres/service.go"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"README.md", "internal/service/postgres/service.go"},
+		Outcome:      "completed",
+		ScopeMode:    v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Accepted {
+		t.Fatalf("expected rejection: %+v", result)
+	}
+	wantViolations := []v1.CompletionViolation{{
+		Path:   "README.md",
+		Reason: "path is outside receipt scope",
+	}}
+	if !reflect.DeepEqual(result.Violations, wantViolations) {
+		t.Fatalf("unexpected violations: got %+v want %+v", result.Violations, wantViolations)
+	}
+	if len(repo.saveCalls) != 0 {
+		t.Fatalf("did not expect save on rejection, got %d", len(repo.saveCalls))
+	}
+}
+
+func TestReportCompletion_StrictModeRejectsIncompleteDefinitionOfDoneWithoutPersistence(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"internal/core/repository.go"},
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "verify:tests", Status: core.WorkItemStatusComplete},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"internal/core/repository.go"},
+		Outcome:      "completed",
+		ScopeMode:    v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Accepted {
+		t.Fatalf("expected strict-mode DoD rejection: %+v", result)
+	}
+	if len(result.Violations) != 0 {
+		t.Fatalf("expected no scope violations, got %+v", result.Violations)
+	}
+	if got, want := result.DefinitionOfDoneIssues, []string{"required verification work item is missing: verify:diff-review"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected DoD issues: got %v want %v", got, want)
+	}
+	if len(repo.saveCalls) != 0 {
+		t.Fatalf("did not expect save on strict DoD rejection, got %d", len(repo.saveCalls))
+	}
+}
+
+func TestReportCompletion_WarnModeAcceptsIncompleteDefinitionOfDoneAndPersistsWarning(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"internal/core/repository.go"},
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "verify:tests", Status: core.WorkItemStatusInProgress},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 73, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"internal/core/repository.go"},
+		Outcome:      "completed",
+		ScopeMode:    v1.ScopeModeWarn,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected warn-mode acceptance: %+v", result)
+	}
+	wantIssues := []string{
+		"required verification work item is not complete: verify:tests (status=in_progress)",
+		"required verification work item is missing: verify:diff-review",
+	}
+	if !reflect.DeepEqual(result.DefinitionOfDoneIssues, wantIssues) {
+		t.Fatalf("unexpected DoD issues: got %v want %v", result.DefinitionOfDoneIssues, wantIssues)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one persisted run summary, got %d", len(repo.saveCalls))
+	}
+	if repo.saveCalls[0].Status != "accepted_with_warnings" {
+		t.Fatalf("unexpected persisted status: %q", repo.saveCalls[0].Status)
+	}
+	if !reflect.DeepEqual(repo.saveCalls[0].DefinitionOfDoneIssues, wantIssues) {
+		t.Fatalf("unexpected persisted DoD issues: got %v want %v", repo.saveCalls[0].DefinitionOfDoneIssues, wantIssues)
+	}
+}
+
+func TestReportCompletion_NoWorkItemsDoesNotWarnDefinitionOfDone(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"internal/core/repository.go"},
+		}},
+		workListResults: [][]core.WorkItem{{}},
+		saveResult:      core.RunReceiptIDs{RunID: 58, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"internal/core/repository.go"},
+		Outcome:      "completed",
+		ScopeMode:    v1.ScopeModeWarn,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected acceptance when no work items exist: %+v", result)
+	}
+	if len(result.DefinitionOfDoneIssues) != 0 {
+		t.Fatalf("expected no DoD issues without work items, got %v", result.DefinitionOfDoneIssues)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one persisted run summary, got %d", len(repo.saveCalls))
+	}
+	if repo.saveCalls[0].Status != "accepted" {
+		t.Fatalf("unexpected persisted status when no work items exist: %q", repo.saveCalls[0].Status)
+	}
+	if len(repo.saveCalls[0].DefinitionOfDoneIssues) != 0 {
+		t.Fatalf("expected no persisted DoD issues without work items, got %v", repo.saveCalls[0].DefinitionOfDoneIssues)
+	}
+}
+
+func TestReportCompletion_DefaultModeWarnAcceptsOutOfScopeAndPersistsSummary(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			TaskText:     "default warn scope check",
+			Phase:        "execute",
+			ResolvedTags: []string{"backend"},
+			PointerKeys:  []string{"code:repo"},
+			PointerPaths: []string{"src/allowed.go"},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 64, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"src/allowed.go", "src/outside.go"},
+		Outcome:      "completed",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected accepted result in default warn mode: %+v", result)
+	}
+	if result.RunID != 64 {
+		t.Fatalf("unexpected run id: got %d want 64", result.RunID)
+	}
+	if len(result.Violations) != 1 || result.Violations[0].Path != "src/outside.go" {
+		t.Fatalf("unexpected violations: %+v", result.Violations)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one persisted run summary, got %d", len(repo.saveCalls))
+	}
+	if repo.saveCalls[0].Status != "accepted_with_warnings" {
+		t.Fatalf("unexpected persisted status: %q", repo.saveCalls[0].Status)
+	}
+}
+
+func TestReportCompletion_UnknownReceiptReturnsNotFound(t *testing.T) {
+	repo := &fakeRepository{
+		scopeErrors: []error{core.ErrReceiptScopeNotFound},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.missing",
+		FilesChanged: []string{"internal/core/repository.go"},
+		Outcome:      "completed",
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "NOT_FOUND" {
+		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "NOT_FOUND")
+	}
+	if len(repo.saveCalls) != 0 {
+		t.Fatalf("did not expect save call, got %d", len(repo.saveCalls))
+	}
+}
+
+func TestReportCompletion_FetchScopeErrorReturnsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		scopeErrors: []error{errors.New("db fetch failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"internal/core/repository.go"},
+		Outcome:      "completed",
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "INTERNAL_ERROR")
+	}
+}
+
+func TestReportCompletion_SaveErrorReturnsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"internal/core/repository.go"},
+		}},
+		saveError: errors.New("insert failed"),
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"internal/core/repository.go"},
+		Outcome:      "completed",
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "INTERNAL_ERROR")
+	}
+}
+
+func TestReportCompletion_NormalizesFilesChangedDeterministically(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"docs/readme.md", "src/pkg/file.go"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		FilesChanged: []string{
+			" ./src//pkg/./file.go ",
+			"docs\\readme.md",
+			"src/pkg/../pkg/file.go",
+			"docs/readme.md",
+			" ",
+		},
+		Outcome: "completed",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected accepted result: %+v", result)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one save call, got %d", len(repo.saveCalls))
+	}
+	wantFiles := []string{"docs/readme.md", "src/pkg/file.go"}
+	if !reflect.DeepEqual(repo.saveCalls[0].FilesChanged, wantFiles) {
+		t.Fatalf("unexpected normalized files: got %v want %v", repo.saveCalls[0].FilesChanged, wantFiles)
+	}
+}
+
+func TestSync_ChangedDefaultsAndDeterministicProcessedPaths(t *testing.T) {
+	repo := &fakeRepository{
+		syncResults: []core.SyncApplyResult{{
+			Updated:            3,
+			MarkedStale:        0,
+			NewCandidates:      1,
+			DeletedMarkedStale: 2,
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	var gitCalls []string
+	svc.runGitCommand = func(_ context.Context, projectRoot string, args ...string) (string, error) {
+		call := projectRoot + "::" + strings.Join(args, " ")
+		gitCalls = append(gitCalls, call)
+		switch strings.Join(args, " ") {
+		case "diff --name-status --find-renames HEAD~1..HEAD":
+			return "M\t ./b//two.go \nR100\told/path.go\tnew\\\\path.go\nD\tz/delete.go\nA\ta/one.go\nM\ta/one.go\n", nil
+		case "ls-tree -r HEAD -- a/one.go b/two.go new/path.go":
+			return "" +
+				"100644 blob aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ta/one.go\n" +
+				"100644 blob bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\tb/two.go\n" +
+				"100644 blob cccccccccccccccccccccccccccccccccccccccc\tnew/path.go\n", nil
+		default:
+			t.Fatalf("unexpected git call: %s", call)
+		}
+		return "", nil
+	}
+
+	result, apiErr := svc.Sync(context.Background(), v1.SyncPayload{
+		ProjectID: "project.alpha",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(gitCalls) != 2 {
+		t.Fatalf("expected 2 git calls, got %d", len(gitCalls))
+	}
+	if gitCalls[0] != ".::diff --name-status --find-renames HEAD~1..HEAD" {
+		t.Fatalf("unexpected first git call: %s", gitCalls[0])
+	}
+	if len(repo.syncCalls) != 1 {
+		t.Fatalf("expected one apply sync call, got %d", len(repo.syncCalls))
+	}
+	call := repo.syncCalls[0]
+	if call.Mode != "changed" {
+		t.Fatalf("unexpected mode: %q", call.Mode)
+	}
+	if !call.InsertNewCandidates {
+		t.Fatalf("expected insert_new_candidates default true")
+	}
+
+	wantPaths := []core.SyncPath{
+		{Path: "a/one.go", ContentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{Path: "b/two.go", ContentHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		{Path: "new/path.go", ContentHash: "cccccccccccccccccccccccccccccccccccccccc"},
+		{Path: "old/path.go", Deleted: true},
+		{Path: "z/delete.go", Deleted: true},
+	}
+	if !reflect.DeepEqual(call.Paths, wantPaths) {
+		t.Fatalf("unexpected sync paths: got %#v want %#v", call.Paths, wantPaths)
+	}
+
+	wantProcessed := []string{"a/one.go", "b/two.go", "new/path.go", "old/path.go", "z/delete.go"}
+	if !reflect.DeepEqual(result.ProcessedPaths, wantProcessed) {
+		t.Fatalf("unexpected processed paths: got %v want %v", result.ProcessedPaths, wantProcessed)
+	}
+	if result.Updated != 3 || result.MarkedStale != 0 || result.NewCandidates != 1 || result.DeletedMarkedStale != 2 {
+		t.Fatalf("unexpected result counts: %+v", result)
+	}
+}
+
+func TestSync_ExplicitInsertNewCandidatesFalseHonored(t *testing.T) {
+	repo := &fakeRepository{
+		syncResults: []core.SyncApplyResult{{Updated: 1}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	var gitCalls []string
+	svc.runGitCommand = func(_ context.Context, projectRoot string, args ...string) (string, error) {
+		call := projectRoot + "::" + strings.Join(args, " ")
+		gitCalls = append(gitCalls, call)
+		switch strings.Join(args, " ") {
+		case "diff --name-status --find-renames base..main":
+			return "M\tsrc/main.go\n", nil
+		case "ls-tree -r main -- src/main.go":
+			return "100644 blob dddddddddddddddddddddddddddddddddddddddd\tsrc/main.go\n", nil
+		default:
+			t.Fatalf("unexpected git call: %s", call)
+		}
+		return "", nil
+	}
+
+	result, apiErr := svc.Sync(context.Background(), v1.SyncPayload{
+		ProjectID:           "project.alpha",
+		Mode:                "changed",
+		GitRange:            "base..main",
+		InsertNewCandidates: boolPtr(false),
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(repo.syncCalls) != 1 {
+		t.Fatalf("expected one apply sync call, got %d", len(repo.syncCalls))
+	}
+	if repo.syncCalls[0].InsertNewCandidates {
+		t.Fatalf("expected explicit false insert_new_candidates to be honored")
+	}
+	if !reflect.DeepEqual(result.ProcessedPaths, []string{"src/main.go"}) {
+		t.Fatalf("unexpected processed paths: %v", result.ProcessedPaths)
+	}
+	if len(gitCalls) != 2 || gitCalls[0] != ".::diff --name-status --find-renames base..main" {
+		t.Fatalf("unexpected git calls: %v", gitCalls)
+	}
+}
+
+func TestSync_FullModeMapsRepositoryCounters(t *testing.T) {
+	repo := &fakeRepository{
+		syncResults: []core.SyncApplyResult{{
+			Updated:            7,
+			MarkedStale:        3,
+			NewCandidates:      2,
+			DeletedMarkedStale: 0,
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	svc.runGitCommand = func(_ context.Context, projectRoot string, args ...string) (string, error) {
+		if projectRoot != "/repo/root" {
+			t.Fatalf("unexpected project root: %s", projectRoot)
+		}
+		if strings.Join(args, " ") != "ls-tree -r HEAD" {
+			t.Fatalf("unexpected git args: %v", args)
+		}
+		return "" +
+			"100644 blob ffffffffffffffffffffffffffffffffffffffff\tz/file.go\n" +
+			"100644 blob 1111111111111111111111111111111111111111\ta/file.go\n", nil
+	}
+
+	result, apiErr := svc.Sync(context.Background(), v1.SyncPayload{
+		ProjectID:   "project.alpha",
+		Mode:        "full",
+		ProjectRoot: "/repo/root",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if len(repo.syncCalls) != 1 {
+		t.Fatalf("expected one apply sync call, got %d", len(repo.syncCalls))
+	}
+	call := repo.syncCalls[0]
+	if call.Mode != "full" {
+		t.Fatalf("unexpected mode: %q", call.Mode)
+	}
+	wantPaths := []core.SyncPath{
+		{Path: "a/file.go", ContentHash: "1111111111111111111111111111111111111111"},
+		{Path: "z/file.go", ContentHash: "ffffffffffffffffffffffffffffffffffffffff"},
+	}
+	if !reflect.DeepEqual(call.Paths, wantPaths) {
+		t.Fatalf("unexpected paths: got %#v want %#v", call.Paths, wantPaths)
+	}
+	if result.Updated != 7 || result.MarkedStale != 3 || result.NewCandidates != 2 || result.DeletedMarkedStale != 0 {
+		t.Fatalf("unexpected result counters: %+v", result)
+	}
+	if !reflect.DeepEqual(result.ProcessedPaths, []string{"a/file.go", "z/file.go"}) {
+		t.Fatalf("unexpected processed paths: %v", result.ProcessedPaths)
+	}
+}
+
+func TestSync_RepositoryErrorMapsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		syncErrors: []error{errors.New("apply failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
+		switch strings.Join(args, " ") {
+		case "diff --name-status --find-renames HEAD~1..HEAD":
+			return "M\tsrc/main.go\n", nil
+		case "ls-tree -r HEAD -- src/main.go":
+			return "100644 blob 0123456789abcdef0123456789abcdef01234567\tsrc/main.go\n", nil
+		default:
+			t.Fatalf("unexpected git args: %v", args)
+		}
+		return "", nil
+	}
+
+	_, apiErr := svc.Sync(context.Background(), v1.SyncPayload{
+		ProjectID: "project.alpha",
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: got %q want INTERNAL_ERROR", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if got := details["operation"]; got != "apply_sync" {
+		t.Fatalf("unexpected operation detail: %#v", details)
+	}
+}
+
+func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
+	maxFindings := 1
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			{
+				Key:         "ptr:one",
+				Path:        "internal/a.go",
+				Label:       "duplicate",
+				Description: "",
+				Tags:        []string{"backend", "BAD_TAG"},
+				IsStale:     true,
+			},
+			{
+				Key:         "ptr:two",
+				Path:        "internal/b.go",
+				Label:       "duplicate",
+				Description: "ok",
+				Tags:        []string{"backend"},
+			},
+			{
+				Key:         "ptr:three",
+				Path:        "internal/c.go",
+				Label:       "unique",
+				Description: "",
+				Tags:        []string{"bad tag"},
+			},
+		}},
+		memoryResults: [][]core.ActiveMemory{{
+			{ID: 1, Confidence: 1, Tags: []string{"BadTag"}, RelatedPointerKeys: nil},
+			{ID: 2, Confidence: 4, Tags: []string{"backend"}, RelatedPointerKeys: []string{"ptr:one"}},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.HealthCheck(context.Background(), v1.HealthCheckPayload{
+		ProjectID:           "project.alpha",
+		MaxFindingsPerCheck: &maxFindings,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if result.Summary.OK {
+		t.Fatalf("expected summary not ok: %+v", result.Summary)
+	}
+	if result.Summary.TotalFindings != 10 {
+		t.Fatalf("unexpected total findings: got %d want 10", result.Summary.TotalFindings)
+	}
+
+	wantOrder := []string{
+		"duplicate_labels",
+		"empty_descriptions",
+		"orphan_relations",
+		"pending_quarantines",
+		"stale_pointers",
+		"unknown_tags",
+		"weak_memories",
+	}
+	gotOrder := make([]string, 0, len(result.Checks))
+	for _, check := range result.Checks {
+		gotOrder = append(gotOrder, check.Name)
+		if len(check.Samples) > 1 {
+			t.Fatalf("expected capped samples <=1 for %s, got %v", check.Name, check.Samples)
+		}
+	}
+	if !reflect.DeepEqual(gotOrder, wantOrder) {
+		t.Fatalf("unexpected check order: got %v want %v", gotOrder, wantOrder)
+	}
+	if len(result.Checks[0].Samples) == 0 {
+		t.Fatalf("expected include_details default to include samples")
+	}
+}
+
+func TestHealthCheck_IncludeDetailsFalseOmitsSamples(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			{
+				Key:         "ptr:one",
+				Path:        "internal/a.go",
+				Label:       "duplicate",
+				Description: "",
+				IsStale:     true,
+			},
+			{
+				Key:         "ptr:two",
+				Path:        "internal/b.go",
+				Label:       "duplicate",
+				Description: "",
+			},
+		}},
+		memoryResults: [][]core.ActiveMemory{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	includeDetails := false
+	result, apiErr := svc.HealthCheck(context.Background(), v1.HealthCheckPayload{
+		ProjectID:      "project.alpha",
+		IncludeDetails: &includeDetails,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	for _, check := range result.Checks {
+		if len(check.Samples) != 0 {
+			t.Fatalf("expected no samples when include_details=false, got check=%s samples=%v", check.Name, check.Samples)
+		}
+	}
+}
+
+func TestHealthCheck_RepositoryErrorMapsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		candidateErrors: []error{errors.New("candidate query failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.HealthCheck(context.Background(), v1.HealthCheckPayload{ProjectID: "project.alpha"})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected error code: %s", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["operation"] != "fetch_candidate_pointers" {
+		t.Fatalf("unexpected operation detail: %#v", details)
+	}
+}
+
+func TestRegress_InlineSuiteDeterministicMetricsAndInsufficientContextHandling(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{
+			{
+				candidate("rule:a", "AGENTS.md", true, []string{"rules"}),
+				candidate("code:x", "internal/x.go", false, []string{"backend"}),
+			},
+			{
+				candidate("rule:only", "AGENTS.md", true, []string{"rules"}),
+			},
+			{
+				candidate("rule:still-only", "AGENTS.md", true, []string{"rules"}),
+			},
+		},
+		memoryResults: [][]core.ActiveMemory{
+			{
+				memory(10, "Memory A", "content", []string{"backend"}, []string{"code:x"}),
+			},
+		},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Regress(context.Background(), v1.RegressPayload{
+		ProjectID: "project.alpha",
+		EvalSuiteInline: []v1.RegressCase{
+			{
+				TaskText:               "case one",
+				Phase:                  v1.PhaseExecute,
+				ExpectedPointerKeys:    []string{"rule:a"},
+				ExpectedMemorySubjects: []string{"Memory A"},
+			},
+			{
+				TaskText:            "case two",
+				Phase:               v1.PhasePlan,
+				ExpectedPointerKeys: []string{"rule:missing"},
+			},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if result.TotalCases != 2 {
+		t.Fatalf("unexpected total cases: %d", result.TotalCases)
+	}
+	if result.MinimumRecall != 0.8 {
+		t.Fatalf("expected default minimum recall 0.8, got %v", result.MinimumRecall)
+	}
+	if result.Pass {
+		t.Fatalf("expected pass=false, got %+v", result)
+	}
+
+	if len(result.Cases) != 2 {
+		t.Fatalf("unexpected case count: %d", len(result.Cases))
+	}
+	if result.Cases[0].Precision != 0.666667 || result.Cases[0].Recall != 1 || result.Cases[0].F1 != 0.8 {
+		t.Fatalf("unexpected metrics for case 0: %+v", result.Cases[0])
+	}
+	if result.Cases[1].Recall != 0 || result.Cases[1].F1 != 0 {
+		t.Fatalf("unexpected metrics for case 1: %+v", result.Cases[1])
+	}
+	if result.Cases[1].Notes != "insufficient_context" {
+		t.Fatalf("expected insufficient_context note, got %q", result.Cases[1].Notes)
+	}
+	if result.Aggregate.Precision != 0.666667 || result.Aggregate.Recall != 0.666667 || result.Aggregate.F1 != 0.666667 {
+		t.Fatalf("unexpected aggregate metrics: %+v", result.Aggregate)
+	}
+}
+
+func TestRegress_FileSuiteAndThresholdBehavior(t *testing.T) {
+	tmpDir := t.TempDir()
+	suitePath := filepath.Join(tmpDir, "suite.json")
+	content := `[{"task_text":"file suite case","phase":"execute","expected_pointer_keys":["rule:a"]}]`
+	if err := os.WriteFile(suitePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write suite file: %v", err)
+	}
+
+	minimumRecall := 0.5
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			candidate("rule:a", "AGENTS.md", true, []string{"rules"}),
+			candidate("code:x", "internal/x.go", false, []string{"backend"}),
+		}},
+		memoryResults: [][]core.ActiveMemory{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Regress(context.Background(), v1.RegressPayload{
+		ProjectID:     "project.alpha",
+		EvalSuitePath: suitePath,
+		MinimumRecall: &minimumRecall,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if result.TotalCases != 1 {
+		t.Fatalf("unexpected total cases: %d", result.TotalCases)
+	}
+	if result.MinimumRecall != 0.5 {
+		t.Fatalf("unexpected minimum_recall: %v", result.MinimumRecall)
+	}
+	if !result.Pass {
+		t.Fatalf("expected pass=true, got %+v", result)
+	}
+}
+
+func TestRegress_LoadSuiteErrorMapsInternalError(t *testing.T) {
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Regress(context.Background(), v1.RegressPayload{
+		ProjectID:     "project.alpha",
+		EvalSuitePath: filepath.Join(t.TempDir(), "missing.json"),
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected error code: %s", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["operation"] != "load_eval_suite" {
+		t.Fatalf("unexpected operation detail: %#v", details)
+	}
+}
+
+func TestBootstrap_DefaultOutputPathAndDeterministicEnumeration(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "dir"), 0o755); err != nil {
+		t.Fatalf("mkdir dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dir", "b.go"), []byte("package dir"), 0o644); err != nil {
+		t.Fatalf("write b.go: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	outputPath := filepath.Join(root, "bootstrap_candidates.json")
+	if result.OutputCandidatesPath != outputPath {
+		t.Fatalf("unexpected output path: got %q want %q", result.OutputCandidatesPath, outputPath)
+	}
+	if result.CandidateCount != 2 {
+		t.Fatalf("unexpected candidate count: got %d want 2", result.CandidateCount)
+	}
+
+	raw, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	var parsed struct {
+		Candidates []string `json:"candidates"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse output file: %v", err)
+	}
+	wantCandidates := []string{"a.txt", "dir/b.go"}
+	if !reflect.DeepEqual(parsed.Candidates, wantCandidates) {
+		t.Fatalf("unexpected candidates: got %v want %v", parsed.Candidates, wantCandidates)
+	}
+
+	again, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error on second run: %+v", apiErr)
+	}
+	if again.CandidateCount != 2 {
+		t.Fatalf("expected deterministic candidate count across runs, got %d", again.CandidateCount)
+	}
+}
+
+func TestBootstrap_CustomOutputPathAndWarningsDeterministic(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+
+	output := "reports/candidates.json"
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:            "project.alpha",
+		ProjectRoot:          root,
+		OutputCandidatesPath: &output,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	wantPath := filepath.Join(root, "reports", "candidates.json")
+	if result.OutputCandidatesPath != wantPath {
+		t.Fatalf("unexpected output path: got %q want %q", result.OutputCandidatesPath, wantPath)
+	}
+	if result.CandidateCount != 1 {
+		t.Fatalf("unexpected candidate count: got %d want 1", result.CandidateCount)
+	}
+	wantWarnings := []string{"respect_gitignore fallback to filesystem walk"}
+	if !reflect.DeepEqual(result.Warnings, wantWarnings) {
+		t.Fatalf("unexpected warnings: got %v want %v", result.Warnings, wantWarnings)
+	}
+}
+
+func TestBootstrap_PathCollectionErrorMapsInternalError(t *testing.T) {
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	respectGitIgnore := false
+	_, apiErr := svc.Bootstrap(ctx, v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      t.TempDir(),
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected error code: %s", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["operation"] != "collect_project_paths" {
+		t.Fatalf("unexpected operation detail: %#v", details)
+	}
+}
+
+func candidate(key, path string, isRule bool, tags []string) core.CandidatePointer {
+	return core.CandidatePointer{
+		Key:         key,
+		Path:        path,
+		Kind:        "code",
+		Label:       key,
+		Description: "desc " + key,
+		Tags:        append([]string(nil), tags...),
+		IsRule:      isRule,
+	}
+}
+
+func hop(source string, hopCount int, pointer core.CandidatePointer) core.HopPointer {
+	return core.HopPointer{SourceKey: source, HopCount: hopCount, Pointer: pointer}
+}
+
+func memory(id int64, subject, content string, tags []string, related []string) core.ActiveMemory {
+	return core.ActiveMemory{
+		ID:                 id,
+		Category:           "decision",
+		Subject:            subject,
+		Content:            content,
+		Confidence:         4,
+		Tags:               append([]string(nil), tags...),
+		RelatedPointerKeys: append([]string(nil), related...),
+	}
+}
+
+func pointerKeys(receipt *v1.ContextReceipt) []string {
+	if receipt == nil {
+		return nil
+	}
+
+	keys := make(map[string]struct{}, len(receipt.Rules)+len(receipt.Suggestions))
+	for _, entry := range receipt.Rules {
+		key := strings.TrimSpace(entry.Key)
+		if key == "" {
+			continue
+		}
+		keys[key] = struct{}{}
+	}
+	for _, entry := range receipt.Suggestions {
+		key := strings.TrimSpace(entry.Key)
+		if key == "" {
+			continue
+		}
+		keys[key] = struct{}{}
+	}
+	return mapKeysSorted(keys)
+}
+
+func receiptIndexEntries(receipt *v1.ContextReceipt, index string) []map[string]any {
+	payload := receiptJSONMap(receipt)
+	if len(payload) == 0 {
+		return nil
+	}
+
+	switch index {
+	case "rules", "suggestions", "memories", "plans":
+		return normalizeIndexEntries(payload[index])
+	default:
+		return nil
+	}
+}
+
+func normalizeIndexEntries(raw any) []map[string]any {
+	entries, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(entries))
+	for _, rawEntry := range entries {
+		entry, ok := rawEntry.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func receiptIndexKeys(entries []map[string]any) []string {
+	keys := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		key := strings.TrimSpace(entryString(entry, "key"))
+		if key == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func receiptMeta(receipt *v1.ContextReceipt) map[string]any {
+	payload := receiptJSONMap(receipt)
+	if len(payload) == 0 {
+		return nil
+	}
+	if meta, ok := payload["_meta"].(map[string]any); ok {
+		return meta
+	}
+	return nil
+}
+
+func entryString(entry map[string]any, field string) string {
+	if entry == nil {
+		return ""
+	}
+	return anyToString(entry[field])
+}
+
+func entryStringSlice(entry map[string]any, field string) []string {
+	if entry == nil {
+		return nil
+	}
+	raw := entry[field]
+	values, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := strings.TrimSpace(anyToString(value))
+		if normalized == "" {
+			continue
+		}
+		out = append(out, normalized)
+	}
+	return out
+}
+
+func anyToString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case float64:
+		if typed == float64(int64(typed)) {
+			return strconv.FormatInt(int64(typed), 10)
+		}
+		return strings.TrimSpace(strconv.FormatFloat(typed, 'f', -1, 64))
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	default:
+		return ""
+	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func TestReportCompletion_WarnModeAcceptsOutOfScopeAndPersistsSummary(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			TaskText:     "warn mode scope check",
+			Phase:        "execute",
+			ResolvedTags: []string{"backend"},
+			PointerKeys:  []string{"code:repo"},
+			PointerPaths: []string{"src/allowed.go"},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 88, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"src/allowed.go", "src/outside.go"},
+		Outcome:      "completed with exploratory touch",
+		ScopeMode:    v1.ScopeModeWarn,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected accepted result in warn mode: %+v", result)
+	}
+	if result.RunID != 88 {
+		t.Fatalf("unexpected run id: got %d want 88", result.RunID)
+	}
+	if len(result.Violations) != 1 || result.Violations[0].Path != "src/outside.go" {
+		t.Fatalf("unexpected violations: %+v", result.Violations)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one persisted run summary, got %d", len(repo.saveCalls))
+	}
+	if repo.saveCalls[0].Status != "accepted_with_warnings" {
+		t.Fatalf("unexpected persisted status: %q", repo.saveCalls[0].Status)
+	}
+}
+
+func TestReportCompletion_AutoIndexModeAcceptsOutOfScopeAndUpsertsPointerStubs(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			TaskText:     "auto index scope check",
+			Phase:        "execute",
+			ResolvedTags: []string{"backend"},
+			PointerKeys:  []string{"code:repo"},
+			PointerPaths: []string{"src/allowed.go"},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 109, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"src/allowed.go", "src/new.go", "scripts/reindex.sh"},
+		Outcome:      "completed with exploratory touches",
+		ScopeMode:    v1.ScopeModeAutoIndex,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected accepted result in auto_index mode: %+v", result)
+	}
+	if result.RunID != 109 {
+		t.Fatalf("unexpected run id: got %d want 109", result.RunID)
+	}
+	if len(result.Violations) != 2 {
+		t.Fatalf("expected 2 violations, got %+v", result.Violations)
+	}
+	if len(repo.upsertStubCalls) != 1 {
+		t.Fatalf("expected one pointer stub upsert call, got %d", len(repo.upsertStubCalls))
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one persisted run summary, got %d", len(repo.saveCalls))
+	}
+	if repo.saveCalls[0].Status != "accepted_with_auto_index" {
+		t.Fatalf("unexpected persisted status: %q", repo.saveCalls[0].Status)
+	}
+
+	stubByPath := make(map[string]core.PointerStub)
+	for _, stub := range repo.upsertStubCalls[0] {
+		stubByPath[stub.Path] = stub
+	}
+
+	srcStub, ok := stubByPath["src/new.go"]
+	if !ok {
+		t.Fatalf("expected auto-index stub for src/new.go, got %+v", repo.upsertStubCalls[0])
+	}
+	if srcStub.Kind != "code" {
+		t.Fatalf("unexpected src/new.go kind: %q", srcStub.Kind)
+	}
+	if srcStub.PointerKey != "project.alpha:src/new.go" {
+		t.Fatalf("unexpected src/new.go pointer key: %q", srcStub.PointerKey)
+	}
+
+	scriptStub, ok := stubByPath["scripts/reindex.sh"]
+	if !ok {
+		t.Fatalf("expected auto-index stub for scripts/reindex.sh, got %+v", repo.upsertStubCalls[0])
+	}
+	if scriptStub.Kind != "command" {
+		t.Fatalf("unexpected scripts/reindex.sh kind: %q", scriptStub.Kind)
+	}
+	if scriptStub.PointerKey != "project.alpha:scripts/reindex.sh" {
+		t.Fatalf("unexpected scripts/reindex.sh pointer key: %q", scriptStub.PointerKey)
+	}
+}
+
+func TestReportCompletion_AutoIndexModeUpsertFailureReturnsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"src/allowed.go"},
+		}},
+		upsertStubErrors: []error{errors.New("upsert failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"src/allowed.go", "src/new.go"},
+		Outcome:      "attempted completion",
+		ScopeMode:    v1.ScopeModeAutoIndex,
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "INTERNAL_ERROR")
+	}
+	if len(repo.saveCalls) != 0 {
+		t.Fatalf("did not expect persisted run summary on upsert failure, got %d", len(repo.saveCalls))
+	}
+}
+
+func TestSync_WorkingTreeModeIncludesUntrackedAndUsesFilesystemHashes(t *testing.T) {
+	repo := &fakeRepository{
+		syncResults: []core.SyncApplyResult{{Updated: 2, NewCandidates: 1}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "src", "tracked.go"), []byte("package src\n\nfunc tracked() {}\n"), 0o644); err != nil {
+		t.Fatalf("write tracked.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "src", "new.go"), []byte("package src\n\nfunc created() {}\n"), 0o644); err != nil {
+		t.Fatalf("write new.go: %v", err)
+	}
+
+	var gitCalls []string
+	svc.runGitCommand = func(_ context.Context, root string, args ...string) (string, error) {
+		if root != projectRoot {
+			t.Fatalf("unexpected project root: %s", root)
+		}
+		joined := strings.Join(args, " ")
+		gitCalls = append(gitCalls, joined)
+		switch joined {
+		case "diff --name-status --find-renames HEAD":
+			return "M\tsrc/tracked.go\n", nil
+		case "ls-files --others --exclude-standard":
+			return "src/new.go\n", nil
+		default:
+			t.Fatalf("unexpected git args: %s", joined)
+		}
+		return "", nil
+	}
+
+	result, apiErr := svc.Sync(context.Background(), v1.SyncPayload{
+		ProjectID:   "project.alpha",
+		Mode:        "working_tree",
+		ProjectRoot: projectRoot,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(repo.syncCalls) != 1 {
+		t.Fatalf("expected one apply sync call, got %d", len(repo.syncCalls))
+	}
+	call := repo.syncCalls[0]
+	if call.Mode != "working_tree" {
+		t.Fatalf("unexpected sync mode: %q", call.Mode)
+	}
+	if len(call.Paths) != 2 {
+		t.Fatalf("expected 2 sync paths, got %d", len(call.Paths))
+	}
+	for _, p := range call.Paths {
+		if p.Deleted {
+			t.Fatalf("did not expect deleted path in working tree test: %+v", p)
+		}
+		if strings.TrimSpace(p.ContentHash) == "" {
+			t.Fatalf("expected content hash for path %+v", p)
+		}
+	}
+	if !reflect.DeepEqual(result.ProcessedPaths, []string{"src/new.go", "src/tracked.go"}) {
+		t.Fatalf("unexpected processed paths: %v", result.ProcessedPaths)
+	}
+	if len(gitCalls) != 2 {
+		t.Fatalf("expected two git calls, got %v", gitCalls)
+	}
+}
+
+func TestCoverage_ComputesSummaryAndDetails(t *testing.T) {
+	repo := &fakeRepository{
+		inventoryResults: []core.PointerInventory{
+			{Path: "src/covered.go", IsStale: false},
+			{Path: "src/stale.go", IsStale: true},
+			{Path: "docs/old.md", IsStale: true},
+		},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
+		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+			t.Fatalf("unexpected git args: %v", args)
+		}
+		return "src/covered.go\nsrc/stale.go\nsrc/unindexed.go\ncmd/tool/main.go\n", nil
+	}
+
+	result, apiErr := svc.Coverage(context.Background(), v1.CoveragePayload{
+		ProjectID: "project.alpha",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(repo.inventoryCalls) != 1 || repo.inventoryCalls[0] != "project.alpha" {
+		t.Fatalf("unexpected inventory calls: %v", repo.inventoryCalls)
+	}
+	if result.Summary.TotalFiles != 4 || result.Summary.IndexedFiles != 2 || result.Summary.UnindexedFiles != 2 || result.Summary.StaleFiles != 2 {
+		t.Fatalf("unexpected coverage summary: %+v", result.Summary)
+	}
+	if !reflect.DeepEqual(result.UnindexedPaths, []string{"cmd/tool/main.go", "src/unindexed.go"}) {
+		t.Fatalf("unexpected unindexed paths: %v", result.UnindexedPaths)
+	}
+	if !reflect.DeepEqual(result.StalePaths, []string{"docs/old.md", "src/stale.go"}) {
+		t.Fatalf("unexpected stale paths: %v", result.StalePaths)
+	}
+	if !reflect.DeepEqual(result.ZeroCoverageDirs, []string{"cmd/tool"}) {
+		t.Fatalf("unexpected zero coverage dirs: %v", result.ZeroCoverageDirs)
+	}
+}
+
+func TestCoverage_InventoryErrorMapsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		inventoryErrors: []error{errors.New("inventory failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	svc.runGitCommand = func(_ context.Context, _ string, _ ...string) (string, error) {
+		return "src/file.go\n", nil
+	}
+
+	_, apiErr := svc.Coverage(context.Background(), v1.CoveragePayload{
+		ProjectID: "project.alpha",
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: %s", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["operation"] != "list_pointer_inventory" {
+		t.Fatalf("unexpected operation detail: %#v", details)
+	}
+}
+
+func TestFetch_PlanKeyReturnsLookupSummary(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupResults: []core.FetchLookup{{
+			ProjectID:  "project.alpha",
+			ReceiptID:  "receipt.abc123",
+			RunID:      17,
+			RunStatus:  "accepted",
+			PlanStatus: core.PlanStatusCompleted,
+			WorkItems: []core.WorkItem{{
+				ItemKey: "src/a.go",
+				Status:  core.WorkItemStatusCompleted,
+			}},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	key := "plan:receipt.abc123"
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{key},
+		ExpectedVersions: map[string]string{
+			key: "17",
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one fetch item, got %+v", result)
+	}
+	item := result.Items[0]
+	if item.Key != key || item.Type != "plan" || item.Status != core.PlanStatusComplete || item.Version != "17" {
+		t.Fatalf("unexpected fetch item: %+v", item)
+	}
+	if len(result.NotFound) != 0 || len(result.VersionMismatches) != 0 {
+		t.Fatalf("unexpected fetch metadata: %+v", result)
+	}
+	if len(repo.fetchLookupCalls) != 1 {
+		t.Fatalf("expected one fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	}
+	if repo.fetchLookupCalls[0].ProjectID != "project.alpha" || repo.fetchLookupCalls[0].ReceiptID != "receipt.abc123" {
+		t.Fatalf("unexpected fetch lookup query: %+v", repo.fetchLookupCalls[0])
+	}
+}
+
+func TestFetchPayloadKeysWithReceipt_DerivesPlanKeyWhenKeysOmitted(t *testing.T) {
+	keys := fetchPayloadKeysWithReceipt(nil, " receipt.abc123 ")
+	if !reflect.DeepEqual(keys, []string{"plan:receipt.abc123"}) {
+		t.Fatalf("unexpected derived keys: %+v", keys)
+	}
+}
+
+func TestFetchPayloadKeysWithReceipt_PreservesExplicitKeys(t *testing.T) {
+	keys := fetchPayloadKeysWithReceipt([]string{" mem:42 ", "plan:receipt.abc123"}, "receipt.other")
+	if !reflect.DeepEqual(keys, []string{"mem:42", "plan:receipt.abc123"}) {
+		t.Fatalf("unexpected normalized keys: %+v", keys)
+	}
+}
+
+func TestFetchPayloadKeys_DerivesPlanKeyFromPayloadReceiptID(t *testing.T) {
+	keys := fetchPayloadKeys(v1.FetchPayload{
+		ReceiptID: " receipt.abc123 ",
+	})
+	if !reflect.DeepEqual(keys, []string{"plan:receipt.abc123"}) {
+		t.Fatalf("unexpected derived keys: %+v", keys)
+	}
+}
+
+func TestFetch_PointerKeyReturnsContentWhenReadable(t *testing.T) {
+	tmpDir := t.TempDir()
+	pointerPath := filepath.Join(tmpDir, "pointer.txt")
+	pointerContent := "pointer payload for fetch"
+	if err := os.WriteFile(pointerPath, []byte(pointerContent), 0o644); err != nil {
+		t.Fatalf("write pointer content: %v", err)
+	}
+
+	repo := &fakeRepository{
+		pointerLookupResults: []core.CandidatePointer{
+			candidate("code:pointer", pointerPath, false, []string{"backend"}),
+		},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	key := "code:pointer"
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{key},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one fetch item, got %+v", result)
+	}
+	item := result.Items[0]
+	if item.Key != key || item.Type != "suggestion" {
+		t.Fatalf("unexpected pointer fetch item identity: %+v", item)
+	}
+	if item.Content != pointerContent {
+		t.Fatalf("unexpected pointer content: got %q want %q", item.Content, pointerContent)
+	}
+	if strings.TrimSpace(item.Summary) == "" {
+		t.Fatalf("expected non-empty pointer summary: %+v", item)
+	}
+	if strings.TrimSpace(item.Version) == "" {
+		t.Fatalf("expected non-empty pointer version: %+v", item)
+	}
+	if len(result.NotFound) != 0 || len(result.VersionMismatches) != 0 {
+		t.Fatalf("unexpected fetch metadata: %+v", result)
+	}
+	if len(repo.pointerLookupCalls) != 1 {
+		t.Fatalf("expected one pointer lookup call, got %d", len(repo.pointerLookupCalls))
+	}
+	if repo.pointerLookupCalls[0].ProjectID != "project.alpha" || repo.pointerLookupCalls[0].PointerKey != key {
+		t.Fatalf("unexpected pointer lookup query: %+v", repo.pointerLookupCalls[0])
+	}
+}
+
+func TestFetch_MemoryKeyReturnsFullContent(t *testing.T) {
+	repo := &fakeRepository{
+		memoryLookupResults: []core.ActiveMemory{
+			memory(42, "Persisted memory", "full memory body", []string{"backend"}, []string{"code:pointer"}),
+		},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	key := "mem:42"
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{key},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one fetch item, got %+v", result)
+	}
+	item := result.Items[0]
+	if item.Key != key || item.Type != "memory" {
+		t.Fatalf("unexpected memory fetch item identity: %+v", item)
+	}
+	if item.Content != "full memory body" {
+		t.Fatalf("unexpected memory content: got %q want %q", item.Content, "full memory body")
+	}
+	if item.Summary != "Persisted memory" {
+		t.Fatalf("unexpected memory summary: got %q want %q", item.Summary, "Persisted memory")
+	}
+	if strings.TrimSpace(item.Version) == "" {
+		t.Fatalf("expected non-empty memory version: %+v", item)
+	}
+	if len(result.NotFound) != 0 || len(result.VersionMismatches) != 0 {
+		t.Fatalf("unexpected fetch metadata: %+v", result)
+	}
+	if len(repo.memoryLookupCalls) != 1 {
+		t.Fatalf("expected one memory lookup call, got %d", len(repo.memoryLookupCalls))
+	}
+	if repo.memoryLookupCalls[0].ProjectID != "project.alpha" || repo.memoryLookupCalls[0].MemoryID != 42 {
+		t.Fatalf("unexpected memory lookup query: %+v", repo.memoryLookupCalls[0])
+	}
+}
+
+func TestFetch_UnknownKeyReturnsNotFound(t *testing.T) {
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{"unknown:receipt.abc123"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.Items) != 0 {
+		t.Fatalf("expected zero fetch items, got %+v", result.Items)
+	}
+	if !reflect.DeepEqual(result.NotFound, []string{"unknown:receipt.abc123"}) {
+		t.Fatalf("unexpected not_found: %+v", result.NotFound)
+	}
+	if len(repo.fetchLookupCalls) != 0 {
+		t.Fatalf("did not expect fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	}
+	if len(repo.pointerLookupCalls) != 1 {
+		t.Fatalf("expected one pointer lookup for unknown pointer key, got %d", len(repo.pointerLookupCalls))
+	}
+}
+
+func TestFetch_LookupErrorMapsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupErrors: []error{errors.New("lookup failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{"plan:receipt.abc123"},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["operation"] != "lookup_fetch_state" {
+		t.Fatalf("unexpected operation detail: %#v", details)
+	}
+}
+
+func TestFetch_VersionMismatchIsReported(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupResults: []core.FetchLookup{{
+			ProjectID:  "project.alpha",
+			ReceiptID:  "receipt.abc123",
+			RunID:      17,
+			PlanStatus: core.PlanStatusCompleted,
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	key := "plan:receipt.abc123"
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{key},
+		ExpectedVersions: map[string]string{
+			key: "99",
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.VersionMismatches) != 1 {
+		t.Fatalf("expected one version mismatch, got %+v", result.VersionMismatches)
+	}
+	mismatch := result.VersionMismatches[0]
+	if mismatch.Key != key || mismatch.Expected != "99" || mismatch.Actual != "17" {
+		t.Fatalf("unexpected version mismatch: %+v", mismatch)
+	}
+}
+
+func TestWork_PersistsCompletedWorkItemsAndDerivesPlanStatus(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupResults: []core.FetchLookup{{
+			ProjectID: "project.alpha",
+			ReceiptID: "receipt.abc123",
+			RunID:     41,
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "src/a.go", Status: core.WorkItemStatusCompleted},
+			{ItemKey: "src/b.go", Status: core.WorkItemStatusCompleted},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   "plan:receipt.abc123",
+		ReceiptID: "receipt.abc123",
+		Items: []v1.WorkItemPayload{
+			{Key: "src/b.go", Status: v1.WorkItemStatusComplete},
+			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
+			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusComplete || result.Updated != 2 {
+		t.Fatalf("unexpected work result: %+v", result)
+	}
+	if len(repo.fetchLookupCalls) != 1 {
+		t.Fatalf("expected one fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	}
+	if len(repo.workUpsertCalls) != 1 {
+		t.Fatalf("expected one work upsert call, got %d", len(repo.workUpsertCalls))
+	}
+	if len(repo.workListCalls) != 1 {
+		t.Fatalf("expected one work list call, got %d", len(repo.workListCalls))
+	}
+
+	call := repo.workUpsertCalls[0]
+	wantItems := []core.WorkItem{
+		{ItemKey: "src/a.go", Status: core.WorkItemStatusComplete},
+		{ItemKey: "src/b.go", Status: core.WorkItemStatusComplete},
+	}
+	if !reflect.DeepEqual(call.Items, wantItems) {
+		t.Fatalf("unexpected work upsert items: got %+v want %+v", call.Items, wantItems)
+	}
+}
+
+func TestWork_DerivesReceiptIDFromPlanKeyWhenReceiptIDOmitted(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupResults: []core.FetchLookup{{
+			ProjectID: "project.alpha",
+			ReceiptID: "receipt.abc123",
+			RunID:     41,
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "src/a.go", Status: core.WorkItemStatusInProgress},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   " plan:receipt.abc123 ",
+		Items: []v1.WorkItemPayload{
+			{Key: "src/a.go", Status: v1.WorkItemStatusInProgress},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusInProgress || result.Updated != 1 {
+		t.Fatalf("unexpected work result: %+v", result)
+	}
+	if len(repo.fetchLookupCalls) != 1 {
+		t.Fatalf("expected one fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	}
+	if repo.fetchLookupCalls[0].ReceiptID != "receipt.abc123" {
+		t.Fatalf("expected derived receipt id for lookup, got %q", repo.fetchLookupCalls[0].ReceiptID)
+	}
+	if len(repo.workUpsertCalls) != 1 {
+		t.Fatalf("expected one work upsert call, got %d", len(repo.workUpsertCalls))
+	}
+	if repo.workUpsertCalls[0].ReceiptID != "receipt.abc123" {
+		t.Fatalf("expected derived receipt id for upsert, got %q", repo.workUpsertCalls[0].ReceiptID)
+	}
+	if len(repo.workListCalls) != 1 {
+		t.Fatalf("expected one work list call, got %d", len(repo.workListCalls))
+	}
+	if repo.workListCalls[0].ReceiptID != "receipt.abc123" {
+		t.Fatalf("expected derived receipt id for list, got %q", repo.workListCalls[0].ReceiptID)
+	}
+}
+
+func TestWork_ReceiptIDOnlyAllowsStatusCheckAndDerivesPlanKey(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupResults: []core.FetchLookup{{
+			ProjectID: "project.alpha",
+			ReceiptID: "receipt.abc123",
+			RunID:     41,
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "src/a.go", Status: core.WorkItemStatusInProgress},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.PlanKey != "plan:receipt.abc123" || result.PlanStatus != core.PlanStatusInProgress || result.Updated != 0 {
+		t.Fatalf("unexpected work result: %+v", result)
+	}
+	if len(repo.fetchLookupCalls) != 1 {
+		t.Fatalf("expected one fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	}
+	if repo.fetchLookupCalls[0].ReceiptID != "receipt.abc123" {
+		t.Fatalf("unexpected receipt id in lookup call: %q", repo.fetchLookupCalls[0].ReceiptID)
+	}
+	if len(repo.workUpsertCalls) != 0 {
+		t.Fatalf("did not expect work upsert calls, got %d", len(repo.workUpsertCalls))
+	}
+	if len(repo.workListCalls) != 1 {
+		t.Fatalf("expected one work list call, got %d", len(repo.workListCalls))
+	}
+	if repo.workListCalls[0].ReceiptID != "receipt.abc123" {
+		t.Fatalf("unexpected receipt id in list call: %q", repo.workListCalls[0].ReceiptID)
+	}
+}
+
+func TestWork_MissingReceiptAndInvalidPlanKeyReturnsInvalidInput(t *testing.T) {
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   "receipt.abc123",
+		Items: []v1.WorkItemPayload{
+			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INVALID_INPUT" {
+		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+	if !strings.Contains(apiErr.Message, "plan:<receipt_id>") {
+		t.Fatalf("unexpected API error message: %q", apiErr.Message)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["plan_key"] != "receipt.abc123" {
+		t.Fatalf("unexpected plan_key detail: %#v", details)
+	}
+	if len(repo.fetchLookupCalls) != 0 {
+		t.Fatalf("did not expect fetch lookup call, got %d", len(repo.fetchLookupCalls))
+	}
+}
+
+func TestWork_LookupNotFoundMapsNotFound(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupErrors: []error{core.ErrFetchLookupNotFound},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   "plan:receipt.abc123",
+		ReceiptID: "receipt.abc123",
+		Items: []v1.WorkItemPayload{
+			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "NOT_FOUND" {
+		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+}
+
+func TestWork_UpsertErrorMapsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupResults: []core.FetchLookup{{
+			ProjectID: "project.alpha",
+			ReceiptID: "receipt.abc123",
+			RunID:     8,
+		}},
+		workUpsertErrors: []error{errors.New("upsert failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   "plan:receipt.abc123",
+		ReceiptID: "receipt.abc123",
+		Items: []v1.WorkItemPayload{
+			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["operation"] != "upsert_work_items" {
+		t.Fatalf("unexpected operation detail: %#v", details)
+	}
+}
+
+func TestWork_ListErrorMapsInternalError(t *testing.T) {
+	repo := &fakeRepository{
+		fetchLookupResults: []core.FetchLookup{{
+			ProjectID: "project.alpha",
+			ReceiptID: "receipt.abc123",
+			RunID:     8,
+		}},
+		workListErrors: []error{errors.New("list failed")},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   "plan:receipt.abc123",
+		ReceiptID: "receipt.abc123",
+		Items: []v1.WorkItemPayload{
+			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unexpected API error code: %q", apiErr.Code)
+	}
+	details, ok := apiErr.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map details, got %T", apiErr.Details)
+	}
+	if details["operation"] != "list_work_items" {
+		t.Fatalf("unexpected operation detail: %#v", details)
+	}
+}
+
+func TestWorkPayloadItems_UsesPayloadStatuses(t *testing.T) {
+	payload := v1.WorkPayload{
+		Items: []v1.WorkItemPayload{
+			{Key: " src/a.go ", Status: v1.WorkItemStatusInProgress},
+			{Key: "src/a.go", Status: v1.WorkItemStatusBlocked},
+			{Key: "src/b.go", Status: v1.WorkItemStatusComplete},
+		},
+	}
+
+	items := workPayloadItems(payload)
+	want := []core.WorkItem{
+		{ItemKey: "src/a.go", Status: core.WorkItemStatusBlocked},
+		{ItemKey: "src/b.go", Status: core.WorkItemStatusComplete},
+	}
+	if !reflect.DeepEqual(items, want) {
+		t.Fatalf("unexpected normalized items: got %+v want %+v", items, want)
+	}
+}
+
+func TestDerivePlanStatusFromWorkItems_Deterministic(t *testing.T) {
+	tests := []struct {
+		name  string
+		items []core.WorkItem
+		want  string
+	}{
+		{name: "empty defaults pending", items: nil, want: core.PlanStatusPending},
+		{name: "all completed", items: []core.WorkItem{{Status: core.WorkItemStatusCompleted}, {Status: core.WorkItemStatusCompleted}}, want: core.PlanStatusComplete},
+		{name: "pending dominates completed", items: []core.WorkItem{{Status: core.WorkItemStatusCompleted}, {Status: core.WorkItemStatusPending}}, want: core.PlanStatusPending},
+		{name: "in progress dominates pending", items: []core.WorkItem{{Status: core.WorkItemStatusPending}, {Status: core.WorkItemStatusInProgress}}, want: core.PlanStatusInProgress},
+		{name: "blocked dominates all", items: []core.WorkItem{{Status: core.WorkItemStatusCompleted}, {Status: core.WorkItemStatusBlocked}, {Status: core.WorkItemStatusInProgress}}, want: core.PlanStatusBlocked},
+		{name: "unknown treated as pending", items: []core.WorkItem{{Status: "unknown"}}, want: core.PlanStatusPending},
+	}
+
+	for _, tc := range tests {
+		if got := derivePlanStatusFromWorkItems(tc.items); got != tc.want {
+			t.Fatalf("%s: got %q want %q", tc.name, got, tc.want)
+		}
+	}
+}

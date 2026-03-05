@@ -1,0 +1,562 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agents-context.dev/spec/v1/shared.schema.json",
+  "title": "ctx v1 shared schema",
+  "type": "object",
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "execute",
+        "review"
+      ]
+    },
+    "tag": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "tagList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tag"
+      },
+      "maxItems": 64,
+      "uniqueItems": true
+    },
+    "pointerKind": {
+      "type": "string",
+      "enum": [
+        "code",
+        "rule",
+        "doc",
+        "test",
+        "command"
+      ]
+    },
+    "pointerKey": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 512,
+      "pattern": "^[^\\s]+:[^\\s#]+(?:#[^\\s]+)?$"
+    },
+    "contractKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^.*\\S.*$"
+    },
+    "contractKeyList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/contractKey"
+      },
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "expectedVersions": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/contractKey"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^.*\\S.*$"
+      },
+      "maxProperties": 256
+    },
+    "planKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^.*\\S.*$"
+    },
+    "planTitle": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^.*\\S.*$"
+    },
+    "workItemStatus": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "in_progress",
+        "complete",
+        "blocked"
+      ]
+    },
+    "workItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "summary",
+        "status"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/contractKey"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        },
+        "status": {
+          "$ref": "#/$defs/workItemStatus"
+        },
+        "outcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600,
+          "pattern": "^.*\\S.*$"
+        }
+      }
+    },
+    "workItems": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workItem"
+      },
+      "minItems": 0,
+      "maxItems": 256
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "not": {
+        "pattern": "^(?:/|[A-Za-z]:\\\\)"
+      }
+    },
+    "pointerRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "path",
+        "kind",
+        "label",
+        "description",
+        "why"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/pointerKey"
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "anchor": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "kind": {
+          "$ref": "#/$defs/pointerKind"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        },
+        "why": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "minItems": 1,
+          "maxItems": 8
+        }
+      }
+    },
+    "memoryCategory": {
+      "type": "string",
+      "enum": [
+        "decision",
+        "gotcha",
+        "pattern",
+        "preference"
+      ]
+    },
+    "memorySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "subject",
+        "content",
+        "confidence",
+        "why"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "confidence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "why": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "minItems": 1,
+          "maxItems": 8
+        }
+      }
+    },
+    "contextBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "limit",
+        "used",
+        "remaining"
+      ],
+      "properties": {
+        "unit": {
+          "type": "string",
+          "enum": [
+            "words"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "used": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "contextRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "key",
+        "summary",
+        "enforcement"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/contractKey"
+        },
+        "key": {
+          "$ref": "#/$defs/contractKey"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        },
+        "enforcement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^.*\\S.*$"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000,
+          "pattern": "^.*\\S.*$"
+        }
+      }
+    },
+    "contextSuggestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "summary"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/contractKey"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        }
+      }
+    },
+    "contextMemory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "summary"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/contractKey"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        }
+      }
+    },
+    "contextPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "summary",
+        "status"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/contractKey"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        },
+        "status": {
+          "$ref": "#/$defs/workItemStatus"
+        }
+      }
+    },
+    "contextReceiptMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_id",
+        "retrieval_version",
+        "project_id",
+        "task_text",
+        "phase",
+        "resolved_tags",
+        "budget"
+      ],
+      "properties": {
+        "receipt_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._:-]+$"
+        },
+        "retrieval_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "project_id": {
+          "$ref": "#/$defs/projectId"
+        },
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "phase": {
+          "$ref": "#/$defs/phase"
+        },
+        "resolved_tags": {
+          "$ref": "#/$defs/tagList"
+        },
+        "budget": {
+          "$ref": "#/$defs/contextBudget"
+        }
+      }
+    },
+    "contextReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rules",
+        "suggestions",
+        "memories",
+        "plans",
+        "_meta"
+      ],
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contextRule"
+          },
+          "maxItems": 256
+        },
+        "suggestions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contextSuggestion"
+          },
+          "maxItems": 256
+        },
+        "memories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contextMemory"
+          },
+          "maxItems": 128
+        },
+        "plans": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contextPlan"
+          },
+          "maxItems": 128
+        },
+        "_meta": {
+          "$ref": "#/$defs/contextReceiptMeta"
+        }
+      }
+    },
+    "memoryPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "subject",
+        "content",
+        "related_pointer_keys",
+        "tags",
+        "confidence",
+        "evidence_pointer_keys"
+      ],
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/memoryCategory"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "related_pointer_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pointerKey"
+          },
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "tags": {
+          "$ref": "#/$defs/tagList"
+        },
+        "confidence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "evidence_pointer_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pointerKey"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "details": {
+          "type": "object"
+        }
+      }
+    },
+    "commandName": {
+      "type": "string",
+      "enum": [
+        "get_context",
+        "fetch",
+        "propose_memory",
+        "report_completion",
+        "work",
+        "sync",
+        "health_check",
+        "health_fix",
+        "regress",
+        "bootstrap",
+        "coverage"
+      ]
+    }
+  }
+}

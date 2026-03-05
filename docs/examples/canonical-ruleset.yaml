@@ -1,0 +1,35 @@
+# canonical-ruleset.yaml
+# Canonical rule file consumed by ctx sync and health_fix.
+# Save this as .ctx/canonical-ruleset.yaml (preferred) or ctx-rules.yaml.
+
+version: ctx.rules.v1
+rules:
+  - id: rule_startup_get_context
+    summary: Call get_context before reading or editing project files.
+    content: Always retrieve context first, then follow all hard rules in the receipt.
+    enforcement: hard
+    tags: [startup, context]
+
+  - id: rule_minimal_fetch
+    summary: Keep context compact by fetching only what is required.
+    content: Fetch only the keys needed for the active task and current step.
+    enforcement: soft
+    tags: [context, efficiency]
+
+  - id: rule_completion_reporting
+    summary: Close every task with a completion report.
+    content: Call report_completion with files_changed and a concise outcome summary.
+    enforcement: hard
+    tags: [completion, audit]
+
+# Field notes:
+# - id: optional; when omitted, ctx generates a deterministic stable id.
+# - summary: required (title or content may substitute, but summary is preferred).
+# - content: optional; defaults to summary when omitted.
+# - enforcement: optional; defaults to "hard" (allowed: hard|soft).
+# - tags: optional.
+
+# Maintenance flow:
+# 1) Add/remove/update entries under rules.
+# 2) Run sync OR health_fix apply.
+# 3) Run health_check and resolve blocking findings.

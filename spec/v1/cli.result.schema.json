@@ -1,0 +1,964 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agents-context.dev/spec/v1/cli.result.schema.json",
+  "title": "ctx CLI v1 result envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "command",
+    "request_id",
+    "ok",
+    "timestamp"
+  ],
+  "properties": {
+    "version": {
+      "const": "ctx.v1"
+    },
+    "command": {
+      "type": "string",
+      "enum": [
+        "get_context",
+        "propose_memory",
+        "report_completion",
+        "sync",
+        "health_check",
+        "health_fix",
+        "regress",
+        "bootstrap",
+        "coverage",
+        "fetch",
+        "work"
+      ]
+    },
+    "request_id": {
+      "$ref": "shared.schema.json#/$defs/requestId"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "timestamp": {
+      "$ref": "shared.schema.json#/$defs/timestamp"
+    },
+    "result": {
+      "type": "object"
+    },
+    "error": {
+      "$ref": "shared.schema.json#/$defs/error"
+    }
+  },
+  "$defs": {
+    "getContextResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "insufficient_context"
+          ]
+        },
+        "receipt": {
+          "$ref": "shared.schema.json#/$defs/contextReceipt"
+        },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "initial_pointer_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fallback_used": {
+              "type": "boolean"
+            },
+            "fallback_mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "widen_once"
+              ]
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ok"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "receipt"
+            ]
+          }
+        }
+      ]
+    },
+    "proposeMemoryResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "status"
+      ],
+      "properties": {
+        "candidate_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "promoted",
+            "rejected"
+          ]
+        },
+        "promoted_memory_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "validation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "hard_passed",
+            "soft_passed",
+            "errors",
+            "warnings"
+          ],
+          "properties": {
+            "hard_passed": {
+              "type": "boolean"
+            },
+            "soft_passed": {
+              "type": "boolean"
+            },
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 300
+              }
+            }
+          }
+        }
+      }
+    },
+    "reportCompletionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "violations"
+      ],
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "reason"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "shared.schema.json#/$defs/relativePath"
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 300
+              }
+            }
+          }
+        },
+        "definition_of_done_issues": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 100
+        },
+        "run_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "syncResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "updated",
+        "marked_stale",
+        "new_candidates",
+        "deleted_marked_stale"
+      ],
+      "properties": {
+        "updated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "marked_stale": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deleted_marked_stale": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "processed_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 2000,
+          "uniqueItems": true
+        }
+      }
+    },
+    "healthCheckResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "checks"
+      ],
+      "properties": {
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ok",
+            "total_findings"
+          ],
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "total_findings": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "severity",
+              "count"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "info",
+                  "warn",
+                  "error"
+                ]
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "samples": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "maxItems": 100
+              }
+            }
+          }
+        }
+      }
+    },
+    "healthFixResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dry_run",
+        "planned_actions",
+        "applied_actions",
+        "summary"
+      ],
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "planned_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/healthFixAction"
+          },
+          "maxItems": 10
+        },
+        "applied_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/healthFixAction"
+          },
+          "maxItems": 10
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "healthFixAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixer",
+        "count"
+      ],
+      "properties": {
+        "fixer": {
+          "type": "string",
+          "enum": [
+            "sync_working_tree",
+            "index_uncovered_files",
+            "sync_ruleset"
+          ]
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 20
+        }
+      }
+    },
+    "regressResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_cases",
+        "aggregate",
+        "pass"
+      ],
+      "properties": {
+        "total_cases": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "aggregate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "precision",
+            "recall",
+            "f1"
+          ],
+          "properties": {
+            "precision": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "recall": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "f1": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "minimum_recall": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pass": {
+          "type": "boolean"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "index",
+              "precision",
+              "recall",
+              "f1"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "precision": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "recall": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "f1": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "notes": {
+                "type": "string",
+                "maxLength": 500
+              }
+            }
+          },
+          "maxItems": 2000
+        }
+      }
+    },
+    "bootstrapResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_count",
+        "output_candidates_path"
+      ],
+      "properties": {
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_candidates_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "coverageResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary"
+      ],
+      "properties": {
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total_files",
+            "indexed_files",
+            "unindexed_files",
+            "stale_files",
+            "coverage_percent"
+          ],
+          "properties": {
+            "total_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "indexed_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unindexed_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stale_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "coverage_percent": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        },
+        "unindexed_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 20000,
+          "uniqueItems": true
+        },
+        "stale_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 20000,
+          "uniqueItems": true
+        },
+        "zero_coverage_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "maxItems": 5000,
+          "uniqueItems": true
+        }
+      }
+    },
+    "fetchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key",
+              "type",
+              "summary"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 600
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20000
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "complete",
+                  "blocked"
+                ]
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            }
+          },
+          "maxItems": 2000
+        },
+        "not_found": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "maxItems": 2000,
+          "uniqueItems": true
+        },
+        "version_mismatches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key",
+              "expected",
+              "actual"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "expected": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "actual": {
+                "type": "string",
+                "maxLength": 128
+              }
+            }
+          },
+          "maxItems": 2000
+        }
+      }
+    },
+    "workResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_key",
+        "plan_status",
+        "updated"
+      ],
+      "properties": {
+        "plan_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "plan_status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "complete",
+            "blocked"
+          ]
+        },
+        "updated": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "then": {
+        "required": [
+          "result"
+        ]
+      },
+      "else": {
+        "required": [
+          "error"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "get_context"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/getContextResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "fetch"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/fetchResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "propose_memory"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/proposeMemoryResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "report_completion"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/reportCompletionResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "work"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/workResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "sync"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/syncResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "health_check"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/healthCheckResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "health_fix"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/healthFixResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "coverage"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/coverageResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "regress"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/regressResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "bootstrap"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/bootstrapResult"
+          }
+        }
+      }
+    }
+  ]
+}

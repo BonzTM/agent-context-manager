@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agents-context.dev/spec/v1/mcp.tools.v1.json",
+  "title": "ctx MCP v1 tool contracts",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "tools"
+  ],
+  "properties": {
+    "version": {
+      "const": "ctx.v1"
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/toolContract"
+      },
+      "minItems": 5,
+      "maxItems": 5
+    }
+  },
+  "$defs": {
+    "toolContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "title",
+        "description",
+        "input_schema",
+        "output_schema"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "get_context",
+            "propose_memory",
+            "report_completion",
+            "fetch",
+            "work"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "input_schema": {
+          "type": "object"
+        },
+        "output_schema": {
+          "type": "object"
+        }
+      }
+    },
+    "getContextInput": {
+      "$ref": "cli.command.schema.json#/$defs/getContextPayload"
+    },
+    "getContextOutput": {
+      "$ref": "cli.result.schema.json#/$defs/getContextResult"
+    },
+    "proposeMemoryInput": {
+      "$ref": "cli.command.schema.json#/$defs/proposeMemoryPayload"
+    },
+    "proposeMemoryOutput": {
+      "$ref": "cli.result.schema.json#/$defs/proposeMemoryResult"
+    },
+    "reportCompletionInput": {
+      "$ref": "cli.command.schema.json#/$defs/reportCompletionPayload"
+    },
+    "reportCompletionOutput": {
+      "$ref": "cli.result.schema.json#/$defs/reportCompletionResult"
+    },
+    "fetchInput": {
+      "$ref": "cli.command.schema.json#/$defs/fetchPayload"
+    },
+    "fetchOutput": {
+      "$ref": "cli.result.schema.json#/$defs/fetchResult"
+    },
+    "workInput": {
+      "$ref": "cli.command.schema.json#/$defs/workPayload"
+    },
+    "workOutput": {
+      "$ref": "cli.result.schema.json#/$defs/workResult"
+    }
+  },
+  "tools": [
+    {
+      "name": "get_context",
+      "title": "Get Task Context",
+      "description": "Deterministically resolve task-scoped rules, suggestions, memories, and plans in an index-first receipt.",
+      "input_schema": {
+        "$ref": "#/$defs/getContextInput"
+      },
+      "output_schema": {
+        "$ref": "#/$defs/getContextOutput"
+      }
+    },
+    {
+      "name": "fetch",
+      "title": "Fetch Task Context",
+      "description": "Fetch plan-scoped artifacts by key, returning typed items and optional version mismatch details.",
+      "input_schema": {
+        "$ref": "#/$defs/fetchInput"
+      },
+      "output_schema": {
+        "$ref": "#/$defs/fetchOutput"
+      }
+    },
+    {
+      "name": "propose_memory",
+      "title": "Propose Durable Memory",
+      "description": "Submit a memory candidate tied to evidence and receipt scope.",
+      "input_schema": {
+        "$ref": "#/$defs/proposeMemoryInput"
+      },
+      "output_schema": {
+        "$ref": "#/$defs/proposeMemoryOutput"
+      }
+    },
+    {
+      "name": "report_completion",
+      "title": "Report Task Completion",
+      "description": "Validate changed files against the active receipt and persist run summary.",
+      "input_schema": {
+        "$ref": "#/$defs/reportCompletionInput"
+      },
+      "output_schema": {
+        "$ref": "#/$defs/reportCompletionOutput"
+      }
+    },
+    {
+      "name": "work",
+      "title": "Report Work Completion",
+      "description": "Submit plan-scoped work item updates and return the plan key, derived plan status, and updated count.",
+      "input_schema": {
+        "$ref": "#/$defs/workInput"
+      },
+      "output_schema": {
+        "$ref": "#/$defs/workOutput"
+      }
+    }
+  ]
+}
