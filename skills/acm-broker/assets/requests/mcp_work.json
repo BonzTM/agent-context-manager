@@ -1,5 +1,23 @@
 {
-  "project_id": "my-cool-app",
+  "project_id": "customer-portal",
   "receipt_id": "replace-from-get-context-receipt",
-  "tasks": []
+  "mode": "merge",
+  "plan": {
+    "title": "Profile settings save race",
+    "objective": "Prevent stale save responses from overwriting newer settings and verify the fix",
+    "kind": "bugfix",
+    "status": "in_progress"
+  },
+  "tasks": [
+    {
+      "key": "guard-stale-saves",
+      "summary": "Ignore stale save responses and keep the newest request authoritative",
+      "status": "in_progress"
+    },
+    {
+      "key": "verify:tests",
+      "summary": "Run targeted frontend verification for profile save behavior",
+      "status": "pending"
+    }
+  ]
 }

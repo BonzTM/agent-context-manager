@@ -2,14 +2,17 @@
 
 ## Recommended Loop
 
+These examples assume installed `acm` and `acm-mcp` binaries are available on `PATH`.
+
 1. Run `get_context`.
 2. Follow the returned rules block (or rule pointers) as hard requirements.
 3. Treat code pointers as advisory suggestions.
 4. Run `fetch` for indexed artifacts by explicit keys or by `receipt_id` shorthand.
 5. Execute the task.
-6. Run `work` with `receipt_id` (no `plan_key` required) to publish updates. Prefer `tasks` (legacy `items` accepted) and include `verify:tests` plus `verify:diff-review`.
-7. Run `report_completion`.
-8. Run `propose_memory` when the result should persist.
+6. Run `work` with `receipt_id` (no `plan_key` required) to publish updates. Use `tasks` and include `verify:tests` for executable verification tracking.
+7. Run `verify` before `report_completion` when code changes.
+8. Run `report_completion`.
+9. Run `propose_memory` when the result should persist.
 
 ## CLI `get_context` request
 
@@ -19,8 +22,8 @@
   "command": "get_context",
   "request_id": "req-get-context-001",
   "payload": {
-    "project_id": "my-cool-app",
-    "task_text": "fix preference save bug",
+    "project_id": "customer-portal",
+    "task_text": "fix the profile settings save race so stale responses cannot overwrite newer edits",
     "phase": "execute"
   }
 }
@@ -29,16 +32,16 @@
 Run:
 
 ```bash
-go run ./cmd/acm validate --in assets/requests/get_context.execute.json
-go run ./cmd/acm run --in assets/requests/get_context.execute.json
+acm validate --in assets/requests/get_context.execute.json
+acm run --in assets/requests/get_context.execute.json
 ```
 
 ## MCP `get_context` input
 
 ```json
 {
-  "project_id": "my-cool-app",
-  "task_text": "fix preference save bug",
+  "project_id": "customer-portal",
+  "task_text": "fix the profile settings save race so stale responses cannot overwrite newer edits",
   "phase": "execute"
 }
 ```
@@ -46,7 +49,7 @@ go run ./cmd/acm run --in assets/requests/get_context.execute.json
 Run:
 
 ```bash
-go run ./cmd/acm-mcp invoke --tool get_context --in assets/requests/mcp_get_context.execute.json
+acm-mcp invoke --tool get_context --in assets/requests/mcp_get_context.execute.json
 ```
 
 ## CLI `fetch` request
@@ -57,8 +60,13 @@ go run ./cmd/acm-mcp invoke --tool get_context --in assets/requests/mcp_get_cont
   "command": "fetch",
   "request_id": "req-fetch-001",
   "payload": {
-    "project_id": "my-cool-app",
-    "receipt_id": "replace-from-get-context-receipt"
+    "project_id": "customer-portal",
+    "receipt_id": "replace-from-get-context-receipt",
+    "keys": [
+      "customer-portal:web/src/features/profile/ProfileForm.tsx",
+      "customer-portal:web/src/features/profile/useSaveProfile.ts",
+      "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
+    ]
   }
 }
 ```
@@ -66,28 +74,31 @@ go run ./cmd/acm-mcp invoke --tool get_context --in assets/requests/mcp_get_cont
 Run:
 
 ```bash
-go run ./cmd/acm validate --in assets/requests/fetch.json
-go run ./cmd/acm run --in assets/requests/fetch.json
+acm validate --in assets/requests/fetch.json
+acm run --in assets/requests/fetch.json
 ```
 
 ## MCP `fetch` input
 
 ```json
 {
-  "project_id": "my-cool-app",
-  "receipt_id": "replace-from-get-context-receipt"
+  "project_id": "customer-portal",
+  "receipt_id": "replace-from-get-context-receipt",
+  "keys": [
+    "customer-portal:web/src/features/profile/ProfileForm.tsx",
+    "customer-portal:web/src/features/profile/useSaveProfile.ts",
+    "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
+  ]
 }
 ```
 
 Run:
 
 ```bash
-go run ./cmd/acm-mcp invoke --tool fetch --in assets/requests/mcp_fetch.json
+acm-mcp invoke --tool fetch --in assets/requests/mcp_fetch.json
 ```
 
 ## CLI `work` request
-
-For status-only retrieval, send zero `tasks`.
 
 ```json
 {
@@ -95,35 +106,55 @@ For status-only retrieval, send zero `tasks`.
   "command": "work",
   "request_id": "req-work-001",
   "payload": {
-    "project_id": "my-cool-app",
+    "project_id": "customer-portal",
     "receipt_id": "replace-from-get-context-receipt",
-    "tasks": []
-  }
-}
-```
-
-For update submissions, include `verify:tests` and `verify:diff-review` tasks.
-
-```json
-{
-  "version": "acm.v1",
-  "command": "work",
-  "request_id": "req-work-002",
-  "payload": {
-    "project_id": "my-cool-app",
-    "receipt_id": "replace-from-get-context-receipt",
+    "mode": "merge",
+    "plan": {
+      "title": "Profile settings save race",
+      "objective": "Prevent stale save responses from overwriting newer settings and verify the fix",
+      "kind": "bugfix",
+      "status": "in_progress",
+      "constraints": [
+        "Preserve the existing save API contract",
+        "Keep optimistic success feedback for the newest request"
+      ],
+      "references": [
+        "customer-portal:web/src/features/profile/ProfileForm.tsx",
+        "customer-portal:web/src/features/profile/useSaveProfile.ts"
+      ]
+    },
     "tasks": [
       {
-        "key": "verify:tests",
-        "summary": "Run targeted tests for changed behavior",
+        "key": "confirm-race-window",
+        "summary": "Confirm how concurrent save requests can resolve out of order",
         "status": "complete",
-        "outcome": "PASS - targeted suite green"
+        "references": [
+          "customer-portal:web/src/features/profile/useSaveProfile.ts"
+        ],
+        "outcome": "Older requests can still commit state after a newer submission resolves."
       },
       {
-        "key": "verify:diff-review",
-        "summary": "Review diff for unintended file changes",
-        "status": "complete",
-        "outcome": "PASS - no unrelated edits found"
+        "key": "guard-stale-saves",
+        "summary": "Ignore stale save responses and keep the newest request authoritative",
+        "status": "in_progress",
+        "depends_on": ["confirm-race-window"],
+        "acceptance_criteria": [
+          "Submitting profile changes twice quickly leaves the latest values in state",
+          "Loading and success UI still resolve correctly for the newest request"
+        ],
+        "references": [
+          "customer-portal:web/src/features/profile/ProfileForm.tsx",
+          "customer-portal:web/src/features/profile/useSaveProfile.ts"
+        ]
+      },
+      {
+        "key": "verify:tests",
+        "summary": "Run targeted frontend verification for profile save behavior",
+        "status": "pending",
+        "acceptance_criteria": [
+          "Profile save regression tests pass",
+          "Relevant smoke or build checks pass"
+        ]
       }
     ]
   }
@@ -133,38 +164,33 @@ For update submissions, include `verify:tests` and `verify:diff-review` tasks.
 Run:
 
 ```bash
-go run ./cmd/acm validate --in assets/requests/work.json
-go run ./cmd/acm run --in assets/requests/work.json
+acm validate --in assets/requests/work.json
+acm run --in assets/requests/work.json
 ```
 
 ## MCP `work` input
 
 ```json
 {
-  "project_id": "my-cool-app",
+  "project_id": "customer-portal",
   "receipt_id": "replace-from-get-context-receipt",
-  "tasks": []
-}
-```
-
-For update submissions, use the same verification keys.
-
-```json
-{
-  "project_id": "my-cool-app",
-  "receipt_id": "replace-from-get-context-receipt",
+  "mode": "merge",
+  "plan": {
+    "title": "Profile settings save race",
+    "objective": "Prevent stale save responses from overwriting newer settings and verify the fix",
+    "kind": "bugfix",
+    "status": "in_progress"
+  },
   "tasks": [
     {
-      "key": "verify:tests",
-      "summary": "Run targeted tests for changed behavior",
-      "status": "complete",
-      "outcome": "PASS - targeted suite green"
+      "key": "guard-stale-saves",
+      "summary": "Ignore stale save responses and keep the newest request authoritative",
+      "status": "in_progress"
     },
     {
-      "key": "verify:diff-review",
-      "summary": "Review diff for unintended file changes",
-      "status": "complete",
-      "outcome": "PASS - no unrelated edits found"
+      "key": "verify:tests",
+      "summary": "Run targeted frontend verification for profile save behavior",
+      "status": "pending"
     }
   ]
 }
@@ -173,10 +199,58 @@ For update submissions, use the same verification keys.
 Run:
 
 ```bash
-go run ./cmd/acm-mcp invoke --tool work --in assets/requests/mcp_work.json
+acm-mcp invoke --tool work --in assets/requests/mcp_work.json
 ```
 
-When work tasks are present, `report_completion.scope_mode` controls gate behavior: `strict` enforces verification checks, `warn` surfaces warnings.
+When work tasks are present, `report_completion.scope_mode` controls gate behavior: `strict` enforces `verify:tests`, `warn` surfaces warnings.
+
+## CLI `verify` request
+
+```json
+{
+  "version": "acm.v1",
+  "command": "verify",
+  "request_id": "req-verify-001",
+  "payload": {
+    "project_id": "customer-portal",
+    "receipt_id": "replace-from-get-context-receipt",
+    "phase": "review",
+    "files_changed": [
+      "web/src/features/profile/ProfileForm.tsx",
+      "web/src/features/profile/useSaveProfile.ts",
+      "web/src/features/profile/useSaveProfile.test.tsx"
+    ]
+  }
+}
+```
+
+Run:
+
+```bash
+acm validate --in assets/requests/verify.json
+acm run --in assets/requests/verify.json
+```
+
+## MCP `verify` input
+
+```json
+{
+  "project_id": "customer-portal",
+  "receipt_id": "replace-from-get-context-receipt",
+  "phase": "review",
+  "files_changed": [
+    "web/src/features/profile/ProfileForm.tsx",
+    "web/src/features/profile/useSaveProfile.ts",
+    "web/src/features/profile/useSaveProfile.test.tsx"
+  ]
+}
+```
+
+Run:
+
+```bash
+acm-mcp invoke --tool verify --in assets/requests/mcp_verify.json
+```
 
 ## CLI `report_completion` request
 
@@ -186,14 +260,44 @@ When work tasks are present, `report_completion.scope_mode` controls gate behavi
   "command": "report_completion",
   "request_id": "req-report-001",
   "payload": {
-    "project_id": "my-cool-app",
+    "project_id": "customer-portal",
     "receipt_id": "replace-from-get-context-receipt",
     "files_changed": [
-      "backend/src/services/preferences.ts"
+      "web/src/features/profile/ProfileForm.tsx",
+      "web/src/features/profile/useSaveProfile.ts",
+      "web/src/features/profile/useSaveProfile.test.tsx"
     ],
-    "outcome": "Fixed persistence write path and added regression coverage"
+    "outcome": "Ignored stale profile save responses, preserved optimistic UI feedback, and added regression coverage."
   }
 }
+```
+
+Run:
+
+```bash
+acm validate --in assets/requests/report_completion.json
+acm run --in assets/requests/report_completion.json
+```
+
+## MCP `report_completion` input
+
+```json
+{
+  "project_id": "customer-portal",
+  "receipt_id": "replace-from-get-context-receipt",
+  "files_changed": [
+    "web/src/features/profile/ProfileForm.tsx",
+    "web/src/features/profile/useSaveProfile.ts",
+    "web/src/features/profile/useSaveProfile.test.tsx"
+  ],
+  "outcome": "Ignored stale profile save responses, preserved optimistic UI feedback, and added regression coverage."
+}
+```
+
+Run:
+
+```bash
+acm-mcp invoke --tool report_completion --in assets/requests/mcp_report_completion.json
 ```
 
 ## CLI `propose_memory` request
@@ -204,26 +308,70 @@ When work tasks are present, `report_completion.scope_mode` controls gate behavi
   "command": "propose_memory",
   "request_id": "req-memory-001",
   "payload": {
-    "project_id": "my-cool-app",
+    "project_id": "customer-portal",
     "receipt_id": "replace-from-get-context-receipt",
     "memory": {
       "category": "gotcha",
-      "subject": "preference save requires cache invalidation",
-      "content": "Preference persistence succeeds only when cache invalidation runs after DB commit.",
+      "subject": "profile save hook must ignore stale request completions",
+      "content": "Concurrent profile saves can resolve out of order. The save hook must treat the newest request as authoritative or stale responses will overwrite fresh form state.",
       "related_pointer_keys": [
-        "my-cool-app:backend/src/services/preferences.ts"
+        "customer-portal:web/src/features/profile/useSaveProfile.ts",
+        "customer-portal:web/src/features/profile/ProfileForm.tsx"
       ],
       "tags": [
-        "backend",
-        "persistence",
-        "cache"
+        "frontend",
+        "api",
+        "test"
       ],
       "confidence": 4,
       "evidence_pointer_keys": [
-        "my-cool-app:backend/src/services/preferences.ts"
+        "customer-portal:web/src/features/profile/useSaveProfile.ts",
+        "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
       ]
     },
     "auto_promote": true
   }
 }
+```
+
+Run:
+
+```bash
+acm validate --in assets/requests/propose_memory.json
+acm run --in assets/requests/propose_memory.json
+```
+
+## MCP `propose_memory` input
+
+```json
+{
+  "project_id": "customer-portal",
+  "receipt_id": "replace-from-get-context-receipt",
+  "memory": {
+    "category": "gotcha",
+    "subject": "profile save hook must ignore stale request completions",
+    "content": "Concurrent profile saves can resolve out of order. The save hook must treat the newest request as authoritative or stale responses will overwrite fresh form state.",
+    "related_pointer_keys": [
+      "customer-portal:web/src/features/profile/useSaveProfile.ts",
+      "customer-portal:web/src/features/profile/ProfileForm.tsx"
+    ],
+    "tags": [
+      "frontend",
+      "api",
+      "test"
+    ],
+    "confidence": 4,
+    "evidence_pointer_keys": [
+      "customer-portal:web/src/features/profile/useSaveProfile.ts",
+      "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
+    ]
+  },
+  "auto_promote": true
+}
+```
+
+Run:
+
+```bash
+acm-mcp invoke --tool propose_memory --in assets/requests/mcp_propose_memory.json
 ```

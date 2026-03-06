@@ -9,16 +9,19 @@ Usage:
   scripts/install-skill-pack.sh [options]
 
 Options:
-  --codex-home <path>     Codex home directory (default: $CODEX_HOME or ~/.codex)
-  --claude-target <path>  Target repo for Claude commands (default: current directory)
-  --skip-codex            Skip Codex skill install
-  --skip-claude           Skip Claude command-pack install
+  --codex [<path>]        Install Codex skill pack only. Optional path sets Codex home
+                          (default: $CODEX_HOME or ~/.codex)
+  --claude [<path>]       Install Claude command pack only. Optional path sets target repo
+                          (default: current directory)
   -h, --help              Show help
 
 Examples:
   scripts/install-skill-pack.sh
-  scripts/install-skill-pack.sh --claude-target /path/to/project
-  scripts/install-skill-pack.sh --skip-claude
+  scripts/install-skill-pack.sh --claude
+  scripts/install-skill-pack.sh --claude /path/to/project
+  scripts/install-skill-pack.sh --codex
+  scripts/install-skill-pack.sh --codex /path/to/codex-home
+  scripts/install-skill-pack.sh --codex --claude /path/to/project
 USAGE
 }
 
@@ -29,25 +32,50 @@ codex_home="${CODEX_HOME:-${HOME}/.codex}"
 claude_target="$(pwd)"
 install_codex=true
 install_claude=true
+selection_explicit=false
+
+select_target() {
+  local target="$1"
+  if [[ "${selection_explicit}" == false ]]; then
+    install_codex=false
+    install_claude=false
+    selection_explicit=true
+  fi
+  if [[ "${target}" == "codex" ]]; then
+    install_codex=true
+  else
+    install_claude=true
+  fi
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --codex-home)
-      [[ $# -ge 2 ]] || { echo "error: --codex-home requires a value" >&2; exit 2; }
-      codex_home="$2"
-      shift 2
+    --codex)
+      select_target codex
+      if [[ $# -ge 2 && "$2" != -* ]]; then
+        codex_home="$2"
+        shift 2
+      else
+        shift
+      fi
       ;;
-    --claude-target)
-      [[ $# -ge 2 ]] || { echo "error: --claude-target requires a value" >&2; exit 2; }
-      claude_target="$2"
-      shift 2
-      ;;
-    --skip-codex)
-      install_codex=false
+    --codex=*)
+      select_target codex
+      codex_home="${1#--codex=}"
       shift
       ;;
-    --skip-claude)
-      install_claude=false
+    --claude)
+      select_target claude
+      if [[ $# -ge 2 && "$2" != -* ]]; then
+        claude_target="$2"
+        shift 2
+      else
+        shift
+      fi
+      ;;
+    --claude=*)
+      select_target claude
+      claude_target="${1#--claude=}"
       shift
       ;;
     -h|--help)
@@ -63,7 +91,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "${install_codex}" == false && "${install_claude}" == false ]]; then
-  echo "error: both install targets are disabled; remove --skip-codex or --skip-claude" >&2
+  echo "error: no install targets selected" >&2
   exit 2
 fi
 

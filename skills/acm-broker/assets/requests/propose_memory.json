@@ -3,23 +3,25 @@
   "command": "propose_memory",
   "request_id": "req-memory-001",
   "payload": {
-    "project_id": "my-cool-app",
+    "project_id": "customer-portal",
     "receipt_id": "replace-from-get-context-receipt",
     "memory": {
       "category": "gotcha",
-      "subject": "preference save requires cache invalidation",
-      "content": "Preference persistence succeeds only when cache invalidation runs after DB commit.",
+      "subject": "profile save hook must ignore stale request completions",
+      "content": "Concurrent profile saves can resolve out of order. The save hook must treat the newest request as authoritative or stale responses will overwrite fresh form state.",
       "related_pointer_keys": [
-        "my-cool-app:backend/src/services/preferences.ts"
+        "customer-portal:web/src/features/profile/useSaveProfile.ts",
+        "customer-portal:web/src/features/profile/ProfileForm.tsx"
       ],
       "tags": [
-        "backend",
-        "persistence",
-        "cache"
+        "frontend",
+        "api",
+        "test"
       ],
       "confidence": 4,
       "evidence_pointer_keys": [
-        "my-cool-app:backend/src/services/preferences.ts"
+        "customer-portal:web/src/features/profile/useSaveProfile.ts",
+        "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
       ]
     },
     "auto_promote": true

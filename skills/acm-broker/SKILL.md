@@ -14,21 +14,25 @@ Use this skill when a task needs brokered context retrieval, hard rule complianc
 3. Treat code/doc/test pointers as advisory suggestions for where to start.
 4. Call `fetch` for plan/work artifacts needed to execute accurately (or use `receipt_id` shorthand without explicit keys).
 5. Execute work; if context is insufficient or stale, refine task text and call `get_context` again.
-6. Call `work` with `receipt_id` (optionally without `plan_key`) to publish updates. Prefer `tasks` payloads; legacy `items` remain accepted. Include `verify:tests` and `verify:diff-review` verification tasks when posting updates.
-7. Call `report_completion` with files changed and outcome.
-8. Propose durable memory with `propose_memory` when appropriate.
+6. Call `work` with `receipt_id` (optionally without `plan_key`) to publish updates. Use `tasks` payloads and `verify:tests` as the built-in executable verification task key. `verify:diff-review` is optional if the repo wants an explicit manual review task.
+7. When code changes are involved, call `verify` before `report_completion`. Include `receipt_id` or `plan_key` when available so `verify` can update `verify:tests`.
+8. Call `report_completion` with files changed and outcome after verification is satisfied.
+9. Propose durable memory with `propose_memory` when appropriate.
 
 ## Interfaces
 
+- These commands assume installed `acm` and `acm-mcp` binaries are available on `PATH`.
 - CLI path:
-  - `go run ./cmd/acm validate --in <request.json>`
-  - `go run ./cmd/acm run --in <request.json>`
+  - `acm validate --in <request.json>`
+  - `acm run --in <request.json>`
 - MCP path:
-  - `go run ./cmd/acm-mcp invoke --tool get_context --in <payload.json>`
-  - `go run ./cmd/acm-mcp invoke --tool fetch --in <payload.json>`
-  - `go run ./cmd/acm-mcp invoke --tool work --in <payload.json>`
-  - `go run ./cmd/acm-mcp invoke --tool report_completion --in <payload.json>`
-  - `go run ./cmd/acm-mcp invoke --tool propose_memory --in <payload.json>`
+  - `acm-mcp invoke --tool get_context --in <payload.json>`
+  - `acm-mcp invoke --tool fetch --in <payload.json>`
+  - `acm-mcp invoke --tool work --in <payload.json>`
+  - `acm-mcp invoke --tool verify --in <payload.json>`
+  - `acm-mcp invoke --tool report_completion --in <payload.json>`
+  - `acm-mcp invoke --tool propose_memory --in <payload.json>`
+  - `acm-mcp invoke --tool eval --in <payload.json>`
 
 Defaults:
 - SQLite backend is default when `ACM_PG_DSN` is unset.
@@ -47,7 +51,9 @@ Use templates from `references/templates.md` and `assets/requests/*.json`.
 - Treat the `get_context` rules block (or rule pointers) as mandatory requirements.
 - Treat code pointer paths as advisory guidance, not as mandatory edit boundaries.
 - Treat advisory scope as `warn` by default unless an explicit `scope_mode` override is required.
-- When `work.tasks` (or legacy `work.items`) is non-empty, include `verify:tests` and `verify:diff-review` quality-gate tasks.
-- For those verification tasks, use mode-aware enforcement: `scope_mode=strict` is blocking, `scope_mode=warn` surfaces warnings.
+- When `work.tasks` is non-empty, include `verify:tests` for executable verification tracking.
+- `verify:diff-review` is optional workflow metadata, not a built-in acm completion gate.
+- For code changes, run `verify` before `report_completion` unless the repo rules explicitly allow otherwise.
+- For `report_completion`, `scope_mode=strict` blocks on incomplete `verify:tests`; `scope_mode=warn` surfaces warnings.
 - If suggested pointers are insufficient, refine/re-run `get_context` before forcing progress.
 - Preserve structured JSON output for all broker interactions.

@@ -1,4 +1,9 @@
 {
-  "project_id": "my-cool-app",
-  "receipt_id": "replace-from-get-context-receipt"
+  "project_id": "customer-portal",
+  "receipt_id": "replace-from-get-context-receipt",
+  "keys": [
+    "customer-portal:web/src/features/profile/ProfileForm.tsx",
+    "customer-portal:web/src/features/profile/useSaveProfile.ts",
+    "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
+  ]
 }

@@ -1,5 +1,5 @@
 {
-  "project_id": "my-cool-app",
-  "task_text": "fix preference save bug",
+  "project_id": "customer-portal",
+  "task_text": "fix the profile settings save race so stale responses cannot overwrite newer edits",
   "phase": "execute"
 }
