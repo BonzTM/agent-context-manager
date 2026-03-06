@@ -138,7 +138,6 @@ func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnv
 	taskFile := fs.String("task-file", "", "file containing task text ('-' for stdin)")
 	phase := fs.String("phase", string(v1.PhaseExecute), "phase: plan|execute|review")
 	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
-	scopeMode := fs.String("scope-mode", "", "scope mode: strict|warn|auto_index")
 	allowStale := fs.Bool("allow-stale", false, "allow stale pointers")
 	fallbackMode := fs.String("fallback-mode", "", "fallback mode: widen_once|none")
 	unbounded := optionalBoolFlag{}
@@ -182,9 +181,6 @@ func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnv
 		Phase:      v1.Phase(strings.TrimSpace(*phase)),
 		TagsFile:   strings.TrimSpace(*tagsFile),
 		AllowStale: *allowStale,
-	}
-	if trimmedScopeMode := strings.TrimSpace(*scopeMode); trimmedScopeMode != "" {
-		payload.ScopeMode = v1.ScopeMode(trimmedScopeMode)
 	}
 	if trimmedFallbackMode := strings.TrimSpace(*fallbackMode); trimmedFallbackMode != "" {
 		payload.FallbackMode = trimmedFallbackMode
@@ -549,6 +545,7 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 	defaultScope := v1.HistoryScopeCurrent
 	defaultEntity := v1.HistoryEntityWork
 	queryRequired := true
+	includeWorkFilters := true
 
 	switch subcommand {
 	case "work-list":
@@ -560,11 +557,12 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 		usageLine = "acm work search --project <id> (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
 		example = "acm work search --project myproject --query \"MCP parity\" --scope current"
 	case "history-search":
-		usageLine = "acm history search --project <id> [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
+		usageLine = "acm history search --project <id> [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--limit <n>] [--unbounded[=true|false]]"
 		example = "acm history search --project myproject --entity memory --query \"bootstrap\" --limit 25"
 		defaultScope = v1.HistoryScopeAll
 		defaultEntity = v1.HistoryEntityAll
 		queryRequired = false
+		includeWorkFilters = false
 	}
 
 	fs := newCommandFlagSet(subcommand, usageLine, example)
@@ -572,10 +570,14 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 	entity := fs.String("entity", string(defaultEntity), "history entity: all|work|memory|receipt|run")
 	query := fs.String("query", "", "search text applied to plan and task summaries")
 	queryFile := fs.String("query-file", "", "file containing search text ('-' for stdin)")
-	scope := fs.String("scope", string(defaultScope), "history scope: current|deferred|completed|all")
-	kind := fs.String("kind", "", "optional plan kind filter")
 	limit := fs.Int("limit", 20, "maximum number of plans to return (1-100)")
 	unbounded := optionalBoolFlag{}
+	var scope *string
+	var kind *string
+	if includeWorkFilters {
+		scope = fs.String("scope", string(defaultScope), "history scope: current|deferred|completed|all")
+		kind = fs.String("kind", "", "optional plan kind filter")
+	}
 	fs.Var(&unbounded, "unbounded", "remove built-in history result caps (optional bool)")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
@@ -604,8 +606,10 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 		ProjectID: strings.TrimSpace(*projectID),
 		Entity:    v1.HistoryEntity(strings.TrimSpace(*entity)),
 		Query:     trimmedQuery,
-		Scope:     v1.HistoryScope(strings.TrimSpace(*scope)),
-		Kind:      strings.TrimSpace(*kind),
+	}
+	if includeWorkFilters {
+		payload.Scope = v1.HistoryScope(strings.TrimSpace(*scope))
+		payload.Kind = strings.TrimSpace(*kind)
 	}
 	if *limit > 0 {
 		payload.Limit = *limit
@@ -949,7 +953,7 @@ func buildVerifyEnvelope(args []string, now func() time.Time) (v1.CommandEnvelop
 func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"bootstrap",
-		"acm bootstrap --project <id> --project-root <path> [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--llm-assist-descriptions[=true|false]] [--output-candidates-path <path>]",
+		"acm bootstrap --project <id> --project-root <path> [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--output-candidates-path <path>]",
 		"acm bootstrap --project myproject --project-root . --respect-gitignore",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
@@ -960,8 +964,6 @@ func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 	fs.Var(&persistCandidates, "persist-candidates", "persist bootstrap candidates to disk (optional bool)")
 	respectGitIgnore := optionalBoolFlag{}
 	fs.Var(&respectGitIgnore, "respect-gitignore", "respect .gitignore while scanning (optional bool)")
-	llmAssistDescriptions := optionalBoolFlag{}
-	fs.Var(&llmAssistDescriptions, "llm-assist-descriptions", "enable generated description assistance (optional bool)")
 	outputCandidatesPath := fs.String("output-candidates-path", "", "output file for bootstrap candidates (implies persistence)")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
@@ -984,9 +986,6 @@ func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 	}
 	if persistCandidates.IsSet() {
 		payload.PersistCandidates = persistCandidates.Ptr()
-	}
-	if llmAssistDescriptions.IsSet() {
-		payload.LLMAssistDescriptions = llmAssistDescriptions.Ptr()
 	}
 	if trimmedOutputPath := strings.TrimSpace(*outputCandidatesPath); trimmedOutputPath != "" {
 		payload.OutputCandidatesPath = &trimmedOutputPath

@@ -35,7 +35,7 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 			return nil, nil, fmt.Errorf("initialize postgres repository: %w", err)
 		}
 
-		svc, err := postgressvc.New(repo)
+		svc, err := postgressvc.NewWithProjectRoot(repo, cfg.ProjectRoot)
 		if err != nil {
 			repo.Close()
 			return nil, nil, fmt.Errorf("initialize postgres service: %w", err)
@@ -57,7 +57,7 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 		return nil, nil, fmt.Errorf("initialize sqlite repository: %w", err)
 	}
 
-	svc, err := postgressvc.New(sqliteRepo)
+	svc, err := postgressvc.NewWithProjectRoot(sqliteRepo, cfg.ProjectRoot)
 	if err != nil {
 		_ = sqliteRepo.Close()
 		return nil, nil, fmt.Errorf("initialize sqlite service: %w", err)

@@ -574,7 +574,7 @@
           "items": {
             "$ref": "shared.schema.json#/$defs/verifyTestId"
           },
-          "maxItems": 256,
+          "maxItems": 512,
           "uniqueItems": true
         },
         "selected": {
@@ -582,7 +582,7 @@
           "items": {
             "$ref": "#/$defs/verifySelection"
           },
-          "maxItems": 256
+          "maxItems": 512
         },
         "passed": {
           "type": "boolean"
@@ -593,7 +593,7 @@
             "$ref": "#/$defs/verifyTestResult"
           },
           "minItems": 1,
-          "maxItems": 256
+          "maxItems": 512
         }
       },
       "allOf": [
@@ -776,21 +776,18 @@
               "summary": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 600
+                "maxLength": 4000
               },
               "content": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 20000
+                "maxLength": 1000000
               },
               "status": {
                 "type": "string",
-                "enum": [
-                  "pending",
-                  "in_progress",
-                  "complete",
-                  "blocked"
-                ]
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^.*\\S.*$"
               },
               "version": {
                 "type": "string",
@@ -904,7 +901,7 @@
         "summary": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 600,
+          "maxLength": 4000,
           "pattern": "^.*\\S.*$"
         },
         "status": {

@@ -216,9 +216,6 @@ func validateGetContextPayload(p *GetContextPayload) error {
 	if p.Phase != PhasePlan && p.Phase != PhaseExecute && p.Phase != PhaseReview {
 		return fmt.Errorf("phase must be plan|execute|review")
 	}
-	if err := validateScopeMode(p.ScopeMode); err != nil {
-		return err
-	}
 	if err := validateTagsFile(p.TagsFile); err != nil {
 		return err
 	}
@@ -584,14 +581,22 @@ func validateHistorySearchPayload(p *HistorySearchPayload) error {
 	if strings.TrimSpace(p.Query) != "" && len(strings.TrimSpace(p.Query)) > 4000 {
 		return fmt.Errorf("query must be 1..4000 chars when provided")
 	}
-	if p.Scope != "" &&
-		p.Scope != HistoryScopeCurrent &&
-		p.Scope != HistoryScopeDeferred &&
-		p.Scope != HistoryScopeCompleted &&
-		p.Scope != HistoryScopeAll {
-		return fmt.Errorf("scope must be current|deferred|completed|all")
+	entity := normalizeHistoryEntityValue(p.Entity)
+	if p.Scope != "" {
+		if entity != HistoryEntityWork {
+			return fmt.Errorf("scope is only supported when entity=work")
+		}
+		if p.Scope != HistoryScopeCurrent &&
+			p.Scope != HistoryScopeDeferred &&
+			p.Scope != HistoryScopeCompleted &&
+			p.Scope != HistoryScopeAll {
+			return fmt.Errorf("scope must be current|deferred|completed|all")
+		}
 	}
 	if strings.TrimSpace(p.Kind) != "" {
+		if entity != HistoryEntityWork {
+			return fmt.Errorf("kind is only supported when entity=work")
+		}
 		if len(strings.TrimSpace(p.Kind)) > 64 {
 			return fmt.Errorf("kind must be 1..64 chars when provided")
 		}
@@ -613,6 +618,23 @@ func validateHealthCheckPayload(p *HealthCheckPayload) error {
 		return fmt.Errorf("max_findings_per_check must be between 1 and 500")
 	}
 	return nil
+}
+
+func normalizeHistoryEntityValue(raw HistoryEntity) HistoryEntity {
+	switch strings.TrimSpace(string(raw)) {
+	case string(HistoryEntityAll):
+		return HistoryEntityAll
+	case string(HistoryEntityMemory):
+		return HistoryEntityMemory
+	case string(HistoryEntityReceipt):
+		return HistoryEntityReceipt
+	case string(HistoryEntityRun):
+		return HistoryEntityRun
+	case string(HistoryEntityWork):
+		return HistoryEntityWork
+	default:
+		return HistoryEntityAll
+	}
 }
 
 func validateHealthFixPayload(p *HealthFixPayload, fields map[string]json.RawMessage) error {

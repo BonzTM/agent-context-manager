@@ -58,7 +58,7 @@ var workflowCommands = []helpCommand{
 		summary: "Search plan and task history without direct database access.",
 	},
 	{
-		usage:   "acm history search --project <id> [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
+		usage:   "acm history search --project <id> [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--limit <n>] [--unbounded[=true|false]]",
 		summary: "Search recent work, memory, receipt, and run history without direct database access.",
 	},
 	{
@@ -81,7 +81,7 @@ var maintenanceCommands = []helpCommand{
 		summary: "Inspect repository health without making changes.",
 	},
 	{
-		usage:   "acm health-fix --project <id> [--apply[=true|false>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--fixer <name>]...",
+		usage:   "acm health-fix --project <id> [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--fixer <name>]...",
 		summary: "Plan or apply repair actions such as sync_working_tree, index_uncovered_files, and sync_ruleset.",
 	},
 	{
@@ -97,7 +97,7 @@ var maintenanceCommands = []helpCommand{
 		summary: "Select and execute repo-defined verification checks from `.acm/acm-tests.yaml` or `acm-tests.yaml`.",
 	},
 	{
-		usage:   "acm bootstrap --project <id> --project-root <path> [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--llm-assist-descriptions[=true|false]] [--output-candidates-path <path>]",
+		usage:   "acm bootstrap --project <id> --project-root <path> [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--output-candidates-path <path>]",
 		summary: "Seed repo-local ACM files and scan a repository for initial pointer candidates.",
 	},
 }
@@ -322,13 +322,15 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Config Resolution:")
 	fmt.Fprintln(w, "  1. Process environment (`ACM_*`) wins.")
-	fmt.Fprintln(w, "  2. Repo-root `.env` is loaded when present.")
-	fmt.Fprintln(w, "  3. If `ACM_PG_DSN` is set, Postgres is used.")
-	fmt.Fprintln(w, "  4. Otherwise SQLite defaults to `<repo-root>/.acm/context.db`.")
-	fmt.Fprintln(w, "  5. Outside a repo, SQLite defaults to `<cwd>/.acm/context.db`.")
+	fmt.Fprintln(w, "  2. `ACM_PROJECT_ROOT` can pin the project root when the current shell is elsewhere.")
+	fmt.Fprintln(w, "  3. Repo-root `.env` is loaded when present.")
+	fmt.Fprintln(w, "  4. If `ACM_PG_DSN` is set, Postgres is used.")
+	fmt.Fprintln(w, "  5. Otherwise SQLite defaults to `<repo-root>/.acm/context.db`.")
+	fmt.Fprintln(w, "  6. Outside a repo, SQLite defaults to `<cwd>/.acm/context.db`.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Environment Variables:")
 	fmt.Fprintln(w, "  - `ACM_PG_DSN`: Postgres DSN. If set, Postgres is the active backend.")
+	fmt.Fprintln(w, "  - `ACM_PROJECT_ROOT`: Optional explicit repo root when running acm from another directory.")
 	fmt.Fprintln(w, "  - `ACM_SQLITE_PATH`: Optional explicit SQLite path. Relative paths resolve from the detected project root.")
 	fmt.Fprintln(w, "  - `ACM_UNBOUNDED`: `true|false`. When true, retrieval/list surfaces stop applying built-in result caps.")
 	fmt.Fprintln(w, "  - `ACM_LOG_LEVEL`: `debug|info|warn|error`.")

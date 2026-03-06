@@ -21,7 +21,7 @@ func (s *Service) HealthFix(ctx context.Context, payload v1.HealthFixPayload) (v
 	}
 
 	projectID := strings.TrimSpace(payload.ProjectID)
-	projectRoot := normalizeSyncProjectRoot(payload.ProjectRoot)
+	projectRoot := s.effectiveProjectRoot(payload.ProjectRoot)
 	rulesFile := strings.TrimSpace(payload.RulesFile)
 	tagsFile := strings.TrimSpace(payload.TagsFile)
 	dryRun := !effectiveHealthFixApply(payload.Apply)

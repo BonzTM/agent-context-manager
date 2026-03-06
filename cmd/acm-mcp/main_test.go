@@ -82,6 +82,35 @@ func TestInvokeWithDeps_ServiceFailureWritesResultEnvelope(t *testing.T) {
 	}
 }
 
+func TestInvokeWithDeps_HistorySearchDispatchesThroughWrapper(t *testing.T) {
+	var out bytes.Buffer
+	code := invokeWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		[]string{"--tool", "history_search"},
+		strings.NewReader(`{"project_id":"my-cool-app","entity":"memory","query":"bootstrap"}`),
+		&out,
+		fixedMCPNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			return mcpMainFakeService{}, func() {}, nil
+		},
+	)
+	if code != 0 {
+		t.Fatalf("unexpected exit code: got %d want 0", code)
+	}
+
+	var env v1.ResultEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true, got error %+v", env.Error)
+	}
+	if env.Command != v1.CommandHistorySearch {
+		t.Fatalf("unexpected command: %q", env.Command)
+	}
+}
+
 func TestInvokeWithDeps_MissingToolWritesStructuredError(t *testing.T) {
 	var out bytes.Buffer
 	code := invokeWithDeps(

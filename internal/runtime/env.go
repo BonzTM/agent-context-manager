@@ -20,7 +20,11 @@ func loadRuntimeEnv(startDir string, lookupEnv func(string) (string, bool)) runt
 		lookupEnv = os.LookupEnv
 	}
 
-	root := workspace.DetectRoot(startDir)
+	rootBase := strings.TrimSpace(startDir)
+	if explicitRoot, ok := lookupEnv(ProjectRootEnvVar); ok {
+		rootBase = strings.TrimSpace(explicitRoot)
+	}
+	root := workspace.DetectRoot(rootBase)
 	values := map[string]string{}
 	if root.Path != "" {
 		if parsed, err := workspace.ParseDotEnvFile(filepath.Join(root.Path, workspace.DotEnvFileName)); err == nil {

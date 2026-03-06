@@ -193,7 +193,7 @@ func TestDecodeAndValidateCommand_HistorySearchPayloadValidation(t *testing.T) {
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
-			"entity":"memory",
+			"entity":"work",
 			"query":"bootstrap",
 			"scope":"completed",
 			"kind":"story",
@@ -209,7 +209,7 @@ func TestDecodeAndValidateCommand_HistorySearchPayloadValidation(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.ProjectID != "my-cool-app" || p.Entity != HistoryEntityMemory || p.Query != "bootstrap" || p.Scope != HistoryScopeCompleted || p.Kind != "story" || p.Limit != 10 {
+	if p.ProjectID != "my-cool-app" || p.Entity != HistoryEntityWork || p.Query != "bootstrap" || p.Scope != HistoryScopeCompleted || p.Kind != "story" || p.Limit != 10 {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 	if p.Unbounded == nil || !*p.Unbounded {
@@ -228,6 +228,28 @@ func TestDecodeAndValidateCommand_HistorySearchPayloadValidation(t *testing.T) {
 		}
 	}`
 	_, _, errp = DecodeAndValidateCommand([]byte(invalidJSON))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
+func TestDecodeAndValidateCommand_HistorySearchRejectsWorkOnlyFiltersForNonWorkEntity(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"history_search",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"entity":"memory",
+			"query":"bootstrap",
+			"scope":"completed",
+			"kind":"story"
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
 	if errp == nil {
 		t.Fatal("expected validation error")
 	}

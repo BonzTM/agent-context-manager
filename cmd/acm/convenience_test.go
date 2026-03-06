@@ -366,7 +366,7 @@ func TestBuildHistorySearchEnvelope_ForGenericHistoryDefaultsToAllEntities(t *te
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
-	if payload.ProjectID != "myproject" || payload.Entity != v1.HistoryEntityAll || payload.Scope != v1.HistoryScopeAll || payload.Limit != 9 || payload.Query != "" {
+	if payload.ProjectID != "myproject" || payload.Entity != v1.HistoryEntityAll || payload.Scope != "" || payload.Kind != "" || payload.Limit != 9 || payload.Query != "" {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
 }
@@ -387,6 +387,19 @@ func TestBuildHistorySearchEnvelope_AllowsMemoryEntity(t *testing.T) {
 	}
 	if payload.Entity != v1.HistoryEntityMemory || payload.Query != "bootstrap" {
 		t.Fatalf("unexpected payload: %+v", payload)
+	}
+}
+
+func TestBuildHistorySearchEnvelope_GenericHistoryRejectsWorkOnlyFlags(t *testing.T) {
+	_, err := buildConvenienceEnvelope("history-search", []string{
+		"--project", "myproject",
+		"--scope", "all",
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected error for generic history scope flag")
+	}
+	if !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

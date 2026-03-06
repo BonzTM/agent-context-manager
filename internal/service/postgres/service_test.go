@@ -1854,6 +1854,80 @@ func TestReportCompletion_NoWorkItemsStrictRejectsMissingVerify(t *testing.T) {
 	}
 }
 
+func TestReportCompletion_EmptyFilesChangedWarnsInDefaultMode(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID: "project.alpha",
+			ReceiptID: "receipt.abc123",
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "verify:tests", Status: core.WorkItemStatusComplete},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 74, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{},
+		Outcome:      "completed",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected warn-mode acceptance: %+v", result)
+	}
+	wantIssues := []string{"files_changed must include at least one repository-relative path"}
+	if !reflect.DeepEqual(result.DefinitionOfDoneIssues, wantIssues) {
+		t.Fatalf("unexpected DoD issues: got %v want %v", result.DefinitionOfDoneIssues, wantIssues)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one persisted run summary, got %d", len(repo.saveCalls))
+	}
+}
+
+func TestReportCompletion_EmptyFilesChangedStrictRejects(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID: "project.alpha",
+			ReceiptID: "receipt.abc123",
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "verify:tests", Status: core.WorkItemStatusComplete},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{},
+		Outcome:      "completed",
+		ScopeMode:    v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Accepted {
+		t.Fatalf("expected strict-mode rejection: %+v", result)
+	}
+	wantIssues := []string{"files_changed must include at least one repository-relative path"}
+	if !reflect.DeepEqual(result.DefinitionOfDoneIssues, wantIssues) {
+		t.Fatalf("unexpected DoD issues: got %v want %v", result.DefinitionOfDoneIssues, wantIssues)
+	}
+	if len(repo.saveCalls) != 0 {
+		t.Fatalf("expected no persisted run summary on strict rejection, got %d", len(repo.saveCalls))
+	}
+}
+
 func TestReportCompletion_DefaultModeWarnAcceptsOutOfScopeAndPersistsSummary(t *testing.T) {
 	repo := &fakeRepository{
 		scopeResults: []core.ReceiptScope{{
@@ -2336,6 +2410,12 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 	}
 	if len(result.Checks[0].Samples) == 0 {
 		t.Fatalf("expected include_details default to include samples")
+	}
+	if len(repo.candidateCalls) != 1 || !repo.candidateCalls[0].Unbounded {
+		t.Fatalf("expected unbounded candidate health query, got %+v", repo.candidateCalls)
+	}
+	if len(repo.memoryCalls) != 1 || !repo.memoryCalls[0].Unbounded {
+		t.Fatalf("expected unbounded memory health query, got %+v", repo.memoryCalls)
 	}
 }
 
@@ -3200,7 +3280,7 @@ func TestBootstrap_SeedsCanonicalScaffoldFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read scaffolded env example: %v", err)
 	}
-	wantEnvExample := "# ACM runtime configuration\n# Copy this file to .env to override local defaults.\nACM_SQLITE_PATH=.acm/context.db\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_UNBOUNDED=false\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
+	wantEnvExample := "# ACM runtime configuration\n# Copy this file to .env to override local defaults.\nACM_PROJECT_ROOT=/path/to/repo\nACM_SQLITE_PATH=.acm/context.db\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_UNBOUNDED=false\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
 	if string(envExampleRaw) != wantEnvExample {
 		t.Fatalf("unexpected scaffolded env example contents: %q", string(envExampleRaw))
 	}
@@ -3435,7 +3515,7 @@ func TestBootstrap_DoesNotOverwriteExistingCanonicalScaffoldFiles(t *testing.T) 
 	if err != nil {
 		t.Fatalf("read env example: %v", err)
 	}
-	wantEnvExample := "ACM_SQLITE_PATH=.acm/existing.db\n\n# ACM runtime configuration\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_UNBOUNDED=false\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
+	wantEnvExample := "ACM_SQLITE_PATH=.acm/existing.db\n\n# ACM runtime configuration\nACM_PROJECT_ROOT=/path/to/repo\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_UNBOUNDED=false\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
 	if string(envExampleRaw) != wantEnvExample {
 		t.Fatalf("unexpected env example contents: got %q want %q", string(envExampleRaw), wantEnvExample)
 	}
@@ -4377,6 +4457,54 @@ func TestFetch_PointerKeyReturnsContentWhenReadable(t *testing.T) {
 	}
 }
 
+func TestFetch_PointerKeyReadsRelativePathFromServiceProjectRoot(t *testing.T) {
+	projectRoot := t.TempDir()
+	pointerPath := filepath.Join(projectRoot, "docs", "pointer.txt")
+	if err := os.MkdirAll(filepath.Dir(pointerPath), 0o755); err != nil {
+		t.Fatalf("mkdir pointer dir: %v", err)
+	}
+	pointerContent := "pointer payload for fetch"
+	if err := os.WriteFile(pointerPath, []byte(pointerContent), 0o644); err != nil {
+		t.Fatalf("write pointer content: %v", err)
+	}
+
+	otherDir := t.TempDir()
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(otherDir); err != nil {
+		t.Fatalf("chdir away from project root: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(originalWD)
+	})
+
+	repo := &fakeRepository{
+		pointerLookupResults: []core.CandidatePointer{
+			candidate("code:pointer", "docs/pointer.txt", false, []string{"backend"}),
+		},
+	}
+	svc, err := NewWithProjectRoot(repo, projectRoot)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{"code:pointer"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one fetch item, got %+v", result)
+	}
+	if result.Items[0].Content != pointerContent {
+		t.Fatalf("unexpected pointer content: got %q want %q", result.Items[0].Content, pointerContent)
+	}
+}
+
 func TestFetch_MemoryKeyReturnsFullContent(t *testing.T) {
 	repo := &fakeRepository{
 		memoryLookupResults: []core.ActiveMemory{
@@ -5146,17 +5274,21 @@ func TestHistorySearch_MapsPlanSummariesAndDefaults(t *testing.T) {
 	if got := repo.workPlanListCalls[0]; got.ProjectID != "project.alpha" || got.Query != "bootstrap" || got.Scope != string(v1.HistoryScopeAll) || got.Limit != 20 || got.Unbounded {
 		t.Fatalf("unexpected work plan list query: %+v", got)
 	}
-	if result.Entity != v1.HistoryEntityWork || result.Scope != v1.HistoryScopeAll || result.Query != "bootstrap" || result.Limit != 20 || result.Count != 2 {
+	if result.Entity != v1.HistoryEntityAll || result.Scope != "" || result.Query != "bootstrap" || result.Limit != 20 || result.Count != 2 {
 		t.Fatalf("unexpected history result metadata: %+v", result)
 	}
 	if len(result.Items) != 2 {
 		t.Fatalf("expected two items, got %+v", result.Items)
 	}
-	if result.Items[0].Entity != v1.HistoryEntityWork || result.Items[0].Scope != v1.HistoryScopeCurrent || !reflect.DeepEqual(result.Items[0].FetchKeys, []string{"plan:receipt.active123"}) {
-		t.Fatalf("unexpected active plan summary: %+v", result.Items[0])
+	itemsByKey := map[string]v1.HistoryItem{}
+	for _, item := range result.Items {
+		itemsByKey[item.Key] = item
 	}
-	if result.Items[1].Entity != v1.HistoryEntityWork || result.Items[1].Scope != v1.HistoryScopeCompleted || !reflect.DeepEqual(result.Items[1].FetchKeys, []string{"plan:receipt.done123"}) {
-		t.Fatalf("unexpected completed plan summary: %+v", result.Items[1])
+	if item := itemsByKey["plan:receipt.active123"]; item.Entity != v1.HistoryEntityWork || item.Scope != v1.HistoryScopeCurrent || !reflect.DeepEqual(item.FetchKeys, []string{"plan:receipt.active123"}) {
+		t.Fatalf("unexpected active plan summary: %+v", item)
+	}
+	if item := itemsByKey["plan:receipt.done123"]; item.Entity != v1.HistoryEntityWork || item.Scope != v1.HistoryScopeCompleted || !reflect.DeepEqual(item.FetchKeys, []string{"plan:receipt.done123"}) {
+		t.Fatalf("unexpected completed plan summary: %+v", item)
 	}
 }
 
@@ -5171,6 +5303,7 @@ func TestHistorySearch_UsesExplicitScopeKindAndLimit(t *testing.T) {
 
 	result, apiErr := svc.HistorySearch(context.Background(), v1.HistorySearchPayload{
 		ProjectID: "project.alpha",
+		Entity:    v1.HistoryEntityWork,
 		Scope:     v1.HistoryScopeDeferred,
 		Kind:      "story",
 		Limit:     7,

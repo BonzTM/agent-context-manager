@@ -78,7 +78,7 @@ func invokeWithDeps(ctx context.Context, logger logging.Logger, args []string, s
 
 	fs := flag.NewFlagSet("invoke", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	tool := fs.String("tool", "", "tool name: get_context|fetch|propose_memory|report_completion|work|sync|health_check|health_fix|coverage|eval|verify|bootstrap")
+	tool := fs.String("tool", "", "tool name: get_context|fetch|propose_memory|report_completion|work|history_search|sync|health_check|health_fix|coverage|eval|verify|bootstrap")
 	in := fs.String("in", "-", "tool input JSON file or '-' for stdin")
 	if err := fs.Parse(args); err != nil {
 		logger.Error(ctx, logging.EventACMMCP, "stage", "parse_flags", "subcommand", "invoke", "ok", false, "error_code", "INVALID_FLAGS")
@@ -191,6 +191,8 @@ func commandForTool(tool string) (v1.Command, bool) {
 		return v1.CommandReportCompletion, true
 	case string(v1.CommandWork):
 		return v1.CommandWork, true
+	case string(v1.CommandHistorySearch):
+		return v1.CommandHistorySearch, true
 	case string(v1.CommandSync):
 		return v1.CommandSync, true
 	case string(v1.CommandHealthCheck):
@@ -231,10 +233,11 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Config Resolution:")
 	fmt.Fprintln(w, "  1. Process environment (`ACM_*`) wins.")
-	fmt.Fprintln(w, "  2. Repo-root `.env` is loaded when present.")
-	fmt.Fprintln(w, "  3. `ACM_PG_DSN` takes precedence over SQLite.")
-	fmt.Fprintln(w, "  4. Default SQLite path is `<repo-root>/.acm/context.db`.")
-	fmt.Fprintln(w, "  5. `ACM_UNBOUNDED=true` removes built-in retrieval/list caps for supported tools.")
+	fmt.Fprintln(w, "  2. `ACM_PROJECT_ROOT` can pin the project root when the current shell is elsewhere.")
+	fmt.Fprintln(w, "  3. Repo-root `.env` is loaded when present.")
+	fmt.Fprintln(w, "  4. `ACM_PG_DSN` takes precedence over SQLite.")
+	fmt.Fprintln(w, "  5. Default SQLite path is `<repo-root>/.acm/context.db`.")
+	fmt.Fprintln(w, "  6. `ACM_UNBOUNDED=true` removes built-in retrieval/list caps for supported tools.")
 }
 
 func printVersion(w io.Writer, binaryName string) {

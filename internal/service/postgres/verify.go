@@ -138,7 +138,7 @@ func (s *Service) Verify(ctx context.Context, payload v1.VerifyPayload) (v1.Veri
 	}
 
 	projectID := strings.TrimSpace(payload.ProjectID)
-	projectRoot := normalizeBootstrapProjectRoot("")
+	projectRoot := s.defaultProjectRoot()
 	definitions, source, err := s.loadVerifyDefinitions(projectRoot, payload.TestsFile, payload.TagsFile)
 	if err != nil {
 		return v1.VerifyResult{}, verifyDefinitionsAPIError(source.SourcePath, err)

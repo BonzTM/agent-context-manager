@@ -63,7 +63,7 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 		return v1.GetContextResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
 	}
 
-	tagNormalizer, err := s.loadCanonicalTagNormalizer("", payload.TagsFile)
+	tagNormalizer, err := s.loadCanonicalTagNormalizer(s.defaultProjectRoot(), payload.TagsFile)
 	if err != nil {
 		return v1.GetContextResult{}, internalError("load_canonical_tags", err)
 	}

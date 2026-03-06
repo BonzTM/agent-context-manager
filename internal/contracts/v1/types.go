@@ -86,7 +86,6 @@ type GetContextPayload struct {
 	Phase        Phase          `json:"phase"`
 	TagsFile     string         `json:"tags_file,omitempty"`
 	Unbounded    *bool          `json:"unbounded,omitempty"`
-	ScopeMode    ScopeMode      `json:"scope_mode,omitempty"`
 	Caps         *RetrievalCaps `json:"caps,omitempty"`
 	AllowStale   bool           `json:"allow_stale,omitempty"`
 	FallbackMode string         `json:"fallback_mode,omitempty"`
@@ -289,14 +288,13 @@ type VerifyPayload struct {
 }
 
 type BootstrapPayload struct {
-	ProjectID             string  `json:"project_id"`
-	ProjectRoot           string  `json:"project_root"`
-	RulesFile             string  `json:"rules_file,omitempty"`
-	TagsFile              string  `json:"tags_file,omitempty"`
-	PersistCandidates     *bool   `json:"persist_candidates,omitempty"`
-	RespectGitIgnore      *bool   `json:"respect_gitignore,omitempty"`
-	LLMAssistDescriptions *bool   `json:"llm_assist_descriptions,omitempty"`
-	OutputCandidatesPath  *string `json:"output_candidates_path,omitempty"`
+	ProjectID            string  `json:"project_id"`
+	ProjectRoot          string  `json:"project_root"`
+	RulesFile            string  `json:"rules_file,omitempty"`
+	TagsFile             string  `json:"tags_file,omitempty"`
+	PersistCandidates    *bool   `json:"persist_candidates,omitempty"`
+	RespectGitIgnore     *bool   `json:"respect_gitignore,omitempty"`
+	OutputCandidatesPath *string `json:"output_candidates_path,omitempty"`
 }
 
 type ContextBudget struct {

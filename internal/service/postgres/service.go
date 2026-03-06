@@ -44,7 +44,6 @@ const (
 	defaultBootstrapOutputPath   = ".acm/bootstrap_candidates.json"
 	defaultBootstrapPersist      = false
 	defaultBootstrapRespectGit   = true
-	defaultBootstrapLLMAssist    = true
 	maxBootstrapWalkErrorSamples = 25
 	maxFetchKeyLength            = 512
 )
@@ -102,9 +101,14 @@ type Service struct {
 	repo             core.Repository
 	runGitCommand    gitRunnerFunc
 	runVerifyCommand verifyRunnerFunc
+	projectRoot      string
 }
 
 func New(repo core.Repository) (*Service, error) {
+	return NewWithProjectRoot(repo, "")
+}
+
+func NewWithProjectRoot(repo core.Repository, projectRoot string) (*Service, error) {
 	if repo == nil {
 		return nil, fmt.Errorf("repository is required")
 	}
@@ -112,7 +116,32 @@ func New(repo core.Repository) (*Service, error) {
 		repo:             repo,
 		runGitCommand:    runGitCommand,
 		runVerifyCommand: runVerifyCommand,
+		projectRoot:      normalizeSyncProjectRoot(projectRoot),
 	}, nil
+}
+
+func (s *Service) defaultProjectRoot() string {
+	if s != nil {
+		if root := strings.TrimSpace(s.projectRoot); root != "" {
+			return filepath.Clean(root)
+		}
+	}
+	detected := workspace.DetectRoot("")
+	if root := strings.TrimSpace(detected.Path); root != "" {
+		return filepath.Clean(root)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return normalizeBootstrapProjectRoot("")
+	}
+	return filepath.Clean(cwd)
+}
+
+func (s *Service) effectiveProjectRoot(explicit string) string {
+	if trimmed := strings.TrimSpace(explicit); trimmed != "" {
+		return normalizeBootstrapProjectRoot(trimmed)
+	}
+	return s.defaultProjectRoot()
 }
 
 func (s *Service) Fetch(ctx context.Context, payload v1.FetchPayload) (v1.FetchResult, *core.APIError) {
@@ -668,7 +697,7 @@ func (s *Service) ProposeMemory(ctx context.Context, payload v1.ProposeMemoryPay
 		return v1.ProposeMemoryResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
 	}
 
-	tagNormalizer, err := s.loadCanonicalTagNormalizer("", payload.TagsFile)
+	tagNormalizer, err := s.loadCanonicalTagNormalizer(s.defaultProjectRoot(), payload.TagsFile)
 	if err != nil {
 		return v1.ProposeMemoryResult{}, proposeMemoryInternalError("load_canonical_tags", err)
 	}
@@ -738,7 +767,7 @@ func (s *Service) ReportCompletion(ctx context.Context, payload v1.ReportComplet
 		return v1.ReportCompletionResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
 	}
 
-	tagNormalizer, err := s.loadCanonicalTagNormalizer("", payload.TagsFile)
+	tagNormalizer, err := s.loadCanonicalTagNormalizer(s.defaultProjectRoot(), payload.TagsFile)
 	if err != nil {
 		return v1.ReportCompletionResult{}, reportCompletionInternalError("load_canonical_tags", err)
 	}
@@ -865,7 +894,7 @@ func (s *Service) Sync(ctx context.Context, payload v1.SyncPayload) (v1.SyncResu
 
 	mode := normalizeSyncMode(payload.Mode)
 	gitRange := normalizeSyncGitRange(mode, payload.GitRange)
-	projectRoot := normalizeSyncProjectRoot(payload.ProjectRoot)
+	projectRoot := s.effectiveProjectRoot(payload.ProjectRoot)
 	insertNewCandidates := effectiveInsertNewCandidates(payload.InsertNewCandidates)
 	projectID := strings.TrimSpace(payload.ProjectID)
 
@@ -914,7 +943,7 @@ func (s *Service) HealthCheck(ctx context.Context, payload v1.HealthCheckPayload
 	candidates, err := s.repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
 		ProjectID: strings.TrimSpace(payload.ProjectID),
 		TaskText:  "",
-		Limit:     candidateFetchLimit,
+		Unbounded: true,
 		StaleFilter: core.StaleFilter{
 			AllowStale: true,
 		},
@@ -925,7 +954,7 @@ func (s *Service) HealthCheck(ctx context.Context, payload v1.HealthCheckPayload
 
 	memories, err := s.repo.FetchActiveMemories(ctx, core.ActiveMemoryQuery{
 		ProjectID: strings.TrimSpace(payload.ProjectID),
-		Limit:     candidateFetchLimit,
+		Unbounded: true,
 	})
 	if err != nil {
 		return v1.HealthCheckResult{}, healthCheckInternalError("fetch_active_memories", err)
@@ -1027,7 +1056,7 @@ func (s *Service) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v
 		return v1.BootstrapResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
 	}
 
-	projectRoot := normalizeBootstrapProjectRoot(payload.ProjectRoot)
+	projectRoot := s.effectiveProjectRoot(payload.ProjectRoot)
 	outputPath, persistCandidates := resolveBootstrapOutputPath(projectRoot, payload.OutputCandidatesPath, payload.PersistCandidates)
 
 	paths, warnings, err := s.collectBootstrapPaths(ctx, projectRoot, outputPath, payload.RulesFile, payload.TagsFile, effectiveRespectGitIgnore(payload.RespectGitIgnore))
@@ -1523,7 +1552,7 @@ func (s *Service) fetchPointerItem(ctx context.Context, projectID, key string) (
 		Summary: summary,
 		Version: versionSeed,
 	}
-	if content, ok := readPointerFetchContent(pointer.Path); ok {
+	if content, ok := s.readPointerFetchContent(pointer.Path); ok {
 		item.Content = content
 		item.Version = indexEntryVersion(versionSeed, content)
 	}
@@ -1538,11 +1567,15 @@ func pointerFetchType(pointer core.CandidatePointer) string {
 	return "suggestion"
 }
 
-func readPointerFetchContent(pointerPath string) (string, bool) {
+func (s *Service) readPointerFetchContent(pointerPath string) (string, bool) {
 	cleanPath := strings.TrimSpace(pointerPath)
 	if cleanPath == "" {
 		return "", false
 	}
+	if !filepath.IsAbs(cleanPath) {
+		cleanPath = filepath.Join(s.defaultProjectRoot(), filepath.FromSlash(cleanPath))
+	}
+	cleanPath = filepath.Clean(cleanPath)
 	content, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return "", false
@@ -1940,7 +1973,7 @@ func normalizeHistoryEntity(raw v1.HistoryEntity) v1.HistoryEntity {
 	case string(v1.HistoryEntityWork):
 		return v1.HistoryEntityWork
 	default:
-		return v1.HistoryEntityWork
+		return v1.HistoryEntityAll
 	}
 }
 
@@ -2014,8 +2047,9 @@ func derivePlanStatusFromWorkItems(items []core.WorkItem) string {
 }
 
 func evaluateDefinitionOfDoneIssues(items []core.WorkItem, filesChanged []string) []string {
-	if len(filesChanged) == 0 {
-		return nil
+	normalizedFilesChanged := normalizeCompletionPaths(filesChanged)
+	if len(normalizedFilesChanged) == 0 {
+		return []string{"files_changed must include at least one repository-relative path"}
 	}
 
 	normalizedItems := normalizeWorkItems(items)
@@ -3124,6 +3158,7 @@ func ensureBootstrapEnvExample(projectRoot string) error {
 	entries := []string{
 		"# ACM runtime configuration",
 		"# Copy this file to .env to override local defaults.",
+		"ACM_PROJECT_ROOT=/path/to/repo",
 		"ACM_SQLITE_PATH=.acm/context.db",
 		"ACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable",
 		"ACM_UNBOUNDED=false",
@@ -3267,13 +3302,6 @@ func effectiveRespectGitIgnore(respectGitIgnore *bool) bool {
 		return defaultBootstrapRespectGit
 	}
 	return *respectGitIgnore
-}
-
-func effectiveLLMAssistDescriptions(llmAssistDescriptions *bool) bool {
-	if llmAssistDescriptions == nil {
-		return defaultBootstrapLLMAssist
-	}
-	return *llmAssistDescriptions
 }
 
 func effectivePersistCandidates(persistCandidates *bool) bool {
@@ -3701,7 +3729,7 @@ func (s *Service) Coverage(ctx context.Context, payload v1.CoveragePayload) (v1.
 		return v1.CoverageResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
 	}
 
-	projectRoot := normalizeSyncProjectRoot(payload.ProjectRoot)
+	projectRoot := s.effectiveProjectRoot(payload.ProjectRoot)
 	paths, err := s.collectCoveragePaths(ctx, projectRoot)
 	if err != nil {
 		return v1.CoverageResult{}, coverageInternalError("collect_project_paths", err)

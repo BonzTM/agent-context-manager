@@ -10,6 +10,7 @@ import (
 
 const PostgresDSNEnvVar = "ACM_PG_DSN"
 const SQLitePathEnvVar = "ACM_SQLITE_PATH"
+const ProjectRootEnvVar = "ACM_PROJECT_ROOT"
 
 type Config struct {
 	PostgresDSN   string

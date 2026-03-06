@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -58,23 +59,12 @@ func New(ctx context.Context, cfg Config) (*Repository, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	dsn := sqliteDSN(dbPath)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite db: %w", err)
 	}
 
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set sqlite foreign_keys pragma: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set sqlite busy_timeout pragma: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set sqlite journal_mode pragma: %w", err)
-	}
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite db: %w", err)
@@ -85,6 +75,19 @@ func New(ctx context.Context, cfg Config) (*Repository, error) {
 	}
 
 	return &Repository{db: db}, nil
+}
+
+func sqliteDSN(dbPath string) string {
+	u := &url.URL{
+		Scheme: "file",
+		Path:   filepath.ToSlash(dbPath),
+	}
+	q := u.Query()
+	q.Add("_pragma", "foreign_keys(1)")
+	q.Add("_pragma", "busy_timeout(5000)")
+	q.Add("_pragma", "journal_mode(WAL)")
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func (r *Repository) Close() error {

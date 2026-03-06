@@ -128,7 +128,7 @@ func TestInvoke_RemainingTools(t *testing.T) {
 		{
 			name:    "history_search",
 			tool:    toolHistorySearch,
-			payload: []byte(`{"project_id":"my-cool-app","query":"bootstrap","scope":"all"}`),
+			payload: []byte(`{"project_id":"my-cool-app","entity":"memory","query":"bootstrap"}`),
 			assert: func(t *testing.T, result any) {
 				t.Helper()
 				if _, ok := result.(v1.HistorySearchResult); !ok {

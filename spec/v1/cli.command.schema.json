@@ -130,15 +130,6 @@
             "none"
           ],
           "default": "widen_once"
-        },
-        "scope_mode": {
-          "type": "string",
-          "enum": [
-            "strict",
-            "warn",
-            "auto_index"
-          ],
-          "default": "warn"
         }
       }
     },
@@ -505,10 +496,6 @@
           "type": "boolean",
           "default": true
         },
-        "llm_assist_descriptions": {
-          "type": "boolean",
-          "default": true
-        },
         "output_candidates_path": {
           "type": "string",
           "minLength": 1,
@@ -664,7 +651,7 @@
             "receipt",
             "run"
           ],
-          "default": "work"
+          "default": "all"
         },
         "query": {
           "type": "string",
@@ -678,8 +665,7 @@
             "deferred",
             "completed",
             "all"
-          ],
-          "default": "all"
+          ]
         },
         "kind": {
           "$ref": "shared.schema.json#/$defs/planKind"
@@ -694,7 +680,42 @@
           "type": "boolean",
           "default": false
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "entity": {
+                "enum": [
+                  "all",
+                  "memory",
+                  "receipt",
+                  "run"
+                ]
+              }
+            },
+            "required": [
+              "entity"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "scope"
+                  ]
+                },
+                {
+                  "required": [
+                    "kind"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   },
   "allOf": [

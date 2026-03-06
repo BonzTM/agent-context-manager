@@ -441,6 +441,13 @@ CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_dedupe
 	ON acm_memory_candidates (project_id, dedupe_key);
 `,
 	},
+	{
+		Name: "0009_acm_run_history_indexes.sql",
+		SQL: `
+CREATE INDEX IF NOT EXISTS idx_acm_runs_project_receipt_created
+	ON acm_runs (project_id, receipt_id, created_at DESC, run_id DESC);
+`,
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {

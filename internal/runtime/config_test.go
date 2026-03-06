@@ -93,6 +93,32 @@ func TestConfigFromEnv_ProcessEnvOverridesDotEnv(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnv_UsesExplicitProjectRootOutsideRepo(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ACM_SQLITE_PATH=.acm/custom.db\n"), 0o644); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	outside := t.TempDir()
+	restore := withWorkingDir(t, outside)
+	defer restore()
+
+	unsetEnv(t, PostgresDSNEnvVar)
+	unsetEnv(t, SQLitePathEnvVar)
+	t.Setenv(ProjectRootEnvVar, root)
+
+	cfg := ConfigFromEnv()
+	if got, want := cfg.ProjectRoot, root; got != want {
+		t.Fatalf("unexpected project root: got %q want %q", got, want)
+	}
+	if got, want := cfg.EffectiveSQLitePath(), filepath.Join(root, ".acm", "custom.db"); got != want {
+		t.Fatalf("unexpected sqlite path from explicit project root: got %q want %q", got, want)
+	}
+}
+
 func withWorkingDir(t *testing.T, dir string) func() {
 	t.Helper()
 
