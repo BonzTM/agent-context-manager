@@ -288,12 +288,12 @@ Once the index and rules are set up, connect your agents so they call acm operat
 Install the slash command pack into your project:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude .
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude
 ```
 
-This gives agents `/acm-get`, `/acm-work`, `/acm-verify`, `/acm-report`, `/acm-memory`, and `/acm-eval` commands.
+Run this from your project root. It installs `/acm-get`, `/acm-work`, `/acm-verify`, `/acm-report`, `/acm-memory`, and `/acm-eval` slash commands into `.claude/commands/`.
 
-If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude .`.
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude`.
 
 Add a thin `CLAUDE.md` to your project root. A starter template is at [docs/examples/CLAUDE.md](examples/CLAUDE.md).
 

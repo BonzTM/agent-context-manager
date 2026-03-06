@@ -23,12 +23,12 @@ For compact rediscovery of archived plans, receipts, runs, and durable memories,
 ## Install into a project
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude .
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude
 ```
 
-Then restart Claude Code so commands are reloaded.
+Run this from your project root, then restart Claude Code so commands are reloaded.
 
-If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude .`.
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude`.
 
 ## Runtime notes
 

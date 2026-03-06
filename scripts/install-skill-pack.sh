@@ -25,8 +25,11 @@ Examples:
 USAGE
 }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+REPO_ROOT=""
+if [[ -n "${SCRIPT_DIR}" && -d "${SCRIPT_DIR}/../skills/acm-broker" ]]; then
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
 
 codex_home="${CODEX_HOME:-${HOME}/.codex}"
 claude_target="$(pwd)"
@@ -95,7 +98,19 @@ if [[ "${install_codex}" == false && "${install_claude}" == false ]]; then
   exit 2
 fi
 
-skill_src="${REPO_ROOT}/skills/acm-broker"
+cleanup_tmp() { :; }
+if [[ -n "${REPO_ROOT}" ]]; then
+  skill_src="${REPO_ROOT}/skills/acm-broker"
+else
+  echo "Fetching skill pack from GitHub..."
+  tmp_dir="$(mktemp -d)"
+  cleanup_tmp() { rm -rf "${tmp_dir}"; }
+  trap cleanup_tmp EXIT
+  git clone --depth 1 --filter=blob:none --sparse \
+    https://github.com/bonztm/agent-context-manager.git "${tmp_dir}/repo" 2>/dev/null
+  git -C "${tmp_dir}/repo" sparse-checkout set skills/acm-broker 2>/dev/null
+  skill_src="${tmp_dir}/repo/skills/acm-broker"
+fi
 if [[ ! -d "${skill_src}" ]]; then
   echo "error: skill source directory not found: ${skill_src}" >&2
   exit 1

@@ -98,12 +98,12 @@ You can test any operation manually via CLI (e.g., `acm get-context --project my
 ### Claude Code (slash commands)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude /path/to/your/project
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude
 ```
 
-This installs `/acm-get`, `/acm-work`, `/acm-verify`, `/acm-report`, `/acm-memory`, and `/acm-eval` slash commands.
+Run this from your project root. It installs `/acm-get`, `/acm-work`, `/acm-verify`, `/acm-report`, `/acm-memory`, and `/acm-eval` slash commands into `.claude/commands/`.
 
-If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude /path/to/your/project`.
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude`.
 
 ### Codex (skill pack)
 
