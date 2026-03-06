@@ -181,7 +181,7 @@ func (s *Service) runHealthFixSyncRuleset(ctx context.Context, projectID, projec
 		Count: appliedCount,
 		Notes: []string{
 			fmt.Sprintf("upserted=%d", syncResult.TotalUpserted),
-			fmt.Sprintf("marked_stale=%d", syncResult.TotalMarkedStale),
+			fmt.Sprintf("removed=%d", syncResult.TotalMarkedStale),
 		},
 	}
 	return planned, applied, nil

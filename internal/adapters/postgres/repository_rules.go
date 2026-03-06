@@ -93,35 +93,25 @@ ON CONFLICT (project_id, pointer_key) DO UPDATE SET
 
 	if len(activeKeys) == 0 {
 		tag, execErr := tx.Exec(ctx, `
-UPDATE acm_pointers
-SET
-	is_stale = TRUE,
-	stale_at = NOW(),
-	updated_at = NOW()
+DELETE FROM acm_pointers
 WHERE project_id = $1
 	AND path = $2
 	AND is_rule = TRUE
-	AND is_stale = FALSE
 `, normalized.ProjectID, normalized.SourcePath)
 		if execErr != nil {
-			return core.RulePointerSyncResult{}, fmt.Errorf("mark stale rule pointers: %w", execErr)
+			return core.RulePointerSyncResult{}, fmt.Errorf("delete missing rule pointers: %w", execErr)
 		}
 		result.MarkedStale = int(tag.RowsAffected())
 	} else {
 		tag, execErr := tx.Exec(ctx, `
-UPDATE acm_pointers
-SET
-	is_stale = TRUE,
-	stale_at = NOW(),
-	updated_at = NOW()
+DELETE FROM acm_pointers
 WHERE project_id = $1
 	AND path = $2
 	AND is_rule = TRUE
-	AND is_stale = FALSE
 	AND NOT (pointer_key = ANY($3::text[]))
 `, normalized.ProjectID, normalized.SourcePath, activeKeys)
 		if execErr != nil {
-			return core.RulePointerSyncResult{}, fmt.Errorf("mark stale missing rule pointers: %w", execErr)
+			return core.RulePointerSyncResult{}, fmt.Errorf("delete missing rule pointers: %w", execErr)
 		}
 		result.MarkedStale = int(tag.RowsAffected())
 	}

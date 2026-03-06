@@ -9,7 +9,7 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
-func TestSyncRulePointers_UpsertsAndMarksMissingAsStale(t *testing.T) {
+func TestSyncRulePointers_UpsertsAndDeletesMissingPointers(t *testing.T) {
 	ctx := context.Background()
 	repo, err := New(ctx, Config{Path: filepath.Join(t.TempDir(), "ctx.sqlite")})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestSyncRulePointers_UpsertsAndMarksMissingAsStale(t *testing.T) {
 		t.Fatalf("unexpected second upsert count: %d", secondResult.Upserted)
 	}
 	if secondResult.MarkedStale != 1 {
-		t.Fatalf("unexpected second stale count: %d", secondResult.MarkedStale)
+		t.Fatalf("unexpected second removed count: %d", secondResult.MarkedStale)
 	}
 
 	rows, err := repo.db.QueryContext(ctx, `
@@ -96,7 +96,7 @@ ORDER BY pointer_key
 		Description string
 		Tags        []string
 	}
-	persisted := make([]persistedRule, 0, 2)
+	persisted := make([]persistedRule, 0, 1)
 	for rows.Next() {
 		var (
 			row      persistedRule
@@ -115,7 +115,7 @@ ORDER BY pointer_key
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate synced rule pointers: %v", err)
 	}
-	if len(persisted) != 2 {
+	if len(persisted) != 1 {
 		t.Fatalf("unexpected persisted pointer count: %d", len(persisted))
 	}
 
@@ -133,10 +133,4 @@ ORDER BY pointer_key
 		t.Fatalf("unexpected active tags: got %v want %v", persisted[0].Tags, wantActiveTags)
 	}
 
-	if persisted[1].PointerKey != "project.alpha:.acm/acm-rules.yaml#rule.beta" {
-		t.Fatalf("unexpected stale pointer key: %q", persisted[1].PointerKey)
-	}
-	if persisted[1].IsStale != 1 {
-		t.Fatalf("expected stale rule pointer, got stale=%d", persisted[1].IsStale)
-	}
 }

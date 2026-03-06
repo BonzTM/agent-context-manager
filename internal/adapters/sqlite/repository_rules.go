@@ -85,35 +85,25 @@ ON CONFLICT(project_id, pointer_key) DO UPDATE SET
 
 	if len(activeKeys) == 0 {
 		tag, execErr := tx.ExecContext(ctx, `
-UPDATE acm_pointers
-SET
-	is_stale = 1,
-	stale_at = unixepoch(),
-	updated_at = unixepoch()
+DELETE FROM acm_pointers
 WHERE project_id = ?
 	AND path = ?
 	AND is_rule = 1
-	AND is_stale = 0
 `, normalized.ProjectID, normalized.SourcePath)
 		if execErr != nil {
-			return core.RulePointerSyncResult{}, fmt.Errorf("mark stale rule pointers: %w", execErr)
+			return core.RulePointerSyncResult{}, fmt.Errorf("delete missing rule pointers: %w", execErr)
 		}
 		rowsAffected, rowsErr := tag.RowsAffected()
 		if rowsErr != nil {
-			return core.RulePointerSyncResult{}, fmt.Errorf("read stale rule rows affected: %w", rowsErr)
+			return core.RulePointerSyncResult{}, fmt.Errorf("read deleted rule rows affected: %w", rowsErr)
 		}
 		result.MarkedStale = int(rowsAffected)
 	} else {
 		query := `
-UPDATE acm_pointers
-SET
-	is_stale = 1,
-	stale_at = unixepoch(),
-	updated_at = unixepoch()
+DELETE FROM acm_pointers
 WHERE project_id = ?
 	AND path = ?
 	AND is_rule = 1
-	AND is_stale = 0
 	AND pointer_key NOT IN (` + placeholders(len(activeKeys)) + `)
 `
 		args := make([]any, 0, 2+len(activeKeys))
@@ -123,11 +113,11 @@ WHERE project_id = ?
 		}
 		tag, execErr := tx.ExecContext(ctx, query, args...)
 		if execErr != nil {
-			return core.RulePointerSyncResult{}, fmt.Errorf("mark stale missing rule pointers: %w", execErr)
+			return core.RulePointerSyncResult{}, fmt.Errorf("delete missing rule pointers: %w", execErr)
 		}
 		rowsAffected, rowsErr := tag.RowsAffected()
 		if rowsErr != nil {
-			return core.RulePointerSyncResult{}, fmt.Errorf("read stale missing rule rows affected: %w", rowsErr)
+			return core.RulePointerSyncResult{}, fmt.Errorf("read deleted rule rows affected: %w", rowsErr)
 		}
 		result.MarkedStale = int(rowsAffected)
 	}
