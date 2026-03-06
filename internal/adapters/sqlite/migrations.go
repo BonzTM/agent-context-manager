@@ -239,6 +239,79 @@ CREATE INDEX IF NOT EXISTS idx_acm_work_plan_tasks_project_plan_updated
 	ON acm_work_plan_tasks (project_id, plan_key, updated_at DESC);
 `,
 	},
+	{
+		Name: "0006_acm_work_plan_hierarchy.sql",
+		SQL: `
+ALTER TABLE acm_work_plans
+	ADD COLUMN kind TEXT NOT NULL DEFAULT '';
+ALTER TABLE acm_work_plans
+	ADD COLUMN parent_plan_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE acm_work_plans
+	ADD COLUMN external_refs_json TEXT NOT NULL DEFAULT '[]';
+
+CREATE INDEX IF NOT EXISTS idx_acm_work_plans_project_parent_updated
+	ON acm_work_plans (project_id, parent_plan_key, updated_at DESC);
+
+ALTER TABLE acm_work_plan_tasks
+	ADD COLUMN parent_task_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE acm_work_plan_tasks
+	ADD COLUMN external_refs_json TEXT NOT NULL DEFAULT '[]';
+
+CREATE INDEX IF NOT EXISTS idx_acm_work_plan_tasks_project_plan_parent
+	ON acm_work_plan_tasks (project_id, plan_key, parent_task_key, task_key);
+`,
+	},
+	{
+		Name: "0007_acm_verification_runs.sql",
+		SQL: `
+CREATE TABLE IF NOT EXISTS acm_verification_batches (
+	batch_run_id TEXT PRIMARY KEY,
+	project_id TEXT NOT NULL,
+	receipt_id TEXT NOT NULL DEFAULT '',
+	plan_key TEXT NOT NULL DEFAULT '',
+	phase TEXT NOT NULL DEFAULT '',
+	tests_source_path TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL CHECK (status IN ('passed', 'failed')),
+	passed INTEGER NOT NULL DEFAULT 0 CHECK (passed IN (0, 1)),
+	selected_test_ids_json TEXT NOT NULL DEFAULT '[]',
+	created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE INDEX IF NOT EXISTS idx_acm_verification_batches_project_created
+	ON acm_verification_batches (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_verification_batches_project_receipt_created
+	ON acm_verification_batches (project_id, receipt_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_verification_batches_project_plan_created
+	ON acm_verification_batches (project_id, plan_key, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS acm_verification_results (
+	result_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	batch_run_id TEXT NOT NULL,
+	project_id TEXT NOT NULL,
+	test_id TEXT NOT NULL,
+	definition_hash TEXT NOT NULL,
+	summary TEXT NOT NULL DEFAULT '',
+	command_argv_json TEXT NOT NULL DEFAULT '[]',
+	command_cwd TEXT NOT NULL DEFAULT '.',
+	timeout_sec INTEGER NOT NULL DEFAULT 300,
+	expected_exit_code INTEGER NOT NULL DEFAULT 0,
+	selection_reasons_json TEXT NOT NULL DEFAULT '[]',
+	status TEXT NOT NULL CHECK (status IN ('passed', 'failed', 'timed_out', 'errored', 'skipped')),
+	exit_code INTEGER NULL,
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	stdout_excerpt TEXT NOT NULL DEFAULT '',
+	stderr_excerpt TEXT NOT NULL DEFAULT '',
+	started_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	finished_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	FOREIGN KEY (batch_run_id) REFERENCES acm_verification_batches (batch_run_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_acm_verification_results_batch_started
+	ON acm_verification_results (batch_run_id, started_at, result_id);
+CREATE INDEX IF NOT EXISTS idx_acm_verification_results_project_test_started
+	ON acm_verification_results (project_id, test_id, started_at DESC);
+`,
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {

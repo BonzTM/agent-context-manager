@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/joshd/agent-context-manager/internal/adapters/postgres"
-	sqliteadapter "github.com/joshd/agent-context-manager/internal/adapters/sqlite"
-	"github.com/joshd/agent-context-manager/internal/core"
-	"github.com/joshd/agent-context-manager/internal/logging"
-	postgressvc "github.com/joshd/agent-context-manager/internal/service/postgres"
+	"github.com/bonztm/agent-context-manager/internal/adapters/postgres"
+	sqliteadapter "github.com/bonztm/agent-context-manager/internal/adapters/sqlite"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/logging"
+	postgressvc "github.com/bonztm/agent-context-manager/internal/service/postgres"
+	"github.com/bonztm/agent-context-manager/internal/workspace"
 )
 
 type CleanupFunc func()
@@ -45,6 +46,10 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 		}, nil
 	}
 
+	if err := ensureImplicitSQLiteGitIgnore(cfg); err != nil {
+		return nil, nil, fmt.Errorf("ensure sqlite gitignore entry: %w", err)
+	}
+
 	sqliteRepo, err := sqliteadapter.New(ctx, sqliteadapter.Config{
 		Path: cfg.EffectiveSQLitePath(),
 	})
@@ -61,4 +66,17 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 	return core.WithLogging(svc, logger), func() {
 		_ = sqliteRepo.Close()
 	}, nil
+}
+
+func ensureImplicitSQLiteGitIgnore(cfg Config) error {
+	if !cfg.UsesImplicitSQLitePath() || !cfg.ProjectIsRepo {
+		return nil
+	}
+
+	relativePath := workspace.RelativePathWithinRoot(cfg.ProjectRoot, cfg.EffectiveSQLitePath())
+	if relativePath == "" {
+		return nil
+	}
+
+	return workspace.EnsureGitIgnoreContains(cfg.ProjectRoot, relativePath)
 }

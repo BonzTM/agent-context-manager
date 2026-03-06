@@ -154,16 +154,18 @@ type MemoryLookupQuery struct {
 }
 
 type WorkItem struct {
-	ItemKey             string
-	Summary             string
-	Status              string
-	DependsOn           []string
-	AcceptanceCriteria  []string
-	References          []string
-	BlockedReason       string
-	Outcome             string
-	Evidence            []string
-	UpdatedAt           time.Time
+	ItemKey            string
+	Summary            string
+	Status             string
+	ParentTaskKey      string
+	DependsOn          []string
+	AcceptanceCriteria []string
+	References         []string
+	ExternalRefs       []string
+	BlockedReason      string
+	Outcome            string
+	Evidence           []string
+	UpdatedAt          time.Time
 }
 
 type FetchLookup struct {
@@ -266,35 +268,41 @@ type WorkPlanStages struct {
 }
 
 type WorkPlan struct {
-	ProjectID   string
-	PlanKey     string
-	ReceiptID   string
-	Title       string
-	Objective   string
-	Status      string
-	Stages      WorkPlanStages
-	InScope     []string
-	OutOfScope  []string
-	Constraints []string
-	References  []string
-	Tasks       []WorkItem
-	UpdatedAt   time.Time
+	ProjectID     string
+	PlanKey       string
+	ReceiptID     string
+	Title         string
+	Objective     string
+	Kind          string
+	ParentPlanKey string
+	Status        string
+	Stages        WorkPlanStages
+	InScope       []string
+	OutOfScope    []string
+	Constraints   []string
+	References    []string
+	ExternalRefs  []string
+	Tasks         []WorkItem
+	UpdatedAt     time.Time
 }
 
 type WorkPlanUpsertInput struct {
-	ProjectID   string
-	PlanKey     string
-	ReceiptID   string
-	Mode        WorkPlanMode
-	Title       string
-	Objective   string
-	Status      string
-	Stages      WorkPlanStages
-	InScope     []string
-	OutOfScope  []string
-	Constraints []string
-	References  []string
-	Tasks       []WorkItem
+	ProjectID     string
+	PlanKey       string
+	ReceiptID     string
+	Mode          WorkPlanMode
+	Title         string
+	Objective     string
+	Kind          string
+	ParentPlanKey string
+	Status        string
+	Stages        WorkPlanStages
+	InScope       []string
+	OutOfScope    []string
+	Constraints   []string
+	References    []string
+	ExternalRefs  []string
+	Tasks         []WorkItem
 }
 
 type WorkPlanUpsertResult struct {
@@ -314,10 +322,52 @@ type WorkPlanListQuery struct {
 }
 
 type WorkPlanSummary struct {
-	PlanKey   string
-	Summary   string
-	Status    string
-	UpdatedAt time.Time
+	PlanKey             string
+	Summary             string
+	Status              string
+	Kind                string
+	ParentPlanKey       string
+	ActiveTaskKeys      []string
+	TaskCountTotal      int
+	TaskCountPending    int
+	TaskCountInProgress int
+	TaskCountBlocked    int
+	TaskCountComplete   int
+	UpdatedAt           time.Time
+}
+
+type VerificationBatch struct {
+	BatchRunID      string
+	ProjectID       string
+	ReceiptID       string
+	PlanKey         string
+	Phase           string
+	TestsSourcePath string
+	Status          string
+	Passed          bool
+	SelectedTestIDs []string
+	Results         []VerificationTestRun
+	CreatedAt       time.Time
+}
+
+type VerificationTestRun struct {
+	BatchRunID       string
+	ProjectID        string
+	TestID           string
+	DefinitionHash   string
+	Summary          string
+	CommandArgv      []string
+	CommandCWD       string
+	TimeoutSec       int
+	ExpectedExitCode int
+	SelectionReasons []string
+	Status           string
+	ExitCode         *int
+	DurationMS       int
+	StdoutExcerpt    string
+	StderrExcerpt    string
+	StartedAt        time.Time
+	FinishedAt       time.Time
 }
 
 type Repository interface {
@@ -344,4 +394,9 @@ type WorkPlanRepository interface {
 	UpsertWorkPlan(context.Context, WorkPlanUpsertInput) (WorkPlanUpsertResult, error)
 	LookupWorkPlan(context.Context, WorkPlanLookupQuery) (WorkPlan, error)
 	ListWorkPlans(context.Context, WorkPlanListQuery) ([]WorkPlanSummary, error)
+}
+
+// VerificationRepository is an optional extension for durable executable verification storage.
+type VerificationRepository interface {
+	SaveVerificationBatch(context.Context, VerificationBatch) error
 }

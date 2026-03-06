@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -160,6 +162,25 @@ func TestNewLoggerFromEnvWithOutputs_RespectsConfiguredLevel(t *testing.T) {
 	}
 	if got := discardBuf.Len(); got != 0 {
 		t.Fatalf("expected no discard output, got %d bytes", got)
+	}
+}
+
+func TestRuntimeEnvGetenv_LoadsDotEnvValues(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ACM_LOG_LEVEL=debug\nACM_LOG_SINK=stdout\n"), 0o644); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	getenv := runtimeEnvGetenv(root, func(string) (string, bool) { return "", false })
+	cfg := loggerConfigFromEnv(getenv)
+	if got, want := cfg.level, slog.LevelDebug; got != want {
+		t.Fatalf("unexpected level: got=%v want=%v", got, want)
+	}
+	if got, want := cfg.sink, loggerSinkStdout; got != want {
+		t.Fatalf("unexpected sink: got=%q want=%q", got, want)
 	}
 }
 

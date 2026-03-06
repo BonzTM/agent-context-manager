@@ -2,12 +2,16 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
-	"github.com/joshd/agent-context-manager/internal/logging"
-	"github.com/joshd/agent-context-manager/internal/service/unconfigured"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/service/unconfigured"
 )
 
 type fakeService struct{}
@@ -48,8 +52,12 @@ func (f fakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.Cover
 	return v1.CoverageResult{}, nil
 }
 
-func (f fakeService) Regress(_ context.Context, _ v1.RegressPayload) (v1.RegressResult, *core.APIError) {
-	return v1.RegressResult{}, nil
+func (f fakeService) Eval(_ context.Context, _ v1.EvalPayload) (v1.EvalResult, *core.APIError) {
+	return v1.EvalResult{}, nil
+}
+
+func (f fakeService) Verify(_ context.Context, _ v1.VerifyPayload) (v1.VerifyResult, *core.APIError) {
+	return v1.VerifyResult{}, nil
 }
 
 func (f fakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {
@@ -77,6 +85,16 @@ func TestInvoke_GetContext(t *testing.T) {
 	}
 }
 
+func TestInvoke_RejectsUnknownInputFields(t *testing.T) {
+	_, err := Invoke(context.Background(), fakeService{}, "get_context", []byte(`{"project_id":"my-cool-app","task_text":"x","phase":"execute","extra":true}`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Code != "INVALID_TOOL_INPUT" {
+		t.Fatalf("unexpected code: %s", err.Code)
+	}
+}
+
 func TestInvoke_FetchAndWork(t *testing.T) {
 	fetchResult, fetchErr := Invoke(context.Background(), fakeService{}, toolFetch, []byte(`{"project_id":"my-cool-app","keys":["docs/runtime.md"]}`))
 	if fetchErr != nil {
@@ -96,10 +114,107 @@ func TestInvoke_FetchAndWork(t *testing.T) {
 	}
 }
 
+func TestInvoke_RemainingTools(t *testing.T) {
+	tests := []struct {
+		name    string
+		tool    string
+		payload []byte
+		assert  func(t *testing.T, result any)
+	}{
+		{
+			name:    "sync",
+			tool:    toolSync,
+			payload: []byte(`{"project_id":"my-cool-app"}`),
+			assert: func(t *testing.T, result any) {
+				t.Helper()
+				if _, ok := result.(v1.SyncResult); !ok {
+					t.Fatalf("unexpected sync result type: %T", result)
+				}
+			},
+		},
+		{
+			name:    "health_check",
+			tool:    toolHealthCheck,
+			payload: []byte(`{"project_id":"my-cool-app"}`),
+			assert: func(t *testing.T, result any) {
+				t.Helper()
+				if _, ok := result.(v1.HealthCheckResult); !ok {
+					t.Fatalf("unexpected health_check result type: %T", result)
+				}
+			},
+		},
+		{
+			name:    "health_fix",
+			tool:    toolHealthFix,
+			payload: []byte(`{"project_id":"my-cool-app"}`),
+			assert: func(t *testing.T, result any) {
+				t.Helper()
+				if _, ok := result.(v1.HealthFixResult); !ok {
+					t.Fatalf("unexpected health_fix result type: %T", result)
+				}
+			},
+		},
+		{
+			name:    "coverage",
+			tool:    toolCoverage,
+			payload: []byte(`{"project_id":"my-cool-app"}`),
+			assert: func(t *testing.T, result any) {
+				t.Helper()
+				if _, ok := result.(v1.CoverageResult); !ok {
+					t.Fatalf("unexpected coverage result type: %T", result)
+				}
+			},
+		},
+		{
+			name:    "eval",
+			tool:    toolEval,
+			payload: []byte(`{"project_id":"my-cool-app","eval_suite_inline":[{"task_text":"Check sync","phase":"execute"}]}`),
+			assert: func(t *testing.T, result any) {
+				t.Helper()
+				if _, ok := result.(v1.EvalResult); !ok {
+					t.Fatalf("unexpected eval result type: %T", result)
+				}
+			},
+		},
+		{
+			name:    "verify",
+			tool:    toolVerify,
+			payload: []byte(`{"project_id":"my-cool-app","phase":"execute","files_changed":["go.mod"]}`),
+			assert: func(t *testing.T, result any) {
+				t.Helper()
+				if _, ok := result.(v1.VerifyResult); !ok {
+					t.Fatalf("unexpected verify result type: %T", result)
+				}
+			},
+		},
+		{
+			name:    "bootstrap",
+			tool:    toolBootstrap,
+			payload: []byte(`{"project_id":"my-cool-app","project_root":"."}`),
+			assert: func(t *testing.T, result any) {
+				t.Helper()
+				if _, ok := result.(v1.BootstrapResult); !ok {
+					t.Fatalf("unexpected bootstrap result type: %T", result)
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := Invoke(context.Background(), fakeService{}, tc.tool, tc.payload)
+			if err != nil {
+				t.Fatalf("unexpected %s error: %v", tc.tool, err)
+			}
+			tc.assert(t, result)
+		})
+	}
+}
+
 func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 	defs := ToolDefinitions()
-	if len(defs) != 5 {
-		t.Fatalf("unexpected tool count: got %d want 5", len(defs))
+	if len(defs) != 12 {
+		t.Fatalf("unexpected tool count: got %d want 12", len(defs))
 	}
 
 	expectedInputRefs := map[string]string{
@@ -108,6 +223,13 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"propose_memory":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/proposeMemoryPayload",
 		"report_completion": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reportCompletionPayload",
 		"work":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/workPayload",
+		"sync":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/syncPayload",
+		"health_check":      "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/healthCheckPayload",
+		"health_fix":        "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/healthFixPayload",
+		"coverage":          "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/coveragePayload",
+		"eval":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/evalPayload",
+		"verify":            "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/verifyPayload",
+		"bootstrap":         "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/bootstrapPayload",
 	}
 	expectedOutputRefs := map[string]string{
 		"get_context":       "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/getContextResult",
@@ -115,6 +237,13 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"propose_memory":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/proposeMemoryResult",
 		"report_completion": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reportCompletionResult",
 		"work":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/workResult",
+		"sync":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/syncResult",
+		"health_check":      "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthCheckResult",
+		"health_fix":        "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthFixResult",
+		"coverage":          "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/coverageResult",
+		"eval":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/evalResult",
+		"verify":            "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/verifyResult",
+		"bootstrap":         "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/bootstrapResult",
 	}
 
 	for _, def := range defs {
@@ -133,6 +262,29 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 	}
 }
 
+func TestToolDefinitions_MatchSpecFile(t *testing.T) {
+	specPath := filepath.Join("..", "..", "..", "spec", "v1", "mcp.tools.v1.json")
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatalf("read spec file: %v", err)
+	}
+
+	var spec struct {
+		Version string    `json:"version"`
+		Tools   []ToolDef `json:"tools"`
+	}
+	if err := json.Unmarshal(data, &spec); err != nil {
+		t.Fatalf("unmarshal spec file: %v", err)
+	}
+	if spec.Version != v1.Version {
+		t.Fatalf("unexpected spec version: got %q want %q", spec.Version, v1.Version)
+	}
+
+	if got, want := ToolDefinitions(), spec.Tools; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tool definition drift detected\nruntime: %+v\nspec: %+v", got, want)
+	}
+}
+
 func TestInvoke_UnconfiguredServiceReturnsNotImplemented(t *testing.T) {
 	payload := []byte(`{"project_id":"my-cool-app","task_text":"x","phase":"execute"}`)
 	_, err := Invoke(context.Background(), unconfigured.New(), "get_context", payload)
@@ -141,21 +293,6 @@ func TestInvoke_UnconfiguredServiceReturnsNotImplemented(t *testing.T) {
 	}
 	if err.Code != "NOT_IMPLEMENTED" {
 		t.Fatalf("unexpected code: %s", err.Code)
-	}
-}
-
-func TestInvoke_HealthCheckRegressBootstrapRemainUnsupportedTools(t *testing.T) {
-	tools := []string{"health_check", "health_fix", "coverage", "regress", "bootstrap"}
-	for _, tool := range tools {
-		t.Run(tool, func(t *testing.T) {
-			_, err := Invoke(context.Background(), fakeService{}, tool, []byte(`{}`))
-			if err == nil {
-				t.Fatal("expected error")
-			}
-			if err.Code != "UNKNOWN_TOOL" {
-				t.Fatalf("unexpected code: %s", err.Code)
-			}
-		})
 	}
 }
 

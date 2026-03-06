@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/logging"
 )
 
 type decoratorFakeService struct {
@@ -49,8 +49,12 @@ func (f decoratorFakeService) Coverage(_ context.Context, _ v1.CoveragePayload) 
 	return v1.CoverageResult{}, f.errorFor(logging.OperationCoverage)
 }
 
-func (f decoratorFakeService) Regress(_ context.Context, _ v1.RegressPayload) (v1.RegressResult, *APIError) {
-	return v1.RegressResult{}, f.errorFor(logging.OperationRegress)
+func (f decoratorFakeService) Eval(_ context.Context, _ v1.EvalPayload) (v1.EvalResult, *APIError) {
+	return v1.EvalResult{}, f.errorFor(logging.OperationEval)
+}
+
+func (f decoratorFakeService) Verify(_ context.Context, _ v1.VerifyPayload) (v1.VerifyResult, *APIError) {
+	return v1.VerifyResult{}, f.errorFor(logging.OperationVerify)
 }
 
 func (f decoratorFakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.BootstrapResult, *APIError) {
@@ -240,9 +244,9 @@ func decoratorOperationCases() []decoratorOperationCase {
 			},
 		},
 		{
-			operation: logging.OperationRegress,
+			operation: logging.OperationEval,
 			call: func(ctx context.Context, svc Service) *APIError {
-				_, apiErr := svc.Regress(ctx, v1.RegressPayload{
+				_, apiErr := svc.Eval(ctx, v1.EvalPayload{
 					ProjectID: "project.alpha",
 				})
 				return apiErr

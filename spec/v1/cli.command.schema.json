@@ -23,7 +23,8 @@
         "sync",
         "health_check",
         "health_fix",
-        "regress",
+        "eval",
+        "verify",
         "bootstrap",
         "coverage",
         "fetch",
@@ -107,6 +108,9 @@
         "phase": {
           "$ref": "shared.schema.json#/$defs/phase"
         },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
         "caps": {
           "$ref": "#/$defs/retrievalCaps"
         },
@@ -150,6 +154,9 @@
           "minLength": 8,
           "maxLength": 128
         },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
         "memory": {
           "$ref": "shared.schema.json#/$defs/memoryPayload"
         },
@@ -176,6 +183,9 @@
           "type": "string",
           "minLength": 8,
           "maxLength": 128
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
         },
         "files_changed": {
           "type": "array",
@@ -235,9 +245,10 @@
           "default": true
         },
         "rules_file": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
         }
       }
     },
@@ -297,13 +308,14 @@
           "uniqueItems": true
         },
         "rules_file": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
         }
       }
     },
-    "regressPayload": {
+    "evalPayload": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -321,7 +333,7 @@
         "eval_suite_inline": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/regressCase"
+            "$ref": "#/$defs/evalCase"
           },
           "maxItems": 500
         },
@@ -330,6 +342,9 @@
           "minimum": 0,
           "maximum": 1,
           "default": 0.8
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
         }
       },
       "oneOf": [
@@ -345,7 +360,7 @@
         }
       ]
     },
-    "regressCase": {
+    "evalCase": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -381,6 +396,90 @@
         }
       }
     },
+    "verifyPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "receipt_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        },
+        "test_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/verifyTestId"
+          },
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "files_changed": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "tests_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "not": {
+              "required": [
+                "test_ids"
+              ]
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "receipt_id"
+                ]
+              },
+              {
+                "required": [
+                  "plan_key"
+                ]
+              },
+              {
+                "required": [
+                  "phase"
+                ]
+              },
+              {
+                "required": [
+                  "files_changed"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "bootstrapPayload": {
       "type": "object",
       "additionalProperties": false,
@@ -411,9 +510,10 @@
           "maxLength": 2048
         },
         "rules_file": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
         },
         "persist_candidates": {
           "type": "boolean",
@@ -717,7 +817,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "regress"
+            "const": "eval"
           }
         },
         "required": [
@@ -727,7 +827,26 @@
       "then": {
         "properties": {
           "payload": {
-            "$ref": "#/$defs/regressPayload"
+            "$ref": "#/$defs/evalPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "verify"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/verifyPayload"
           }
         }
       }

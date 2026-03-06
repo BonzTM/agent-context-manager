@@ -20,6 +20,11 @@
       "maxLength": 64,
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
     },
+    "overrideFilePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
     "phase": {
       "type": "string",
       "enum": [
@@ -27,6 +32,12 @@
         "execute",
         "review"
       ]
+    },
+    "verifyTestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
     },
     "tag": {
       "type": "string",
@@ -105,6 +116,22 @@
         "replace"
       ]
     },
+    "planKind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "externalRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^.*\\S.*$"
+      },
+      "maxItems": 256
+    },
     "workItemStatus": {
       "type": "string",
       "enum": [
@@ -179,6 +206,12 @@
           "maxLength": 2000,
           "pattern": "^.*\\S.*$"
         },
+        "kind": {
+          "$ref": "#/$defs/planKind"
+        },
+        "parent_plan_key": {
+          "$ref": "#/$defs/planKey"
+        },
         "status": {
           "$ref": "#/$defs/workItemStatus"
         },
@@ -224,6 +257,9 @@
             "pattern": "^.*\\S.*$"
           },
           "maxItems": 256
+        },
+        "external_refs": {
+          "$ref": "#/$defs/externalRefs"
         }
       }
     },
@@ -247,6 +283,9 @@
         },
         "status": {
           "$ref": "#/$defs/workItemStatus"
+        },
+        "parent_task_key": {
+          "$ref": "#/$defs/contractKey"
         },
         "depends_on": {
           "type": "array",
@@ -274,6 +313,9 @@
             "pattern": "^.*\\S.*$"
           },
           "maxItems": 256
+        },
+        "external_refs": {
+          "$ref": "#/$defs/externalRefs"
         },
         "blocked_reason": {
           "type": "string",
@@ -523,7 +565,8 @@
       "required": [
         "key",
         "summary",
-        "status"
+        "status",
+        "task_counts"
       ],
       "properties": {
         "key": {
@@ -537,6 +580,51 @@
         },
         "status": {
           "$ref": "#/$defs/workItemStatus"
+        },
+        "task_counts": {
+          "$ref": "#/$defs/contextPlanTaskCounts"
+        },
+        "fetch_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractKey"
+          },
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true
+        }
+      }
+    },
+    "contextPlanTaskCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "pending",
+        "in_progress",
+        "blocked",
+        "complete"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pending": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "in_progress": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "complete": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -716,7 +804,8 @@
         "sync",
         "health_check",
         "health_fix",
-        "regress",
+        "eval",
+        "verify",
         "bootstrap",
         "coverage"
       ]

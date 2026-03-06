@@ -13,8 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	"gopkg.in/yaml.v3"
 )
 
 type fakeRepository struct {
@@ -49,6 +50,7 @@ type fakeRepository struct {
 	workPlanLookupErrors []error
 	workPlanListResults  [][]core.WorkPlanSummary
 	workPlanListErrors   []error
+	verifySaveErrors     []error
 
 	candidateCalls       []core.CandidatePointerQuery
 	hopCalls             []core.RelatedHopPointersQuery
@@ -68,6 +70,7 @@ type fakeRepository struct {
 	workPlanUpsertCalls  []core.WorkPlanUpsertInput
 	workPlanLookupCalls  []core.WorkPlanLookupQuery
 	workPlanListCalls    []core.WorkPlanListQuery
+	verifySaveCalls      []core.VerificationBatch
 
 	saveResult core.RunReceiptIDs
 	saveError  error
@@ -254,18 +257,21 @@ func (f *fakeRepository) UpsertWorkPlan(_ context.Context, input core.WorkPlanUp
 	}
 
 	plan := core.WorkPlan{
-		ProjectID:   input.ProjectID,
-		PlanKey:     input.PlanKey,
-		ReceiptID:   input.ReceiptID,
-		Title:       input.Title,
-		Objective:   input.Objective,
-		Status:      input.Status,
-		Stages:      input.Stages,
-		InScope:     append([]string(nil), input.InScope...),
-		OutOfScope:  append([]string(nil), input.OutOfScope...),
-		Constraints: append([]string(nil), input.Constraints...),
-		References:  append([]string(nil), input.References...),
-		Tasks:       append([]core.WorkItem(nil), input.Tasks...),
+		ProjectID:     input.ProjectID,
+		PlanKey:       input.PlanKey,
+		ReceiptID:     input.ReceiptID,
+		Title:         input.Title,
+		Objective:     input.Objective,
+		Kind:          input.Kind,
+		ParentPlanKey: input.ParentPlanKey,
+		Status:        input.Status,
+		Stages:        input.Stages,
+		InScope:       append([]string(nil), input.InScope...),
+		OutOfScope:    append([]string(nil), input.OutOfScope...),
+		Constraints:   append([]string(nil), input.Constraints...),
+		References:    append([]string(nil), input.References...),
+		ExternalRefs:  append([]string(nil), input.ExternalRefs...),
+		Tasks:         append([]core.WorkItem(nil), input.Tasks...),
 	}
 	if strings.TrimSpace(plan.Status) == "" {
 		plan.Status = core.PlanStatusPending
@@ -338,6 +344,49 @@ func (f *fakeRepository) SaveRunReceiptSummary(_ context.Context, input core.Run
 		return core.RunReceiptIDs{RunID: 1, ReceiptID: input.ReceiptID}, nil
 	}
 	return f.saveResult, nil
+}
+
+func (f *fakeRepository) SaveVerificationBatch(_ context.Context, input core.VerificationBatch) error {
+	copied := core.VerificationBatch{
+		BatchRunID:      strings.TrimSpace(input.BatchRunID),
+		ProjectID:       strings.TrimSpace(input.ProjectID),
+		ReceiptID:       strings.TrimSpace(input.ReceiptID),
+		PlanKey:         strings.TrimSpace(input.PlanKey),
+		Phase:           strings.TrimSpace(input.Phase),
+		TestsSourcePath: strings.TrimSpace(input.TestsSourcePath),
+		Status:          strings.TrimSpace(input.Status),
+		Passed:          input.Passed,
+		SelectedTestIDs: append([]string(nil), input.SelectedTestIDs...),
+		CreatedAt:       input.CreatedAt,
+	}
+	copied.Results = make([]core.VerificationTestRun, 0, len(input.Results))
+	for _, result := range input.Results {
+		copied.Results = append(copied.Results, core.VerificationTestRun{
+			BatchRunID:       strings.TrimSpace(result.BatchRunID),
+			ProjectID:        strings.TrimSpace(result.ProjectID),
+			TestID:           strings.TrimSpace(result.TestID),
+			DefinitionHash:   strings.TrimSpace(result.DefinitionHash),
+			Summary:          strings.TrimSpace(result.Summary),
+			CommandArgv:      append([]string(nil), result.CommandArgv...),
+			CommandCWD:       strings.TrimSpace(result.CommandCWD),
+			TimeoutSec:       result.TimeoutSec,
+			ExpectedExitCode: result.ExpectedExitCode,
+			SelectionReasons: append([]string(nil), result.SelectionReasons...),
+			Status:           strings.TrimSpace(result.Status),
+			ExitCode:         result.ExitCode,
+			DurationMS:       result.DurationMS,
+			StdoutExcerpt:    strings.TrimSpace(result.StdoutExcerpt),
+			StderrExcerpt:    strings.TrimSpace(result.StderrExcerpt),
+			StartedAt:        result.StartedAt,
+			FinishedAt:       result.FinishedAt,
+		})
+	}
+	f.verifySaveCalls = append(f.verifySaveCalls, copied)
+	idx := len(f.verifySaveCalls) - 1
+	if idx < len(f.verifySaveErrors) && f.verifySaveErrors[idx] != nil {
+		return f.verifySaveErrors[idx]
+	}
+	return nil
 }
 
 func (f *fakeRepository) ApplySync(_ context.Context, input core.SyncApplyInput) (core.SyncApplyResult, error) {
@@ -664,6 +713,43 @@ func TestGetContext_PhaseAndCanonicalTagsThreadedToRetrieval(t *testing.T) {
 	}
 	if !reflect.DeepEqual(result.Receipt.Meta.ResolvedTags, wantMemoryTags) {
 		t.Fatalf("unexpected resolved tags: got %v want %v", result.Receipt.Meta.ResolvedTags, wantMemoryTags)
+	}
+}
+
+func TestGetContext_DefaultRepoTagsFileDiscoveryMergesCanonicalAliases(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tags.yaml"), []byte("version: acm.tags.v1\ncanonical_tags:\n  backend:\n    - svc\n"), 0o644); err != nil {
+		t.Fatalf("write tags file: %v", err)
+	}
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.GetContext(context.Background(), v1.GetContextPayload{
+		ProjectID:    "project.alpha",
+		TaskText:     "fix svc bootstrap gap",
+		Phase:        v1.PhaseExecute,
+		FallbackMode: "none",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "insufficient_context" {
+		t.Fatalf("unexpected status: %+v", result)
+	}
+	if len(repo.candidateCalls) != 1 {
+		t.Fatalf("expected one candidate query, got %d", len(repo.candidateCalls))
+	}
+	wantTags := []string{"backend", "bootstrap"}
+	if !reflect.DeepEqual(repo.candidateCalls[0].Tags, wantTags) {
+		t.Fatalf("unexpected query tags: got %v want %v", repo.candidateCalls[0].Tags, wantTags)
 	}
 }
 
@@ -1184,6 +1270,54 @@ func TestProposeMemory_CanonicalTagNormalization(t *testing.T) {
 		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
 	}
 	wantTags := []string{"backend", "governance"}
+	if !reflect.DeepEqual(repo.proposeCalls[0].Tags, wantTags) {
+		t.Fatalf("unexpected canonical propose tags: got %v want %v", repo.proposeCalls[0].Tags, wantTags)
+	}
+}
+
+func TestProposeMemory_TagsFileOverrideNormalizesCustomAliases(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tags.yaml"), []byte("version: acm.tags.v1\ncanonical_tags:\n  backend:\n    - svc\n"), 0o644); err != nil {
+		t.Fatalf("write tags file: %v", err)
+	}
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:   "project.alpha",
+			ReceiptID:   "receipt.abc123",
+			PointerKeys: []string{"ptr:scope-a"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ProposeMemory(context.Background(), v1.ProposeMemoryPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		TagsFile:  ".acm/acm-tags.yaml",
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Custom aliases",
+			Content:             "Ensure propose_memory honors repo-local aliases.",
+			RelatedPointerKeys:  []string{"ptr:scope-a"},
+			Tags:                []string{"svc", "backend"},
+			Confidence:          4,
+			EvidencePointerKeys: []string{"ptr:scope-a"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(repo.proposeCalls) != 1 {
+		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
+	}
+	wantTags := []string{"backend"}
 	if !reflect.DeepEqual(repo.proposeCalls[0].Tags, wantTags) {
 		t.Fatalf("unexpected canonical propose tags: got %v want %v", repo.proposeCalls[0].Tags, wantTags)
 	}
@@ -1928,7 +2062,7 @@ func TestHealthCheck_RepositoryErrorMapsInternalError(t *testing.T) {
 	}
 }
 
-func TestRegress_InlineSuiteDeterministicMetricsAndInsufficientContextHandling(t *testing.T) {
+func TestEval_InlineSuiteDeterministicMetricsAndInsufficientContextHandling(t *testing.T) {
 	repo := &fakeRepository{
 		candidateResults: [][]core.CandidatePointer{
 			{
@@ -1953,9 +2087,9 @@ func TestRegress_InlineSuiteDeterministicMetricsAndInsufficientContextHandling(t
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, apiErr := svc.Regress(context.Background(), v1.RegressPayload{
+	result, apiErr := svc.Eval(context.Background(), v1.EvalPayload{
 		ProjectID: "project.alpha",
-		EvalSuiteInline: []v1.RegressCase{
+		EvalSuiteInline: []v1.EvalCase{
 			{
 				TaskText:               "case one",
 				Phase:                  v1.PhaseExecute,
@@ -2000,7 +2134,7 @@ func TestRegress_InlineSuiteDeterministicMetricsAndInsufficientContextHandling(t
 	}
 }
 
-func TestRegress_FileSuiteAndThresholdBehavior(t *testing.T) {
+func TestEval_FileSuiteAndThresholdBehavior(t *testing.T) {
 	tmpDir := t.TempDir()
 	suitePath := filepath.Join(tmpDir, "suite.json")
 	content := `[{"task_text":"file suite case","phase":"execute","expected_pointer_keys":["rule:a"]}]`
@@ -2021,7 +2155,7 @@ func TestRegress_FileSuiteAndThresholdBehavior(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, apiErr := svc.Regress(context.Background(), v1.RegressPayload{
+	result, apiErr := svc.Eval(context.Background(), v1.EvalPayload{
 		ProjectID:     "project.alpha",
 		EvalSuitePath: suitePath,
 		MinimumRecall: &minimumRecall,
@@ -2041,14 +2175,251 @@ func TestRegress_FileSuiteAndThresholdBehavior(t *testing.T) {
 	}
 }
 
-func TestRegress_LoadSuiteErrorMapsInternalError(t *testing.T) {
+func TestVerify_DryRunSelectsDeterministicallyWithoutPersistence(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	testsYAML := `version: acm.tests.v1
+defaults:
+  cwd: .
+  timeout_sec: 45
+tests:
+  - id: alpha-unit
+    summary: Run alpha verification
+    command:
+      argv: ["go", "test", "./internal/..."]
+    select:
+      phases: ["review"]
+      tags_any: ["backend"]
+      changed_paths_any: ["internal/**"]
+    expected:
+      exit_code: 0
+  - id: beta-pointer
+    summary: Run pointer verification
+    command:
+      argv: ["acm", "eval", "--project", "project.alpha", "--eval-suite-path", ".acm/eval.json"]
+    select:
+      pointer_keys_any: ["code:repo"]
+    expected:
+      exit_code: 0
+  - id: gamma-unscoped
+    summary: Unscoped test should not auto-select
+    command:
+      argv: ["echo", "noop"]
+`
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), []byte(testsYAML), 0o644); err != nil {
+		t.Fatalf("write tests file: %v", err)
+	}
+
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			Phase:        "execute",
+			ResolvedTags: []string{"backend"},
+			PointerKeys:  []string{"code:repo"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	svc.runVerifyCommand = func(_ context.Context, _ string, _ verifyTestDefinition) verifyCommandRun {
+		t.Fatal("runVerifyCommand should not be called for dry-run")
+		return verifyCommandRun{}
+	}
+
+	result, apiErr := svc.Verify(context.Background(), v1.VerifyPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		Phase:        v1.PhaseReview,
+		FilesChanged: []string{"internal/service/postgres/service.go"},
+		DryRun:       true,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != v1.VerifyStatusDryRun {
+		t.Fatalf("unexpected status: got %q want %q", result.Status, v1.VerifyStatusDryRun)
+	}
+	if got, want := result.SelectedTestIDs, []string{"alpha-unit", "beta-pointer"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected selected test ids: got %v want %v", got, want)
+	}
+	if len(result.Selected) != 2 || result.Selected[0].TestID != "alpha-unit" || result.Selected[1].TestID != "beta-pointer" {
+		t.Fatalf("unexpected selected results: %+v", result.Selected)
+	}
+	if result.Passed {
+		t.Fatalf("expected passed=false for dry run, got %+v", result.Passed)
+	}
+	if len(result.Results) != 0 {
+		t.Fatalf("expected no executed results on dry run, got %+v", result.Results)
+	}
+	if result.BatchRunID != "" {
+		t.Fatalf("expected no batch run id on dry run, got %q", result.BatchRunID)
+	}
+	if len(repo.verifySaveCalls) != 0 {
+		t.Fatalf("expected no persisted verification batches, got %d", len(repo.verifySaveCalls))
+	}
+	if len(repo.workUpsertCalls) != 0 {
+		t.Fatalf("expected no work upserts on dry run, got %d", len(repo.workUpsertCalls))
+	}
+}
+
+func TestVerify_ExecutesPersistsAndUpdatesWork(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	testsYAML := `version: acm.tests.v1
+defaults:
+  cwd: .
+  timeout_sec: 45
+tests:
+  - id: alpha-unit
+    summary: Run alpha verification
+    command:
+      argv: ["go", "test", "./internal/..."]
+    select:
+      phases: ["review"]
+      tags_any: ["backend"]
+      changed_paths_any: ["internal/**"]
+    expected:
+      exit_code: 0
+  - id: beta-pointer
+    summary: Run pointer verification
+    command:
+      argv: ["acm", "eval", "--project", "project.alpha", "--eval-suite-path", ".acm/eval.json"]
+      timeout_sec: 60
+    select:
+      pointer_keys_any: ["code:repo"]
+    expected:
+      exit_code: 0
+`
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), []byte(testsYAML), 0o644); err != nil {
+		t.Fatalf("write tests file: %v", err)
+	}
+
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			Phase:        "execute",
+			ResolvedTags: []string{"backend"},
+			PointerKeys:  []string{"code:repo"},
+		}},
+		workUpsertResults: []int{1},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	base := time.Unix(1_700_000_000, 0).UTC()
+	svc.runVerifyCommand = func(_ context.Context, _ string, def verifyTestDefinition) verifyCommandRun {
+		switch def.ID {
+		case "alpha-unit":
+			exitCode := 0
+			return verifyCommandRun{
+				ExitCode:   &exitCode,
+				Stdout:     "alpha ok\n",
+				StartedAt:  base,
+				FinishedAt: base.Add(2 * time.Second),
+			}
+		case "beta-pointer":
+			exitCode := 1
+			return verifyCommandRun{
+				ExitCode:   &exitCode,
+				Stderr:     "aggregate recall below threshold\n",
+				StartedAt:  base.Add(3 * time.Second),
+				FinishedAt: base.Add(4 * time.Second),
+				Err:        errors.New("exit status 1"),
+			}
+		default:
+			t.Fatalf("unexpected test id: %s", def.ID)
+			return verifyCommandRun{}
+		}
+	}
+
+	result, apiErr := svc.Verify(context.Background(), v1.VerifyPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		PlanKey:   "plan:receipt.abc123",
+		Phase:     v1.PhaseReview,
+		FilesChanged: []string{
+			"internal/service/postgres/service.go",
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != v1.VerifyStatusFailed {
+		t.Fatalf("unexpected status: got %q want %q", result.Status, v1.VerifyStatusFailed)
+	}
+	if result.Passed {
+		t.Fatalf("expected passed=false, got %+v", result.Passed)
+	}
+	if result.BatchRunID == "" {
+		t.Fatal("expected batch run id")
+	}
+	if got, want := result.SelectedTestIDs, []string{"alpha-unit", "beta-pointer"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected selected test ids: got %v want %v", got, want)
+	}
+	if len(result.Results) != 2 {
+		t.Fatalf("unexpected result count: %d", len(result.Results))
+	}
+	if result.Results[0].Status != v1.VerifyTestStatusPassed || result.Results[1].Status != v1.VerifyTestStatusFailed {
+		t.Fatalf("unexpected verify results: %+v", result.Results)
+	}
+	if len(repo.verifySaveCalls) != 1 {
+		t.Fatalf("expected one persisted verification batch, got %d", len(repo.verifySaveCalls))
+	}
+
+	saved := repo.verifySaveCalls[0]
+	if saved.Status != "failed" || saved.TestsSourcePath != ".acm/acm-tests.yaml" {
+		t.Fatalf("unexpected persisted batch: %+v", saved)
+	}
+	if got, want := saved.SelectedTestIDs, []string{"alpha-unit", "beta-pointer"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected persisted selected test ids: got %v want %v", got, want)
+	}
+	if len(saved.Results) != 2 {
+		t.Fatalf("unexpected persisted results: %+v", saved.Results)
+	}
+	if saved.Results[0].TimeoutSec != 45 {
+		t.Fatalf("expected default timeout inheritance, got %d", saved.Results[0].TimeoutSec)
+	}
+	if saved.Results[1].TimeoutSec != 60 {
+		t.Fatalf("expected explicit timeout 60, got %d", saved.Results[1].TimeoutSec)
+	}
+	if len(repo.workUpsertCalls) != 1 {
+		t.Fatalf("expected one work upsert call, got %d", len(repo.workUpsertCalls))
+	}
+	if got := repo.workUpsertCalls[0].Items[0].ItemKey; got != "verify:tests" {
+		t.Fatalf("unexpected work item key: %q", got)
+	}
+	if got := repo.workUpsertCalls[0].Items[0].Status; got != core.WorkItemStatusBlocked {
+		t.Fatalf("unexpected work item status: %q", got)
+	}
+	if got := repo.workUpsertCalls[0].Items[0].Outcome; !strings.Contains(got, "1/2 verification tests passed") {
+		t.Fatalf("unexpected work outcome: %q", got)
+	}
+	if got := repo.workUpsertCalls[0].Items[0].Evidence; len(got) != 3 || got[0] != "verifyrun:"+result.BatchRunID {
+		t.Fatalf("unexpected work evidence: %v", got)
+	}
+}
+
+func TestEval_LoadSuiteErrorMapsInternalError(t *testing.T) {
 	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	_, apiErr := svc.Regress(context.Background(), v1.RegressPayload{
+	_, apiErr := svc.Eval(context.Background(), v1.EvalPayload{
 		ProjectID:     "project.alpha",
 		EvalSuitePath: filepath.Join(t.TempDir(), "missing.json"),
 	})
@@ -2214,6 +2585,289 @@ func TestBootstrap_CustomOutputPathAndWarningsDeterministic(t *testing.T) {
 	wantWarnings := []string{"respect_gitignore fallback to filesystem walk"}
 	if !reflect.DeepEqual(result.Warnings, wantWarnings) {
 		t.Fatalf("unexpected warnings: got %v want %v", result.Warnings, wantWarnings)
+	}
+}
+
+func TestBootstrap_SeedsCanonicalScaffoldFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	rulesRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-rules.yaml"))
+	if err != nil {
+		t.Fatalf("read scaffolded rules file: %v", err)
+	}
+	if string(rulesRaw) != "version: acm.rules.v1\nrules: []\n" {
+		t.Fatalf("unexpected scaffolded rules contents: %q", string(rulesRaw))
+	}
+
+	tagsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tags.yaml"))
+	if err != nil {
+		t.Fatalf("read scaffolded tags file: %v", err)
+	}
+	if string(tagsRaw) != "version: acm.tags.v1\ncanonical_tags: {}\n" {
+		t.Fatalf("unexpected scaffolded tags contents: %q", string(tagsRaw))
+	}
+
+	testsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tests.yaml"))
+	if err != nil {
+		t.Fatalf("read scaffolded tests file: %v", err)
+	}
+	if string(testsRaw) != "version: acm.tests.v1\ndefaults:\n  cwd: .\n  timeout_sec: 300\ntests: []\n" {
+		t.Fatalf("unexpected scaffolded tests contents: %q", string(testsRaw))
+	}
+
+	envExampleRaw, err := os.ReadFile(filepath.Join(root, ".env.example"))
+	if err != nil {
+		t.Fatalf("read scaffolded env example: %v", err)
+	}
+	wantEnvExample := "# ACM runtime configuration\n# Copy this file to .env to override local defaults.\nACM_SQLITE_PATH=.acm/context.db\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
+	if string(envExampleRaw) != wantEnvExample {
+		t.Fatalf("unexpected scaffolded env example contents: %q", string(envExampleRaw))
+	}
+
+	gitignoreRaw, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read scaffolded gitignore: %v", err)
+	}
+	if string(gitignoreRaw) != ".acm/context.db\n" {
+		t.Fatalf("unexpected scaffolded gitignore contents: %q", string(gitignoreRaw))
+	}
+}
+
+func TestBootstrap_SeedsSuggestedCanonicalTagsWhenRepoSignalsThem(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal", "receipt"), 0o755); err != nil {
+		t.Fatalf("mkdir receipt dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "receipt", "fetch_receipt.go"), []byte("package receipt"), 0o644); err != nil {
+		t.Fatalf("write fetch_receipt.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "receipt", "report_receipt.go"), []byte("package receipt"), 0o644); err != nil {
+		t.Fatalf("write report_receipt.go: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	tagsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tags.yaml"))
+	if err != nil {
+		t.Fatalf("read scaffolded tags file: %v", err)
+	}
+
+	doc := canonicalTagsDocumentV1{}
+	if err := yaml.Unmarshal(tagsRaw, &doc); err != nil {
+		t.Fatalf("parse scaffolded tags file: %v", err)
+	}
+	if doc.Version != canonicalTagsVersionV1 {
+		t.Fatalf("unexpected scaffolded tags version: %q", doc.Version)
+	}
+	if _, ok := doc.CanonicalTags["receipt"]; !ok {
+		t.Fatalf("expected inferred receipt tag, got %v", doc.CanonicalTags)
+	}
+}
+
+func TestBootstrap_PopulatesExistingBlankCanonicalTagsFileWithSuggestions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "internal", "receipt"), 0o755); err != nil {
+		t.Fatalf("mkdir receipt dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "receipt", "fetch_receipt.go"), []byte("package receipt"), 0o644); err != nil {
+		t.Fatalf("write fetch_receipt.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "receipt", "report_receipt.go"), []byte("package receipt"), 0o644); err != nil {
+		t.Fatalf("write report_receipt.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tags.yaml"), []byte("version: acm.tags.v1\ncanonical_tags: {}\n"), 0o644); err != nil {
+		t.Fatalf("write blank tags file: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	tagsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tags.yaml"))
+	if err != nil {
+		t.Fatalf("read scaffolded tags file: %v", err)
+	}
+
+	doc := canonicalTagsDocumentV1{}
+	if err := yaml.Unmarshal(tagsRaw, &doc); err != nil {
+		t.Fatalf("parse scaffolded tags file: %v", err)
+	}
+	if _, ok := doc.CanonicalTags["receipt"]; !ok {
+		t.Fatalf("expected inferred receipt tag, got %v", doc.CanonicalTags)
+	}
+}
+
+func TestBootstrap_DoesNotOverwriteExistingCanonicalScaffoldFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	rulesContent := []byte("version: acm.rules.v1\nrules:\n  - summary: Keep tests green\n")
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-rules.yaml"), rulesContent, 0o644); err != nil {
+		t.Fatalf("write existing rules file: %v", err)
+	}
+	tagsContent := []byte("version: acm.tags.v1\ncanonical_tags:\n  backend:\n    - svc\n")
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tags.yaml"), tagsContent, 0o644); err != nil {
+		t.Fatalf("write existing tags file: %v", err)
+	}
+	testsContent := []byte("version: acm.tests.v1\ndefaults:\n  cwd: tools\n  timeout_sec: 120\ntests:\n  - id: smoke\n    summary: Run smoke tests\n    command:\n      argv: [\"go\", \"test\", \"./...\"]\n")
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), testsContent, 0o644); err != nil {
+		t.Fatalf("write existing tests file: %v", err)
+	}
+	envExampleContent := []byte("ACM_SQLITE_PATH=.acm/existing.db\n")
+	if err := os.WriteFile(filepath.Join(root, ".env.example"), envExampleContent, 0o644); err != nil {
+		t.Fatalf("write existing env example: %v", err)
+	}
+	gitignoreContent := []byte("node_modules/\n.acm/context.db\n")
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), gitignoreContent, 0o644); err != nil {
+		t.Fatalf("write existing gitignore: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	rulesRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-rules.yaml"))
+	if err != nil {
+		t.Fatalf("read rules file: %v", err)
+	}
+	if !reflect.DeepEqual(rulesRaw, rulesContent) {
+		t.Fatalf("rules file was overwritten: got %q want %q", string(rulesRaw), string(rulesContent))
+	}
+
+	tagsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tags.yaml"))
+	if err != nil {
+		t.Fatalf("read tags file: %v", err)
+	}
+	if !reflect.DeepEqual(tagsRaw, tagsContent) {
+		t.Fatalf("tags file was overwritten: got %q want %q", string(tagsRaw), string(tagsContent))
+	}
+
+	testsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tests.yaml"))
+	if err != nil {
+		t.Fatalf("read tests file: %v", err)
+	}
+	if !reflect.DeepEqual(testsRaw, testsContent) {
+		t.Fatalf("tests file was overwritten: got %q want %q", string(testsRaw), string(testsContent))
+	}
+
+	envExampleRaw, err := os.ReadFile(filepath.Join(root, ".env.example"))
+	if err != nil {
+		t.Fatalf("read env example: %v", err)
+	}
+	wantEnvExample := "ACM_SQLITE_PATH=.acm/existing.db\n\n# ACM runtime configuration\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
+	if string(envExampleRaw) != wantEnvExample {
+		t.Fatalf("unexpected env example contents: got %q want %q", string(envExampleRaw), wantEnvExample)
+	}
+
+	gitignoreRaw, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read gitignore: %v", err)
+	}
+	if !reflect.DeepEqual(gitignoreRaw, gitignoreContent) {
+		t.Fatalf("gitignore was unexpectedly changed: got %q want %q", string(gitignoreRaw), string(gitignoreContent))
+	}
+}
+
+func TestBootstrap_DoesNotSeedPrimaryTestsFileWhenRootTestsFileExists(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	rootTestsContent := []byte("version: acm.tests.v1\ndefaults:\n  cwd: .\n  timeout_sec: 60\ntests:\n  - id: root-smoke\n    summary: Root tests file\n    command:\n      argv: [\"true\"]\n")
+	if err := os.WriteFile(filepath.Join(root, "acm-tests.yaml"), rootTestsContent, 0o644); err != nil {
+		t.Fatalf("write root tests file: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, ".acm", "acm-tests.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no primary scaffold when root tests file exists, stat err=%v", err)
+	}
+
+	gotRootTestsContent, err := os.ReadFile(filepath.Join(root, "acm-tests.yaml"))
+	if err != nil {
+		t.Fatalf("read root tests file: %v", err)
+	}
+	if !reflect.DeepEqual(gotRootTestsContent, rootTestsContent) {
+		t.Fatalf("root tests file was overwritten: got %q want %q", string(gotRootTestsContent), string(rootTestsContent))
 	}
 }
 
@@ -2522,6 +3176,48 @@ func TestReportCompletion_AutoIndexModeAcceptsOutOfScopeAndUpsertsPointerStubs(t
 	}
 }
 
+func TestReportCompletion_AutoIndexUsesRepoLocalCanonicalTags(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tags.yaml"), []byte("version: acm.tags.v1\ncanonical_tags:\n  backend:\n    - svc\n"), 0o644); err != nil {
+		t.Fatalf("write tags file: %v", err)
+	}
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"src/allowed.go"},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 110, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"src/allowed.go", "src/svc/new.go"},
+		Outcome:      "done",
+		ScopeMode:    v1.ScopeModeAutoIndex,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(repo.upsertStubCalls) != 1 || len(repo.upsertStubCalls[0]) != 1 {
+		t.Fatalf("expected one auto-index stub, got %+v", repo.upsertStubCalls)
+	}
+	wantTags := []string{"auto-indexed", "backend", "code", "new", "src"}
+	if !reflect.DeepEqual(repo.upsertStubCalls[0][0].Tags, wantTags) {
+		t.Fatalf("unexpected auto-index tags: got %v want %v", repo.upsertStubCalls[0][0].Tags, wantTags)
+	}
+}
+
 func TestReportCompletion_AutoIndexModeUpsertFailureReturnsInternalError(t *testing.T) {
 	repo := &fakeRepository{
 		scopeResults: []core.ReceiptScope{{
@@ -2752,6 +3448,55 @@ func TestFetch_PlanKeyReturnsLookupSummary(t *testing.T) {
 	}
 }
 
+func TestFetch_TaskKeyReturnsStoredTaskContent(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanLookupResult: []core.WorkPlan{{
+			ProjectID: "project.alpha",
+			PlanKey:   "plan:receipt.abc123",
+			ReceiptID: "receipt.abc123",
+			Tasks: []core.WorkItem{
+				{
+					ItemKey:            "task.alpha",
+					Summary:            "Split provider adapter",
+					Status:             core.WorkItemStatusInProgress,
+					ParentTaskKey:      "task.epic",
+					AcceptanceCriteria: []string{"Adapter compiles"},
+					ExternalRefs:       []string{"jira:WEB-11"},
+				},
+			},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	key := "task:plan:receipt.abc123#task.alpha"
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{key},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one fetch item, got %+v", result)
+	}
+	item := result.Items[0]
+	if item.Key != key || item.Type != "task" || item.Status != core.WorkItemStatusInProgress {
+		t.Fatalf("unexpected task fetch item: %+v", item)
+	}
+	if !strings.Contains(item.Content, "\"parent_task_key\":\"task.epic\"") {
+		t.Fatalf("expected task content payload, got %q", item.Content)
+	}
+	if len(repo.workPlanLookupCalls) != 1 {
+		t.Fatalf("expected one plan lookup call, got %d", len(repo.workPlanLookupCalls))
+	}
+	if repo.workPlanLookupCalls[0].PlanKey != "plan:receipt.abc123" {
+		t.Fatalf("unexpected plan lookup query: %+v", repo.workPlanLookupCalls[0])
+	}
+}
+
 func TestFetch_PlanKeyFallsBackToLegacyLookupWhenPlanRowMissing(t *testing.T) {
 	repo := &fakeRepository{
 		fetchLookupResults: []core.FetchLookup{{
@@ -2824,6 +3569,30 @@ func TestParsePlanFetchKey_RejectsMixedCasePrefix(t *testing.T) {
 func TestParsePlanFetchKey_RejectsInvalidReceiptID(t *testing.T) {
 	if _, ok := parsePlanFetchKey("plan:short"); ok {
 		t.Fatal("expected invalid receipt_id suffix to be rejected")
+	}
+}
+
+func TestParseTaskFetchKey_ParsesPlanAndTask(t *testing.T) {
+	ref, ok := parseTaskFetchKey("task:plan:receipt.abc123#task.alpha")
+	if !ok {
+		t.Fatal("expected task fetch key to parse")
+	}
+	if ref.PlanKey != "plan:receipt.abc123" || ref.ReceiptID != "receipt.abc123" || ref.TaskKey != "task.alpha" {
+		t.Fatalf("unexpected task fetch ref: %+v", ref)
+	}
+}
+
+func TestParseTaskFetchKey_RejectsInvalidPlanKey(t *testing.T) {
+	if _, ok := parseTaskFetchKey("task:plan:short#task.alpha"); ok {
+		t.Fatal("expected task fetch key with invalid plan receipt to be rejected")
+	}
+}
+
+func TestTaskFetchKey_SkipsOverlongCompositeKeys(t *testing.T) {
+	planKey := "plan:" + strings.Repeat("r", 32)
+	taskKey := strings.Repeat("t", 600)
+	if got := taskFetchKey(planKey, taskKey); got != "" {
+		t.Fatalf("expected overlong task fetch key to be dropped, got %q", got)
 	}
 }
 
@@ -3534,9 +4303,15 @@ func TestMakeContextPlans_UsesStoredPlanSummariesWhenAvailable(t *testing.T) {
 	repo := &fakeRepository{
 		workPlanListResults: [][]core.WorkPlanSummary{{
 			{
-				PlanKey: "plan:receipt.abc123",
-				Summary: "Import Optimization (3 tasks)",
-				Status:  core.PlanStatusInProgress,
+				PlanKey:             "plan:receipt.abc123",
+				Summary:             "Import Optimization (3 tasks)",
+				Status:              core.PlanStatusInProgress,
+				ActiveTaskKeys:      []string{"task.blocked", "task.active"},
+				TaskCountTotal:      3,
+				TaskCountPending:    1,
+				TaskCountInProgress: 1,
+				TaskCountBlocked:    1,
+				TaskCountComplete:   0,
 			},
 		}},
 	}
@@ -3552,4 +4327,63 @@ func TestMakeContextPlans_UsesStoredPlanSummariesWhenAvailable(t *testing.T) {
 	if plans[0].Key != "plan:receipt.abc123" || plans[0].Status != v1.WorkItemStatusInProgress {
 		t.Fatalf("unexpected context plan: %+v", plans[0])
 	}
+	if plans[0].TaskCounts.Total != 3 || plans[0].TaskCounts.Blocked != 1 || plans[0].TaskCounts.InProgress != 1 {
+		t.Fatalf("unexpected task counts: %+v", plans[0].TaskCounts)
+	}
+	if !reflect.DeepEqual(plans[0].FetchKeys, []string{
+		"plan:receipt.abc123",
+		"task:plan:receipt.abc123#task.blocked",
+		"task:plan:receipt.abc123#task.active",
+	}) {
+		t.Fatalf("unexpected plan fetch keys: %+v", plans[0].FetchKeys)
+	}
+	if len(repo.workPlanLookupCalls) != 0 {
+		t.Fatalf("did not expect per-plan lookups, got %d", len(repo.workPlanLookupCalls))
+	}
+}
+
+func TestMakeContextPlans_SkipsOverlongTaskFetchKeys(t *testing.T) {
+	longTaskKey := strings.Repeat("t", 600)
+	repo := &fakeRepository{
+		workPlanListResults: [][]core.WorkPlanSummary{{
+			{
+				PlanKey:        "plan:receipt.abc123",
+				Summary:        "Import Optimization",
+				Status:         core.PlanStatusInProgress,
+				ActiveTaskKeys: []string{longTaskKey, "task.short"},
+			},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	plans := svc.makeContextPlans(context.Background(), "project.alpha", "receipt.abc123")
+	if len(plans) != 1 {
+		t.Fatalf("expected one persisted context plan, got %+v", plans)
+	}
+	if !reflect.DeepEqual(plans[0].FetchKeys, []string{
+		"plan:receipt.abc123",
+		"task:plan:receipt.abc123#task.short",
+	}) {
+		t.Fatalf("unexpected filtered plan fetch keys: %+v", plans[0].FetchKeys)
+	}
+}
+
+func withWorkingDir(t *testing.T, dir string) {
+	t.Helper()
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir %s: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("restore cwd %s: %v", previous, err)
+		}
+	})
 }

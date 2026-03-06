@@ -3,8 +3,8 @@ package unconfigured
 import (
 	"context"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 type Service struct{}
@@ -49,8 +49,12 @@ func (s *Service) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.Coverage
 	return v1.CoverageResult{}, notImplemented("coverage")
 }
 
-func (s *Service) Regress(_ context.Context, _ v1.RegressPayload) (v1.RegressResult, *core.APIError) {
-	return v1.RegressResult{}, notImplemented("regress")
+func (s *Service) Eval(_ context.Context, _ v1.EvalPayload) (v1.EvalResult, *core.APIError) {
+	return v1.EvalResult{}, notImplemented("eval")
+}
+
+func (s *Service) Verify(_ context.Context, _ v1.VerifyPayload) (v1.VerifyResult, *core.APIError) {
+	return v1.VerifyResult{}, notImplemented("verify")
 }
 
 func (s *Service) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {

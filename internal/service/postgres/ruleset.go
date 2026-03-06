@@ -14,7 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 const (
@@ -80,10 +80,15 @@ type canonicalRulesetSyncResult struct {
 	TotalMarkedStale int
 }
 
-func (s *Service) syncCanonicalRulesets(ctx context.Context, projectID, projectRoot, rulesFile string, apply bool) (canonicalRulesetSyncResult, error) {
+func (s *Service) syncCanonicalRulesets(ctx context.Context, projectID, projectRoot, rulesFile, tagsFile string, apply bool) (canonicalRulesetSyncResult, error) {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
 		return canonicalRulesetSyncResult{}, fmt.Errorf("project_id is required")
+	}
+
+	tagNormalizer, err := s.loadCanonicalTagNormalizer(projectRoot, tagsFile)
+	if err != nil {
+		return canonicalRulesetSyncResult{}, fmt.Errorf("load canonical tags: %w", err)
 	}
 
 	sources, err := discoverCanonicalRulesetSources(projectRoot, rulesFile)
@@ -100,7 +105,7 @@ func (s *Service) syncCanonicalRulesets(ctx context.Context, projectID, projectR
 
 		var rules []canonicalRulePointer
 		if source.Exists {
-			parsed, parseErr := parseCanonicalRulesetFile(source, projectID)
+			parsed, parseErr := parseCanonicalRulesetFile(source, projectID, tagNormalizer)
 			if parseErr != nil {
 				return canonicalRulesetSyncResult{}, parseErr
 			}
@@ -169,7 +174,7 @@ func discoverCanonicalRulesetSources(projectRoot, rulesFile string) ([]canonical
 	return sources, nil
 }
 
-func parseCanonicalRulesetFile(source canonicalRulesetSource, projectID string) ([]canonicalRulePointer, error) {
+func parseCanonicalRulesetFile(source canonicalRulesetSource, projectID string, tagNormalizer canonicalTagNormalizer) ([]canonicalRulePointer, error) {
 	blob, err := os.ReadFile(source.AbsolutePath)
 	if err != nil {
 		return nil, fmt.Errorf("read canonical ruleset %s: %w", source.SourcePath, err)
@@ -200,7 +205,7 @@ func parseCanonicalRulesetFile(source canonicalRulesetSource, projectID string) 
 			return nil, fmt.Errorf("canonical ruleset %s rules[%d] %w", source.SourcePath, i, err)
 		}
 
-		tags := normalizeCanonicalRulesetTags(rawRule.Tags, enforcement)
+		tags := normalizeCanonicalRulesetTags(tagNormalizer, rawRule.Tags, enforcement)
 		ruleID, err := canonicalRuleID(rawRule.ID, source.SourcePath, summary, rawRule.Content, enforcement, tags, seenRuleIDs)
 		if err != nil {
 			return nil, fmt.Errorf("canonical ruleset %s rules[%d] %w", source.SourcePath, i, err)
@@ -232,7 +237,7 @@ func parseCanonicalRulesetFile(source canonicalRulesetSource, projectID string) 
 func canonicalRulesetWarnings(result canonicalRulesetSyncResult) []string {
 	warnings := make([]string, 0, len(result.Sources))
 	for _, source := range result.Sources {
-		if !source.Exists {
+		if !source.Exists || source.RuleCount == 0 {
 			continue
 		}
 		warnings = append(warnings, fmt.Sprintf("ruleset discovered: %s (%d rules)", source.SourcePath, source.RuleCount))
@@ -299,7 +304,7 @@ func normalizeRuleEnforcement(raw string) (string, error) {
 	}
 }
 
-func normalizeCanonicalRulesetTags(tags []string, enforcement string) []string {
+func normalizeCanonicalRulesetTags(tagNormalizer canonicalTagNormalizer, tags []string, enforcement string) []string {
 	normalized := append([]string{}, tags...)
 	normalized = append(normalized, "rule", ruleTagCanonical)
 	if strings.EqualFold(enforcement, "soft") {
@@ -307,7 +312,7 @@ func normalizeCanonicalRulesetTags(tags []string, enforcement string) []string {
 	} else {
 		normalized = append(normalized, ruleTagEnforcementHard)
 	}
-	return normalizeCanonicalTags(normalized)
+	return tagNormalizer.normalizeTags(normalized)
 }
 
 func toCoreRulePointers(pointers []canonicalRulePointer) []core.RulePointer {

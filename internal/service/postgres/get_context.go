@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 const (
@@ -63,11 +63,16 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 		return v1.GetContextResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
 	}
 
+	tagNormalizer, err := s.loadCanonicalTagNormalizer("", payload.TagsFile)
+	if err != nil {
+		return v1.GetContextResult{}, internalError("load_canonical_tags", err)
+	}
+
 	caps := normalizeCaps(payload.Caps)
 	fallbackMode := normalizeFallbackMode(payload.FallbackMode)
 	diagnostics := &v1.GetContextDiagnostics{FallbackMode: fallbackMode}
 
-	selected, err := s.selectPointers(ctx, payload, caps, false)
+	selected, err := s.selectPointers(ctx, payload, caps, false, tagNormalizer)
 	if err != nil {
 		return v1.GetContextResult{}, internalError("fetch_candidate_pointers", err)
 	}
@@ -75,7 +80,7 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 
 	if len(selected.Pointers) < caps.MinPointerCount && fallbackMode == fallbackWidenOnce {
 		diagnostics.FallbackUsed = true
-		selected, err = s.selectPointers(ctx, payload, caps, true)
+		selected, err = s.selectPointers(ctx, payload, caps, true, tagNormalizer)
 		if err != nil {
 			return v1.GetContextResult{}, internalError("fetch_candidate_pointers_fallback", err)
 		}
@@ -97,7 +102,7 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 	rules := makeContextRules(rulesSelected)
 	suggestions := makeContextSuggestions(suggestionsSelected)
 	memories := makeContextMemories(activeMemories)
-	resolvedTags := resolveTags(selected.PointerTags, activeMemories)
+	resolvedTags := resolveTags(selected.PointerTags, activeMemories, tagNormalizer)
 	budget := estimateBudget(caps.WordBudgetLimit, payload.TaskText, resolvedTags, rules, suggestions, memories)
 
 	receiptID := deterministicReceiptID(payload, resolvedTags, rules, suggestions, memories, budget)
@@ -126,9 +131,9 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 	}, nil
 }
 
-func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPayload, caps effectiveCaps, fallback bool) (pointerSelection, error) {
+func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPayload, caps effectiveCaps, fallback bool, tagNormalizer canonicalTagNormalizer) (pointerSelection, error) {
 	taskText := strings.TrimSpace(payload.TaskText)
-	queryTags := canonicalTagsFromTaskText(taskText)
+	queryTags := tagNormalizer.canonicalTagsFromTaskText(taskText)
 	allowStale := payload.AllowStale
 	if fallback {
 		// Widen fallback to FTS-only while preserving the original task text and stale policy.
@@ -208,7 +213,7 @@ func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPaylo
 	tagSet := make(map[string]struct{}, len(selection.Pointers))
 	for _, entry := range selection.Pointers {
 		selection.PointerKeys = append(selection.PointerKeys, entry.Pointer.Key)
-		for _, tag := range normalizeCanonicalTags(entry.Pointer.Tags) {
+		for _, tag := range tagNormalizer.normalizeTags(entry.Pointer.Tags) {
 			tagSet[tag] = struct{}{}
 		}
 	}
@@ -425,10 +430,20 @@ func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID str
 					if summary == "" {
 						summary = fmt.Sprintf("Plan %s is %s", planKey, status)
 					}
+					taskCounts := v1.ContextPlanTaskCounts{
+						Total:      maxZero(row.TaskCountTotal),
+						Pending:    maxZero(row.TaskCountPending),
+						InProgress: maxZero(row.TaskCountInProgress),
+						Blocked:    maxZero(row.TaskCountBlocked),
+						Complete:   maxZero(row.TaskCountComplete),
+					}
+					fetchKeys := contextPlanFetchKeys(planKey, row.ActiveTaskKeys)
 					plans = append(plans, v1.ContextPlan{
-						Key:     planKey,
-						Summary: summary,
-						Status:  v1.WorkItemStatus(status),
+						Key:        planKey,
+						Summary:    summary,
+						Status:     v1.WorkItemStatus(status),
+						TaskCounts: taskCounts,
+						FetchKeys:  fetchKeys,
 					})
 				}
 				if len(plans) > 0 {
@@ -444,19 +459,49 @@ func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID str
 	}
 	status := v1.WorkItemStatusPending
 	return []v1.ContextPlan{{
-		Key:     "plan:" + receiptID,
-		Summary: fmt.Sprintf("Plan %s is %s", receiptID, status),
-		Status:  status,
+		Key:        "plan:" + receiptID,
+		Summary:    fmt.Sprintf("Plan %s is %s", receiptID, status),
+		Status:     status,
+		TaskCounts: v1.ContextPlanTaskCounts{},
+		FetchKeys:  []string{"plan:" + receiptID},
 	}}
 }
 
-func resolveTags(pointerTags []string, memories []core.ActiveMemory) []string {
+func maxZero(value int) int {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func contextPlanFetchKeys(planKey string, activeTaskKeys []string) []string {
+	normalizedPlanKey := strings.TrimSpace(planKey)
+	if normalizedPlanKey == "" {
+		return nil
+	}
+
+	keys := []string{normalizedPlanKey}
+	for _, rawTaskKey := range activeTaskKeys {
+		fetchKey := taskFetchKey(normalizedPlanKey, rawTaskKey)
+		if strings.TrimSpace(fetchKey) == "" {
+			continue
+		}
+		keys = append(keys, fetchKey)
+		if len(keys) >= maxContextPlanTaskFetchKeys+1 {
+			break
+		}
+	}
+
+	return keys
+}
+
+func resolveTags(pointerTags []string, memories []core.ActiveMemory, tagNormalizer canonicalTagNormalizer) []string {
 	resolved := make(map[string]struct{}, len(pointerTags)+len(memories))
-	for _, tag := range normalizeCanonicalTags(pointerTags) {
+	for _, tag := range tagNormalizer.normalizeTags(pointerTags) {
 		resolved[tag] = struct{}{}
 	}
 	for _, memory := range memories {
-		for _, tag := range normalizeCanonicalTags(memory.Tags) {
+		for _, tag := range tagNormalizer.normalizeTags(memory.Tags) {
 			resolved[tag] = struct{}{}
 		}
 	}

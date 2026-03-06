@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 func (r *Repository) SyncRulePointers(ctx context.Context, input core.RulePointerSyncInput) (core.RulePointerSyncResult, error) {

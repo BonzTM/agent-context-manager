@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 func TestSaveRunReceiptSummary_PersistsDefinitionOfDoneIssuesInRunSummaryJSON(t *testing.T) {

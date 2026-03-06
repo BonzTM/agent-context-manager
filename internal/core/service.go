@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 )
 
 type Service interface {
@@ -16,6 +16,7 @@ type Service interface {
 	HealthCheck(context.Context, v1.HealthCheckPayload) (v1.HealthCheckResult, *APIError)
 	HealthFix(context.Context, v1.HealthFixPayload) (v1.HealthFixResult, *APIError)
 	Coverage(context.Context, v1.CoveragePayload) (v1.CoverageResult, *APIError)
-	Regress(context.Context, v1.RegressPayload) (v1.RegressResult, *APIError)
+	Eval(context.Context, v1.EvalPayload) (v1.EvalResult, *APIError)
+	Verify(context.Context, v1.VerifyPayload) (v1.VerifyResult, *APIError)
 	Bootstrap(context.Context, v1.BootstrapPayload) (v1.BootstrapResult, *APIError)
 }

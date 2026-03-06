@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 func TestNormalizeRunReceiptSummary_NormalizesDefinitionOfDoneIssues(t *testing.T) {

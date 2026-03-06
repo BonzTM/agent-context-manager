@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 type Repository struct {
@@ -24,6 +24,7 @@ type Repository struct {
 
 var _ core.Repository = (*Repository)(nil)
 var _ core.WorkPlanRepository = (*Repository)(nil)
+var _ core.VerificationRepository = (*Repository)(nil)
 
 func New(ctx context.Context, cfg Config) (*Repository, error) {
 	poolCfg, err := cfg.PoolConfig()
@@ -703,28 +704,32 @@ INSERT INTO acm_work_plan_tasks (
 	task_key,
 	summary,
 	status,
+	parent_task_key,
 	depends_on,
 	acceptance_criteria,
 	references_list,
+	external_refs,
 	blocked_reason,
 	outcome,
 	evidence,
 	created_at,
 	updated_at
 ) VALUES (
-	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW()
+	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW()
 )
 ON CONFLICT(project_id, plan_key, task_key) DO UPDATE SET
 	summary = EXCLUDED.summary,
 	status = EXCLUDED.status,
+	parent_task_key = EXCLUDED.parent_task_key,
 	depends_on = EXCLUDED.depends_on,
 	acceptance_criteria = EXCLUDED.acceptance_criteria,
 	references_list = EXCLUDED.references_list,
+	external_refs = EXCLUDED.external_refs,
 	blocked_reason = EXCLUDED.blocked_reason,
 	outcome = EXCLUDED.outcome,
 	evidence = EXCLUDED.evidence,
 	updated_at = NOW()
-`, projectID, planKey, task.ItemKey, strings.TrimSpace(task.Summary), storageWorkItemStatus(task.Status), nonNilStringList(task.DependsOn), nonNilStringList(task.AcceptanceCriteria), nonNilStringList(task.References), strings.TrimSpace(task.BlockedReason), strings.TrimSpace(task.Outcome), nonNilStringList(task.Evidence))
+`, projectID, planKey, task.ItemKey, strings.TrimSpace(task.Summary), storageWorkItemStatus(task.Status), strings.TrimSpace(task.ParentTaskKey), nonNilStringList(task.DependsOn), nonNilStringList(task.AcceptanceCriteria), nonNilStringList(task.References), nonNilStringList(task.ExternalRefs), strings.TrimSpace(task.BlockedReason), strings.TrimSpace(task.Outcome), nonNilStringList(task.Evidence))
 		if err != nil {
 			return core.WorkPlanUpsertResult{}, fmt.Errorf("upsert work plan task: %w", err)
 		}
@@ -835,7 +840,13 @@ SELECT
 	p.plan_key,
 	p.title,
 	p.status,
-	COUNT(t.task_id)::bigint AS task_count,
+	p.kind,
+	p.parent_plan_key,
+	COUNT(t.task_id)::bigint AS task_count_total,
+	COUNT(*) FILTER (WHERE t.status = 'pending')::bigint AS task_count_pending,
+	COUNT(*) FILTER (WHERE t.status = 'in_progress')::bigint AS task_count_in_progress,
+	COUNT(*) FILTER (WHERE t.status = 'blocked')::bigint AS task_count_blocked,
+	COUNT(*) FILTER (WHERE t.status = 'completed')::bigint AS task_count_completed,
 	p.updated_at
 FROM acm_work_plans p
 LEFT JOIN acm_work_plan_tasks t
@@ -843,7 +854,7 @@ LEFT JOIN acm_work_plan_tasks t
 	AND t.plan_key = p.plan_key
 WHERE p.project_id = $1
 	AND p.status <> 'completed'
-GROUP BY p.plan_key, p.title, p.status, p.updated_at
+GROUP BY p.plan_key, p.title, p.status, p.kind, p.parent_plan_key, p.updated_at
 ORDER BY p.updated_at DESC, p.plan_key ASC
 LIMIT $2
 `, projectID, limit)
@@ -855,13 +866,31 @@ LIMIT $2
 	out := make([]core.WorkPlanSummary, 0)
 	for rows.Next() {
 		var (
-			planKey   string
-			title     string
-			status    string
-			taskCount int64
-			updatedAt time.Time
+			planKey             string
+			title               string
+			status              string
+			kind                string
+			parentPlanKey       string
+			taskCountTotal      int64
+			taskCountPending    int64
+			taskCountInProgress int64
+			taskCountBlocked    int64
+			taskCountComplete   int64
+			updatedAt           time.Time
 		)
-		if err := rows.Scan(&planKey, &title, &status, &taskCount, &updatedAt); err != nil {
+		if err := rows.Scan(
+			&planKey,
+			&title,
+			&status,
+			&kind,
+			&parentPlanKey,
+			&taskCountTotal,
+			&taskCountPending,
+			&taskCountInProgress,
+			&taskCountBlocked,
+			&taskCountComplete,
+			&updatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("scan work plan summary: %w", err)
 		}
 		planKey = strings.TrimSpace(planKey)
@@ -873,18 +902,86 @@ LIMIT $2
 		if summary == "" {
 			summary = fmt.Sprintf("Plan %s is %s", planKey, normalizedStatus)
 		}
-		if taskCount > 0 {
-			summary = fmt.Sprintf("%s (%d tasks)", summary, taskCount)
+		if taskCountTotal > 0 {
+			summary = fmt.Sprintf("%s (%d tasks)", summary, taskCountTotal)
 		}
 		out = append(out, core.WorkPlanSummary{
-			PlanKey:   planKey,
-			Summary:   summary,
-			Status:    normalizedStatus,
-			UpdatedAt: updatedAt.UTC(),
+			PlanKey:             planKey,
+			Summary:             summary,
+			Status:              normalizedStatus,
+			Kind:                strings.TrimSpace(kind),
+			ParentPlanKey:       strings.TrimSpace(parentPlanKey),
+			TaskCountTotal:      int(taskCountTotal),
+			TaskCountPending:    int(taskCountPending),
+			TaskCountInProgress: int(taskCountInProgress),
+			TaskCountBlocked:    int(taskCountBlocked),
+			TaskCountComplete:   int(taskCountComplete),
+			UpdatedAt:           updatedAt.UTC(),
 		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate work plans: %w", err)
+	}
+
+	if len(out) == 0 {
+		return nil, nil
+	}
+
+	activeTaskKeysByPlan, err := listActiveWorkPlanTaskKeys(ctx, r.pool, projectID, workPlanSummaryKeys(out))
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].ActiveTaskKeys = append([]string(nil), activeTaskKeysByPlan[out[i].PlanKey]...)
+	}
+
+	return out, nil
+}
+
+func listActiveWorkPlanTaskKeys(ctx context.Context, q pgxRowsQuerier, projectID string, planKeys []string) (map[string][]string, error) {
+	if len(planKeys) == 0 {
+		return nil, nil
+	}
+
+	rows, err := q.Query(ctx, `
+SELECT
+	plan_key,
+	task_key
+FROM acm_work_plan_tasks
+WHERE project_id = $1
+	AND plan_key = ANY($2)
+	AND status <> 'completed'
+ORDER BY
+	plan_key ASC,
+	CASE status
+		WHEN 'blocked' THEN 0
+		WHEN 'in_progress' THEN 1
+		WHEN 'pending' THEN 2
+		ELSE 3
+	END ASC,
+	task_key ASC
+`, projectID, planKeys)
+	if err != nil {
+		return nil, fmt.Errorf("query active work plan task keys: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string][]string, len(planKeys))
+	for rows.Next() {
+		var planKey string
+		var taskKey string
+		if err := rows.Scan(&planKey, &taskKey); err != nil {
+			return nil, fmt.Errorf("scan active work plan task key: %w", err)
+		}
+		planKey = strings.TrimSpace(planKey)
+		taskKey = strings.TrimSpace(taskKey)
+		if planKey == "" || taskKey == "" {
+			continue
+		}
+		out[planKey] = append(out[planKey], taskKey)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active work plan task keys: %w", err)
 	}
 
 	return out, nil
@@ -1075,6 +1172,75 @@ RETURNING run_id
 		RunID:     runID,
 		ReceiptID: normalized.ReceiptID,
 	}, nil
+}
+
+func (r *Repository) SaveVerificationBatch(ctx context.Context, input core.VerificationBatch) error {
+	if r == nil || r.pool == nil {
+		return fmt.Errorf("postgres pool is required")
+	}
+
+	normalized, err := normalizeVerificationBatch(input)
+	if err != nil {
+		return err
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	_, err = tx.Exec(ctx, `
+INSERT INTO acm_verification_batches (
+	batch_run_id,
+	project_id,
+	receipt_id,
+	plan_key,
+	phase,
+	tests_source_path,
+	status,
+	passed,
+	selected_test_ids,
+	created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+`, normalized.BatchRunID, normalized.ProjectID, normalized.ReceiptID, normalized.PlanKey, normalized.Phase, normalized.TestsSourcePath, normalized.Status, normalized.Passed, nonNilStringListPreserveOrder(normalized.SelectedTestIDs), normalized.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("insert verification batch: %w", err)
+	}
+
+	for _, result := range normalized.Results {
+		_, err := tx.Exec(ctx, `
+INSERT INTO acm_verification_results (
+	batch_run_id,
+	project_id,
+	test_id,
+	definition_hash,
+	summary,
+	command_argv,
+	command_cwd,
+	timeout_sec,
+	expected_exit_code,
+	selection_reasons,
+	status,
+	exit_code,
+	duration_ms,
+	stdout_excerpt,
+	stderr_excerpt,
+	started_at,
+	finished_at
+) VALUES (
+	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+)
+`, normalized.BatchRunID, normalized.ProjectID, result.TestID, result.DefinitionHash, result.Summary, nonNilStringListPreserveOrder(result.CommandArgv), result.CommandCWD, result.TimeoutSec, result.ExpectedExitCode, nonNilStringListPreserveOrder(result.SelectionReasons), result.Status, result.ExitCode, result.DurationMS, result.StdoutExcerpt, result.StderrExcerpt, result.StartedAt, result.FinishedAt)
+		if err != nil {
+			return fmt.Errorf("insert verification result %s: %w", result.TestID, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) ApplySync(ctx context.Context, input core.SyncApplyInput) (core.SyncApplyResult, error) {
@@ -1295,9 +1461,11 @@ func normalizeWorkPlanTasks(tasks []core.WorkItem) []core.WorkItem {
 			ItemKey:            itemKey,
 			Summary:            strings.TrimSpace(raw.Summary),
 			Status:             status,
+			ParentTaskKey:      strings.TrimSpace(raw.ParentTaskKey),
 			DependsOn:          normalizeStringList(raw.DependsOn),
 			AcceptanceCriteria: normalizeStringList(raw.AcceptanceCriteria),
 			References:         normalizeStringList(raw.References),
+			ExternalRefs:       normalizeStringList(raw.ExternalRefs),
 			BlockedReason:      strings.TrimSpace(raw.BlockedReason),
 			Outcome:            strings.TrimSpace(raw.Outcome),
 			Evidence:           normalizeStringList(raw.Evidence),
@@ -1367,6 +1535,16 @@ func buildNextWorkPlanState(current core.WorkPlan, found bool, input core.WorkPl
 		next.Objective = trimmedObjective
 	}
 
+	trimmedKind := strings.TrimSpace(input.Kind)
+	if trimmedKind != "" || mode == core.WorkPlanModeReplace {
+		next.Kind = strings.ToLower(trimmedKind)
+	}
+
+	trimmedParentPlanKey := strings.TrimSpace(input.ParentPlanKey)
+	if trimmedParentPlanKey != "" || mode == core.WorkPlanModeReplace {
+		next.ParentPlanKey = trimmedParentPlanKey
+	}
+
 	trimmedStatus := strings.TrimSpace(input.Status)
 	if trimmedStatus != "" {
 		next.Status = normalizeWorkItemStatus(trimmedStatus)
@@ -1394,6 +1572,9 @@ func buildNextWorkPlanState(current core.WorkPlan, found bool, input core.WorkPl
 	}
 	if input.References != nil || mode == core.WorkPlanModeReplace {
 		next.References = normalizeStringList(input.References)
+	}
+	if input.ExternalRefs != nil || mode == core.WorkPlanModeReplace {
+		next.ExternalRefs = normalizeStringList(input.ExternalRefs)
 	}
 
 	next.ProjectID = projectID
@@ -1431,6 +1612,8 @@ INSERT INTO acm_work_plans (
 	receipt_id,
 	title,
 	objective,
+	kind,
+	parent_plan_key,
 	status,
 	stage_spec_outline,
 	stage_refined_spec,
@@ -1439,15 +1622,18 @@ INSERT INTO acm_work_plans (
 	out_of_scope,
 	constraints_list,
 	references_list,
+	external_refs,
 	created_at,
 	updated_at
 ) VALUES (
-	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW()
+	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW()
 )
 ON CONFLICT(project_id, plan_key) DO UPDATE SET
 	receipt_id = EXCLUDED.receipt_id,
 	title = EXCLUDED.title,
 	objective = EXCLUDED.objective,
+	kind = EXCLUDED.kind,
+	parent_plan_key = EXCLUDED.parent_plan_key,
 	status = EXCLUDED.status,
 	stage_spec_outline = EXCLUDED.stage_spec_outline,
 	stage_refined_spec = EXCLUDED.stage_refined_spec,
@@ -1456,8 +1642,9 @@ ON CONFLICT(project_id, plan_key) DO UPDATE SET
 	out_of_scope = EXCLUDED.out_of_scope,
 	constraints_list = EXCLUDED.constraints_list,
 	references_list = EXCLUDED.references_list,
+	external_refs = EXCLUDED.external_refs,
 	updated_at = NOW()
-`, strings.TrimSpace(plan.ProjectID), strings.TrimSpace(plan.PlanKey), receiptValue, strings.TrimSpace(plan.Title), strings.TrimSpace(plan.Objective), storageWorkItemStatus(plan.Status), storageWorkItemStatus(plan.Stages.SpecOutline), storageWorkItemStatus(plan.Stages.RefinedSpec), storageWorkItemStatus(plan.Stages.ImplementationPlan), nonNilStringList(plan.InScope), nonNilStringList(plan.OutOfScope), nonNilStringList(plan.Constraints), nonNilStringList(plan.References))
+`, strings.TrimSpace(plan.ProjectID), strings.TrimSpace(plan.PlanKey), receiptValue, strings.TrimSpace(plan.Title), strings.TrimSpace(plan.Objective), strings.ToLower(strings.TrimSpace(plan.Kind)), strings.TrimSpace(plan.ParentPlanKey), storageWorkItemStatus(plan.Status), storageWorkItemStatus(plan.Stages.SpecOutline), storageWorkItemStatus(plan.Stages.RefinedSpec), storageWorkItemStatus(plan.Stages.ImplementationPlan), nonNilStringList(plan.InScope), nonNilStringList(plan.OutOfScope), nonNilStringList(plan.Constraints), nonNilStringList(plan.References), nonNilStringList(plan.ExternalRefs))
 	if err != nil {
 		return fmt.Errorf("upsert work plan: %w", err)
 	}
@@ -1470,6 +1657,8 @@ SELECT
 	COALESCE(receipt_id, ''),
 	title,
 	objective,
+	kind,
+	parent_plan_key,
 	status,
 	stage_spec_outline,
 	stage_refined_spec,
@@ -1478,6 +1667,7 @@ SELECT
 	out_of_scope,
 	constraints_list,
 	references_list,
+	external_refs,
 	updated_at
 FROM acm_work_plans
 WHERE project_id = $1
@@ -1485,20 +1675,23 @@ WHERE project_id = $1
 `, projectID, planKey)
 
 	var (
-		receiptID            string
-		title                string
-		objective            string
-		status               string
-		stageSpecOutline     string
-		stageRefinedSpec     string
-		stageImplementation  string
-		inScope              []string
-		outOfScope           []string
-		constraints          []string
-		references           []string
-		updatedAt            time.Time
+		receiptID           string
+		title               string
+		objective           string
+		kind                string
+		parentPlanKey       string
+		status              string
+		stageSpecOutline    string
+		stageRefinedSpec    string
+		stageImplementation string
+		inScope             []string
+		outOfScope          []string
+		constraints         []string
+		references          []string
+		externalRefs        []string
+		updatedAt           time.Time
 	)
-	if err := row.Scan(&receiptID, &title, &objective, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScope, &outOfScope, &constraints, &references, &updatedAt); err != nil {
+	if err := row.Scan(&receiptID, &title, &objective, &kind, &parentPlanKey, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScope, &outOfScope, &constraints, &references, &externalRefs, &updatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return core.WorkPlan{}, false, nil
 		}
@@ -1506,18 +1699,21 @@ WHERE project_id = $1
 	}
 
 	return core.WorkPlan{
-		ProjectID:   projectID,
-		PlanKey:     planKey,
-		ReceiptID:   strings.TrimSpace(receiptID),
-		Title:       strings.TrimSpace(title),
-		Objective:   strings.TrimSpace(objective),
-		Status:      normalizeWorkItemStatus(status),
-		Stages:      normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
-		InScope:     normalizeStringList(inScope),
-		OutOfScope:  normalizeStringList(outOfScope),
-		Constraints: normalizeStringList(constraints),
-		References:  normalizeStringList(references),
-		UpdatedAt:   updatedAt.UTC(),
+		ProjectID:     projectID,
+		PlanKey:       planKey,
+		ReceiptID:     strings.TrimSpace(receiptID),
+		Title:         strings.TrimSpace(title),
+		Objective:     strings.TrimSpace(objective),
+		Kind:          strings.TrimSpace(kind),
+		ParentPlanKey: strings.TrimSpace(parentPlanKey),
+		Status:        normalizeWorkItemStatus(status),
+		Stages:        normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
+		InScope:       normalizeStringList(inScope),
+		OutOfScope:    normalizeStringList(outOfScope),
+		Constraints:   normalizeStringList(constraints),
+		References:    normalizeStringList(references),
+		ExternalRefs:  normalizeStringList(externalRefs),
+		UpdatedAt:     updatedAt.UTC(),
 	}, true, nil
 }
 
@@ -1527,9 +1723,11 @@ SELECT
 	task_key,
 	summary,
 	status,
+	parent_task_key,
 	depends_on,
 	acceptance_criteria,
 	references_list,
+	external_refs,
 	blocked_reason,
 	outcome,
 	evidence,
@@ -1547,7 +1745,7 @@ ORDER BY task_key ASC
 	items := make([]core.WorkItem, 0)
 	for rows.Next() {
 		var item core.WorkItem
-		if err := rows.Scan(&item.ItemKey, &item.Summary, &item.Status, &item.DependsOn, &item.AcceptanceCriteria, &item.References, &item.BlockedReason, &item.Outcome, &item.Evidence, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ItemKey, &item.Summary, &item.Status, &item.ParentTaskKey, &item.DependsOn, &item.AcceptanceCriteria, &item.References, &item.ExternalRefs, &item.BlockedReason, &item.Outcome, &item.Evidence, &item.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan work plan task: %w", err)
 		}
 		item.ItemKey = strings.TrimSpace(item.ItemKey)
@@ -1556,9 +1754,11 @@ ORDER BY task_key ASC
 		}
 		item.Summary = strings.TrimSpace(item.Summary)
 		item.Status = normalizeWorkItemStatus(item.Status)
+		item.ParentTaskKey = strings.TrimSpace(item.ParentTaskKey)
 		item.DependsOn = normalizeStringList(item.DependsOn)
 		item.AcceptanceCriteria = normalizeStringList(item.AcceptanceCriteria)
 		item.References = normalizeStringList(item.References)
+		item.ExternalRefs = normalizeStringList(item.ExternalRefs)
 		item.BlockedReason = strings.TrimSpace(item.BlockedReason)
 		item.Outcome = strings.TrimSpace(item.Outcome)
 		item.Evidence = normalizeStringList(item.Evidence)
@@ -1577,6 +1777,8 @@ SELECT
 	COALESCE(receipt_id, ''),
 	title,
 	objective,
+	kind,
+	parent_plan_key,
 	status,
 	stage_spec_outline,
 	stage_refined_spec,
@@ -1585,6 +1787,7 @@ SELECT
 	out_of_scope,
 	constraints_list,
 	references_list,
+	external_refs,
 	updated_at
 FROM acm_work_plans
 WHERE project_id = $1
@@ -1592,20 +1795,23 @@ WHERE project_id = $1
 `, projectID, planKey)
 
 	var (
-		receiptID            string
-		title                string
-		objective            string
-		status               string
-		stageSpecOutline     string
-		stageRefinedSpec     string
-		stageImplementation  string
-		inScope              []string
-		outOfScope           []string
-		constraints          []string
-		references           []string
-		updatedAt            time.Time
+		receiptID           string
+		title               string
+		objective           string
+		kind                string
+		parentPlanKey       string
+		status              string
+		stageSpecOutline    string
+		stageRefinedSpec    string
+		stageImplementation string
+		inScope             []string
+		outOfScope          []string
+		constraints         []string
+		references          []string
+		externalRefs        []string
+		updatedAt           time.Time
 	)
-	if err := row.Scan(&receiptID, &title, &objective, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScope, &outOfScope, &constraints, &references, &updatedAt); err != nil {
+	if err := row.Scan(&receiptID, &title, &objective, &kind, &parentPlanKey, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScope, &outOfScope, &constraints, &references, &externalRefs, &updatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return core.WorkPlan{}, false, nil
 		}
@@ -1613,18 +1819,21 @@ WHERE project_id = $1
 	}
 
 	return core.WorkPlan{
-		ProjectID:   projectID,
-		PlanKey:     planKey,
-		ReceiptID:   strings.TrimSpace(receiptID),
-		Title:       strings.TrimSpace(title),
-		Objective:   strings.TrimSpace(objective),
-		Status:      normalizeWorkItemStatus(status),
-		Stages:      normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
-		InScope:     normalizeStringList(inScope),
-		OutOfScope:  normalizeStringList(outOfScope),
-		Constraints: normalizeStringList(constraints),
-		References:  normalizeStringList(references),
-		UpdatedAt:   updatedAt.UTC(),
+		ProjectID:     projectID,
+		PlanKey:       planKey,
+		ReceiptID:     strings.TrimSpace(receiptID),
+		Title:         strings.TrimSpace(title),
+		Objective:     strings.TrimSpace(objective),
+		Kind:          strings.TrimSpace(kind),
+		ParentPlanKey: strings.TrimSpace(parentPlanKey),
+		Status:        normalizeWorkItemStatus(status),
+		Stages:        normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
+		InScope:       normalizeStringList(inScope),
+		OutOfScope:    normalizeStringList(outOfScope),
+		Constraints:   normalizeStringList(constraints),
+		References:    normalizeStringList(references),
+		ExternalRefs:  normalizeStringList(externalRefs),
+		UpdatedAt:     updatedAt.UTC(),
 	}, true, nil
 }
 
@@ -1639,9 +1848,11 @@ SELECT
 	task_key,
 	summary,
 	status,
+	parent_task_key,
 	depends_on,
 	acceptance_criteria,
 	references_list,
+	external_refs,
 	blocked_reason,
 	outcome,
 	evidence,
@@ -1659,7 +1870,7 @@ ORDER BY task_key ASC
 	items := make([]core.WorkItem, 0)
 	for rows.Next() {
 		var item core.WorkItem
-		if err := rows.Scan(&item.ItemKey, &item.Summary, &item.Status, &item.DependsOn, &item.AcceptanceCriteria, &item.References, &item.BlockedReason, &item.Outcome, &item.Evidence, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ItemKey, &item.Summary, &item.Status, &item.ParentTaskKey, &item.DependsOn, &item.AcceptanceCriteria, &item.References, &item.ExternalRefs, &item.BlockedReason, &item.Outcome, &item.Evidence, &item.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan work plan task: %w", err)
 		}
 		item.ItemKey = strings.TrimSpace(item.ItemKey)
@@ -1668,9 +1879,11 @@ ORDER BY task_key ASC
 		}
 		item.Summary = strings.TrimSpace(item.Summary)
 		item.Status = normalizeWorkItemStatus(item.Status)
+		item.ParentTaskKey = strings.TrimSpace(item.ParentTaskKey)
 		item.DependsOn = normalizeStringList(item.DependsOn)
 		item.AcceptanceCriteria = normalizeStringList(item.AcceptanceCriteria)
 		item.References = normalizeStringList(item.References)
+		item.ExternalRefs = normalizeStringList(item.ExternalRefs)
 		item.BlockedReason = strings.TrimSpace(item.BlockedReason)
 		item.Outcome = strings.TrimSpace(item.Outcome)
 		item.Evidence = normalizeStringList(item.Evidence)
@@ -1696,6 +1909,20 @@ type normalizedRunSummary struct {
 	FilesChanged           []string
 	DefinitionOfDoneIssues []string
 	Outcome                string
+}
+
+type normalizedVerificationBatch struct {
+	BatchRunID      string
+	ProjectID       string
+	ReceiptID       string
+	PlanKey         string
+	Phase           string
+	TestsSourcePath string
+	Status          string
+	Passed          bool
+	SelectedTestIDs []string
+	Results         []core.VerificationTestRun
+	CreatedAt       time.Time
 }
 
 func normalizeRunReceiptSummary(input core.RunReceiptSummary) (normalizedRunSummary, error) {
@@ -1728,6 +1955,122 @@ func normalizeRunReceiptSummary(input core.RunReceiptSummary) (normalizedRunSumm
 		DefinitionOfDoneIssues: normalizeStringList(input.DefinitionOfDoneIssues),
 		Outcome:                strings.TrimSpace(input.Outcome),
 	}, nil
+}
+
+func normalizeVerificationBatch(input core.VerificationBatch) (normalizedVerificationBatch, error) {
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return normalizedVerificationBatch{}, fmt.Errorf("project_id is required")
+	}
+	batchRunID := strings.TrimSpace(input.BatchRunID)
+	if batchRunID == "" {
+		return normalizedVerificationBatch{}, fmt.Errorf("batch_run_id is required")
+	}
+	status := strings.TrimSpace(input.Status)
+	if status != "passed" && status != "failed" {
+		return normalizedVerificationBatch{}, fmt.Errorf("status must be passed|failed")
+	}
+
+	results := make([]core.VerificationTestRun, 0, len(input.Results))
+	for i, raw := range input.Results {
+		testID := strings.TrimSpace(raw.TestID)
+		if testID == "" {
+			return normalizedVerificationBatch{}, fmt.Errorf("results[%d].test_id is required", i)
+		}
+		definitionHash := strings.TrimSpace(raw.DefinitionHash)
+		if definitionHash == "" {
+			return normalizedVerificationBatch{}, fmt.Errorf("results[%d].definition_hash is required", i)
+		}
+		resultStatus := strings.TrimSpace(raw.Status)
+		switch resultStatus {
+		case "passed", "failed", "timed_out", "errored", "skipped":
+		default:
+			return normalizedVerificationBatch{}, fmt.Errorf("results[%d].status is invalid", i)
+		}
+		timeoutSec := raw.TimeoutSec
+		if timeoutSec <= 0 {
+			return normalizedVerificationBatch{}, fmt.Errorf("results[%d].timeout_sec must be > 0", i)
+		}
+		expectedExitCode := raw.ExpectedExitCode
+		if expectedExitCode < 0 || expectedExitCode > 255 {
+			return normalizedVerificationBatch{}, fmt.Errorf("results[%d].expected_exit_code must be 0..255", i)
+		}
+		durationMS := raw.DurationMS
+		if durationMS < 0 {
+			durationMS = 0
+		}
+		startedAt := raw.StartedAt.UTC()
+		if startedAt.IsZero() {
+			startedAt = time.Now().UTC()
+		}
+		finishedAt := raw.FinishedAt.UTC()
+		if finishedAt.IsZero() || finishedAt.Before(startedAt) {
+			finishedAt = startedAt
+		}
+		results = append(results, core.VerificationTestRun{
+			BatchRunID:       batchRunID,
+			ProjectID:        projectID,
+			TestID:           testID,
+			DefinitionHash:   definitionHash,
+			Summary:          strings.TrimSpace(raw.Summary),
+			CommandArgv:      normalizeStringListPreserveOrder(raw.CommandArgv),
+			CommandCWD:       strings.TrimSpace(raw.CommandCWD),
+			TimeoutSec:       timeoutSec,
+			ExpectedExitCode: expectedExitCode,
+			SelectionReasons: normalizeStringListPreserveOrder(raw.SelectionReasons),
+			Status:           resultStatus,
+			ExitCode:         raw.ExitCode,
+			DurationMS:       durationMS,
+			StdoutExcerpt:    strings.TrimSpace(raw.StdoutExcerpt),
+			StderrExcerpt:    strings.TrimSpace(raw.StderrExcerpt),
+			StartedAt:        startedAt,
+			FinishedAt:       finishedAt,
+		})
+	}
+
+	createdAt := input.CreatedAt.UTC()
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+
+	return normalizedVerificationBatch{
+		BatchRunID:      batchRunID,
+		ProjectID:       projectID,
+		ReceiptID:       strings.TrimSpace(input.ReceiptID),
+		PlanKey:         strings.TrimSpace(input.PlanKey),
+		Phase:           strings.TrimSpace(input.Phase),
+		TestsSourcePath: strings.TrimSpace(input.TestsSourcePath),
+		Status:          status,
+		Passed:          input.Passed,
+		SelectedTestIDs: normalizeStringListPreserveOrder(input.SelectedTestIDs),
+		Results:         results,
+		CreatedAt:       createdAt,
+	}, nil
+}
+
+func normalizeStringListPreserveOrder(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func nonNilStringListPreserveOrder(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	return values
 }
 
 func normalizeProposeMemoryPersistence(input core.ProposeMemoryPersistence) (core.ProposeMemoryPersistence, error) {
@@ -1893,4 +2236,20 @@ func derivePlanStatus(items []core.WorkItem) string {
 	default:
 		return core.PlanStatusPending
 	}
+}
+
+func workPlanSummaryKeys(rows []core.WorkPlanSummary) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(rows))
+	for _, row := range rows {
+		planKey := strings.TrimSpace(row.PlanKey)
+		if planKey == "" {
+			continue
+		}
+		keys = append(keys, planKey)
+	}
+	return keys
 }

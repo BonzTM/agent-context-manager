@@ -24,7 +24,8 @@
         "sync",
         "health_check",
         "health_fix",
-        "regress",
+        "eval",
+        "verify",
         "bootstrap",
         "coverage",
         "fetch",
@@ -374,7 +375,7 @@
         }
       }
     },
-    "regressResult": {
+    "evalResult": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -461,6 +462,179 @@
           "maxItems": 2000
         }
       }
+    },
+    "verifySelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_id",
+        "summary",
+        "selection_reasons"
+      ],
+      "properties": {
+        "test_id": {
+          "$ref": "shared.schema.json#/$defs/verifyTestId"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "selection_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "minItems": 1,
+          "maxItems": 16
+        }
+      }
+    },
+    "verifyTestResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_id",
+        "status",
+        "definition_hash"
+      ],
+      "properties": {
+        "test_id": {
+          "$ref": "shared.schema.json#/$defs/verifyTestId"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "timed_out",
+            "errored",
+            "skipped"
+          ]
+        },
+        "definition_hash": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^sha256:[A-Za-z0-9._:-]+$"
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stdout_excerpt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "stderr_excerpt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      }
+    },
+    "verifyResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "selected_test_ids",
+        "selected",
+        "passed"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "dry_run",
+            "no_tests_selected",
+            "passed",
+            "failed"
+          ]
+        },
+        "batch_run_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "selected_test_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/verifyTestId"
+          },
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "selected": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/verifySelection"
+          },
+          "maxItems": 256
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/verifyTestResult"
+          },
+          "minItems": 1,
+          "maxItems": 256
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "passed",
+                  "failed"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "batch_run_id",
+              "results"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "no_tests_selected"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "selected_test_ids": {
+                "maxItems": 0
+              },
+              "selected": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
     },
     "bootstrapResult": {
       "type": "object",
@@ -925,7 +1099,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "regress"
+            "const": "eval"
           },
           "ok": {
             "const": true
@@ -939,7 +1113,30 @@
       "then": {
         "properties": {
           "result": {
-            "$ref": "#/$defs/regressResult"
+            "$ref": "#/$defs/evalResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "verify"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/verifyResult"
           }
         }
       }

@@ -10,7 +10,8 @@ const (
 	OperationHealthCheck      = "health_check"
 	OperationHealthFix        = "health_fix"
 	OperationCoverage         = "coverage"
-	OperationRegress          = "regress"
+	OperationEval             = "eval"
+	OperationVerify           = "verify"
 	OperationBootstrap        = "bootstrap"
 )
 

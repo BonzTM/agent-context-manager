@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshd/agent-context-manager/internal/adapters/cli"
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
-	"github.com/joshd/agent-context-manager/internal/logging"
-	"github.com/joshd/agent-context-manager/internal/runtime"
+	"github.com/bonztm/agent-context-manager/internal/adapters/cli"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/runtime"
 )
 
 func TestParseExpectedVersion(t *testing.T) {
@@ -285,6 +285,10 @@ func TestBuildProposeMemoryEnvelope_ContentFile(t *testing.T) {
 	if err := os.WriteFile(contentPath, []byte("Prefer shared logger wrappers"), 0o644); err != nil {
 		t.Fatalf("write content fixture: %v", err)
 	}
+	memoryTagsPath := filepath.Join(t.TempDir(), "memory-tags.json")
+	if err := os.WriteFile(memoryTagsPath, []byte(`["go"]`), 0o644); err != nil {
+		t.Fatalf("write memory tags fixture: %v", err)
+	}
 
 	env, err := buildConvenienceEnvelope("propose-memory", []string{
 		"--project", "myproject",
@@ -294,8 +298,10 @@ func TestBuildProposeMemoryEnvelope_ContentFile(t *testing.T) {
 		"--subject", "Use shared logger",
 		"--content-file", contentPath,
 		"--confidence", "4",
+		"--tags-file", ".acm/acm-tags.yaml",
 		"--related-key", "rule:myproject/rule-1",
-		"--tag", "logging",
+		"--memory-tag", "logging",
+		"--memory-tags-file", memoryTagsPath,
 		"--evidence-key", "rule:myproject/rule-1",
 		"--auto-promote=false",
 	}, fixedNow)
@@ -313,6 +319,12 @@ func TestBuildProposeMemoryEnvelope_ContentFile(t *testing.T) {
 	if payload.Memory.Content != "Prefer shared logger wrappers" {
 		t.Fatalf("unexpected content: %q", payload.Memory.Content)
 	}
+	if len(payload.Memory.Tags) != 2 {
+		t.Fatalf("expected 2 memory tags, got %d", len(payload.Memory.Tags))
+	}
+	if payload.TagsFile != ".acm/acm-tags.yaml" {
+		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
+	}
 	if payload.AutoPromote == nil || *payload.AutoPromote {
 		t.Fatalf("expected auto_promote=false, got %+v", payload.AutoPromote)
 	}
@@ -327,7 +339,7 @@ func TestBuildProposeMemoryEnvelope_LoadsInlineJSONArrays(t *testing.T) {
 		"--content", "Prefer one logger wrapper",
 		"--confidence", "4",
 		"--related-keys-json", `["rule:myproject/rule-1","rule:myproject/rule-2"]`,
-		"--tags-json", `["logging","go"]`,
+		"--memory-tags-json", `["logging","go"]`,
 		"--evidence-keys-json", `["rule:myproject/rule-2"]`,
 	}, fixedNow)
 	if err != nil {
@@ -346,6 +358,88 @@ func TestBuildProposeMemoryEnvelope_LoadsInlineJSONArrays(t *testing.T) {
 	}
 	if len(payload.Memory.EvidencePointerKeys) != 1 {
 		t.Fatalf("expected 1 evidence key, got %d", len(payload.Memory.EvidencePointerKeys))
+	}
+}
+
+func TestBuildProposeMemoryEnvelope_LoadsMemoryTagsFile(t *testing.T) {
+	memoryTagsPath := filepath.Join(t.TempDir(), "memory-tags.json")
+	if err := os.WriteFile(memoryTagsPath, []byte(`["logging","go"]`), 0o644); err != nil {
+		t.Fatalf("write memory tags fixture: %v", err)
+	}
+
+	env, err := buildConvenienceEnvelope("propose-memory", []string{
+		"--project", "myproject",
+		"--receipt-id", "req-87654321",
+		"--category", "decision",
+		"--subject", "Use shared logger",
+		"--content", "Prefer one logger wrapper",
+		"--confidence", "4",
+		"--memory-tags-file", memoryTagsPath,
+		"--tags-file", ".acm/acm-tags.yaml",
+		"--evidence-key", "rule:myproject/rule-2",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.ProposeMemoryPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.TagsFile != ".acm/acm-tags.yaml" {
+		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
+	}
+	if len(payload.Memory.Tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(payload.Memory.Tags))
+	}
+}
+
+func TestBuildProposeMemoryEnvelope_RejectsLegacyTagFlags(t *testing.T) {
+	for _, legacyFlag := range []string{"--tag", "--tags-json"} {
+		t.Run(legacyFlag, func(t *testing.T) {
+			args := []string{
+				"--project", "myproject",
+				"--receipt-id", "req-87654321",
+				"--category", "decision",
+				"--subject", "Use shared logger",
+				"--content", "Prefer one logger wrapper",
+				"--confidence", "4",
+				"--evidence-key", "rule:myproject/rule-2",
+				legacyFlag,
+			}
+			if legacyFlag == "--tag" {
+				args = append(args, "logging")
+			} else {
+				args = append(args, `["logging"]`)
+			}
+			_, err := buildConvenienceEnvelope("propose-memory", args, fixedNow)
+			if err == nil {
+				t.Fatal("expected flag parsing error, got nil")
+			}
+			if !strings.Contains(err.Error(), "flag provided but not defined") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestBuildGetContextEnvelope_TagsFileFlag(t *testing.T) {
+	env, err := buildConvenienceEnvelope("get-context", []string{
+		"--project", "myproject",
+		"--task-text", "Check sync tags",
+		"--phase", "execute",
+		"--tags-file", ".acm/acm-tags.yaml",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.GetContextPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.TagsFile != ".acm/acm-tags.yaml" {
+		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
 	}
 }
 
@@ -381,6 +475,27 @@ func TestBuildReportCompletionEnvelope_FilesAndOutcomeFromFiles(t *testing.T) {
 	}
 }
 
+func TestBuildReportCompletionEnvelope_TagsFileFlag(t *testing.T) {
+	env, err := buildConvenienceEnvelope("report-completion", []string{
+		"--project", "myproject",
+		"--receipt-id", "req-12345678",
+		"--file-changed", "cmd/acm/main.go",
+		"--outcome", "Done",
+		"--tags-file", ".acm/acm-tags.yaml",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.ReportCompletionPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.TagsFile != ".acm/acm-tags.yaml" {
+		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
+	}
+}
+
 func TestBuildReportCompletionEnvelope_LoadsFilesChangedJSON(t *testing.T) {
 	env, err := buildConvenienceEnvelope("report-completion", []string{
 		"--project", "myproject",
@@ -401,8 +516,8 @@ func TestBuildReportCompletionEnvelope_LoadsFilesChangedJSON(t *testing.T) {
 	}
 }
 
-func TestBuildRegressEnvelope_LoadsInlineJSONSuite(t *testing.T) {
-	env, err := buildConvenienceEnvelope("regress", []string{
+func TestBuildEvalEnvelope_LoadsInlineJSONSuite(t *testing.T) {
+	env, err := buildConvenienceEnvelope("eval", []string{
 		"--project", "myproject",
 		"--eval-suite-inline-json", `[{"task_text":"Check sync","phase":"execute","expected_pointer_keys":["rule:myproject/rule-1"]}]`,
 	}, fixedNow)
@@ -410,7 +525,7 @@ func TestBuildRegressEnvelope_LoadsInlineJSONSuite(t *testing.T) {
 		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
 	}
 
-	var payload v1.RegressPayload
+	var payload v1.EvalPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
@@ -425,10 +540,11 @@ func TestBuildRegressEnvelope_LoadsInlineJSONSuite(t *testing.T) {
 	}
 }
 
-func TestBuildSyncEnvelope_RulesFileFlag(t *testing.T) {
+func TestBuildSyncEnvelope_RulesAndTagsFileFlags(t *testing.T) {
 	env, err := buildConvenienceEnvelope("sync", []string{
 		"--project", "myproject",
 		"--rules-file", ".acm/acm-rules.yaml",
+		"--tags-file", ".acm/acm-tags.yaml",
 	}, fixedNow)
 	if err != nil {
 		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
@@ -441,12 +557,16 @@ func TestBuildSyncEnvelope_RulesFileFlag(t *testing.T) {
 	if payload.RulesFile != ".acm/acm-rules.yaml" {
 		t.Fatalf("unexpected rules_file: %q", payload.RulesFile)
 	}
+	if payload.TagsFile != ".acm/acm-tags.yaml" {
+		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
+	}
 }
 
-func TestBuildHealthFixEnvelope_RulesFileFlag(t *testing.T) {
+func TestBuildHealthFixEnvelope_RulesAndTagsFileFlags(t *testing.T) {
 	env, err := buildConvenienceEnvelope("health-fix", []string{
 		"--project", "myproject",
 		"--rules-file", "custom-rules.yaml",
+		"--tags-file", "custom-tags.json",
 		"--fixer", "sync_ruleset",
 	}, fixedNow)
 	if err != nil {
@@ -460,13 +580,17 @@ func TestBuildHealthFixEnvelope_RulesFileFlag(t *testing.T) {
 	if payload.RulesFile != "custom-rules.yaml" {
 		t.Fatalf("unexpected rules_file: %q", payload.RulesFile)
 	}
+	if payload.TagsFile != "custom-tags.json" {
+		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
+	}
 }
 
-func TestBuildBootstrapEnvelope_RulesFileFlag(t *testing.T) {
+func TestBuildBootstrapEnvelope_RulesAndTagsFileFlags(t *testing.T) {
 	env, err := buildConvenienceEnvelope("bootstrap", []string{
 		"--project", "myproject",
 		"--project-root", ".",
 		"--rules-file", "legacy-rules.yaml",
+		"--tags-file", "legacy-tags.json",
 		"--persist-candidates",
 	}, fixedNow)
 	if err != nil {
@@ -480,8 +604,30 @@ func TestBuildBootstrapEnvelope_RulesFileFlag(t *testing.T) {
 	if payload.RulesFile != "legacy-rules.yaml" {
 		t.Fatalf("unexpected rules_file: %q", payload.RulesFile)
 	}
+	if payload.TagsFile != "legacy-tags.json" {
+		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
+	}
 	if payload.PersistCandidates == nil || !*payload.PersistCandidates {
 		t.Fatalf("expected persist_candidates=true, got %+v", payload.PersistCandidates)
+	}
+}
+
+func TestBuildEvalEnvelope_TagsFileFlag(t *testing.T) {
+	env, err := buildConvenienceEnvelope("eval", []string{
+		"--project", "myproject",
+		"--eval-suite-inline-json", `[{"task_text":"Check sync","phase":"execute"}]`,
+		"--tags-file", ".acm/acm-tags.yaml",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.EvalPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.TagsFile != ".acm/acm-tags.yaml" {
+		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
 	}
 }
 
@@ -569,8 +715,12 @@ func (f *convenienceFakeService) Coverage(_ context.Context, _ v1.CoveragePayloa
 	return v1.CoverageResult{}, nil
 }
 
-func (f *convenienceFakeService) Regress(_ context.Context, _ v1.RegressPayload) (v1.RegressResult, *core.APIError) {
-	return v1.RegressResult{}, nil
+func (f *convenienceFakeService) Eval(_ context.Context, _ v1.EvalPayload) (v1.EvalResult, *core.APIError) {
+	return v1.EvalResult{}, nil
+}
+
+func (f *convenienceFakeService) Verify(_ context.Context, _ v1.VerifyPayload) (v1.VerifyResult, *core.APIError) {
+	return v1.VerifyResult{}, nil
 }
 
 func (f *convenienceFakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {

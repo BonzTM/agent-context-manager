@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/logging"
 )
 
 type loggingService struct {
@@ -89,9 +89,15 @@ func (s *loggingService) Coverage(ctx context.Context, payload v1.CoveragePayloa
 	})
 }
 
-func (s *loggingService) Regress(ctx context.Context, payload v1.RegressPayload) (v1.RegressResult, *APIError) {
-	return withOperation(ctx, s.now, s.logger, logging.OperationRegress, payload.ProjectID, func() (v1.RegressResult, *APIError) {
-		return s.next.Regress(ctx, payload)
+func (s *loggingService) Eval(ctx context.Context, payload v1.EvalPayload) (v1.EvalResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationEval, payload.ProjectID, func() (v1.EvalResult, *APIError) {
+		return s.next.Eval(ctx, payload)
+	})
+}
+
+func (s *loggingService) Verify(ctx context.Context, payload v1.VerifyPayload) (v1.VerifyResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationVerify, payload.ProjectID, func() (v1.VerifyResult, *APIError) {
+		return s.next.Verify(ctx, payload)
 	})
 }
 

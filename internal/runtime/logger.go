@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/logging"
 )
 
 const LogLevelEnvVar = "ACM_LOG_LEVEL"
@@ -32,7 +32,7 @@ type loggerOutputs struct {
 }
 
 func NewLogger() logging.Logger {
-	return newLoggerFromEnvWithOutputs(os.Getenv, loggerOutputs{
+	return newLoggerFromEnvWithOutputs(runtimeEnvGetenv("", os.LookupEnv), loggerOutputs{
 		stdout:  os.Stdout,
 		stderr:  os.Stderr,
 		discard: io.Discard,

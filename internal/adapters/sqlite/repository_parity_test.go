@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
-	postgressvc "github.com/joshd/agent-context-manager/internal/service/postgres"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	postgressvc "github.com/bonztm/agent-context-manager/internal/service/postgres"
 )
 
 func TestRepositoryParity_ServiceFlows(t *testing.T) {
@@ -266,6 +266,102 @@ func TestRepository_LookupPointerByKeyAndLookupMemoryByID(t *testing.T) {
 	}
 	if _, err := repo.LookupMemoryByID(ctx, core.MemoryLookupQuery{ProjectID: projectID, MemoryID: memoryID + 999}); !errors.Is(err, core.ErrMemoryLookupNotFound) {
 		t.Fatalf("expected memory lookup not found error, got %v", err)
+	}
+}
+
+func TestRepository_WorkPlanHierarchyRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	projectID := fmt.Sprintf("project.sqlite.workplan.%d", time.Now().UTC().UnixNano())
+
+	dbPath := filepath.Join(t.TempDir(), "ctx.sqlite")
+	repo, err := New(ctx, Config{Path: dbPath})
+	if err != nil {
+		t.Fatalf("new sqlite repository: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	result, err := repo.UpsertWorkPlan(ctx, core.WorkPlanUpsertInput{
+		ProjectID:     projectID,
+		PlanKey:       "plan:receipt.abc123",
+		ReceiptID:     "receipt.abc123",
+		Mode:          core.WorkPlanModeReplace,
+		Title:         "Import Optimization",
+		Objective:     "Keep task fetches compact",
+		Kind:          "story",
+		ParentPlanKey: "plan:receipt.parent123",
+		ExternalRefs:  []string{"jira:ACM-1"},
+		Tasks: []core.WorkItem{
+			{
+				ItemKey:       "task.blocked",
+				Summary:       "Resolve API limit issue",
+				Status:        core.WorkItemStatusBlocked,
+				ParentTaskKey: "task.epic",
+				ExternalRefs:  []string{"linear:ENG-3"},
+			},
+			{
+				ItemKey: "task.active",
+				Summary: "Ship MCP parity",
+				Status:  core.WorkItemStatusInProgress,
+			},
+			{
+				ItemKey: "task.done",
+				Summary: "Cut migration",
+				Status:  core.WorkItemStatusComplete,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert work plan: %v", err)
+	}
+	if result.Plan.Kind != "story" || result.Plan.ParentPlanKey != "plan:receipt.parent123" {
+		t.Fatalf("unexpected upserted plan metadata: %+v", result.Plan)
+	}
+
+	plan, err := repo.LookupWorkPlan(ctx, core.WorkPlanLookupQuery{
+		ProjectID: projectID,
+		PlanKey:   "plan:receipt.abc123",
+	})
+	if err != nil {
+		t.Fatalf("lookup work plan: %v", err)
+	}
+	if plan.Kind != "story" || plan.ParentPlanKey != "plan:receipt.parent123" {
+		t.Fatalf("unexpected plan hierarchy fields: %+v", plan)
+	}
+	if !reflect.DeepEqual(plan.ExternalRefs, []string{"jira:ACM-1"}) {
+		t.Fatalf("unexpected plan external refs: %+v", plan.ExternalRefs)
+	}
+	if len(plan.Tasks) != 3 {
+		t.Fatalf("expected three tasks, got %+v", plan.Tasks)
+	}
+	if plan.Tasks[0].ItemKey != "task.active" || plan.Tasks[1].ItemKey != "task.blocked" || plan.Tasks[2].ItemKey != "task.done" {
+		t.Fatalf("unexpected persisted task order: %+v", plan.Tasks)
+	}
+	if plan.Tasks[1].ParentTaskKey != "task.epic" {
+		t.Fatalf("unexpected parent task key: %+v", plan.Tasks[1])
+	}
+	if !reflect.DeepEqual(plan.Tasks[1].ExternalRefs, []string{"linear:ENG-3"}) {
+		t.Fatalf("unexpected task external refs: %+v", plan.Tasks[1].ExternalRefs)
+	}
+
+	summaries, err := repo.ListWorkPlans(ctx, core.WorkPlanListQuery{
+		ProjectID: projectID,
+		Limit:     8,
+	})
+	if err != nil {
+		t.Fatalf("list work plans: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("expected one work plan summary, got %+v", summaries)
+	}
+	summary := summaries[0]
+	if summary.Kind != "story" || summary.ParentPlanKey != "plan:receipt.parent123" {
+		t.Fatalf("unexpected summary metadata: %+v", summary)
+	}
+	if summary.TaskCountTotal != 3 || summary.TaskCountBlocked != 1 || summary.TaskCountInProgress != 1 || summary.TaskCountComplete != 1 {
+		t.Fatalf("unexpected summary counts: %+v", summary)
+	}
+	if !reflect.DeepEqual(summary.ActiveTaskKeys, []string{"task.blocked", "task.active"}) {
+		t.Fatalf("unexpected active task keys: %+v", summary.ActiveTaskKeys)
 	}
 }
 

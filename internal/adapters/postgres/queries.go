@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 const (

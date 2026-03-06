@@ -12,7 +12,9 @@ var (
 	requestIDRe  = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
 	projectIDRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$`)
 	tagRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+	testIDRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 	pointerKeyRe = regexp.MustCompile(`^[^\s]+:[^\s#]+(?:#[^\s]+)?$`)
+	planKindRe   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 )
 
 func DecodeAndValidateCommand(data []byte) (CommandEnvelope, any, *ErrorPayload) {
@@ -58,7 +60,11 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
-		if err := validateFetchPayload(&p); err != nil {
+		fields, err := decodeObjectFields(raw)
+		if err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		if err := validateFetchPayload(&p, fields); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
 		return p, nil
@@ -76,7 +82,11 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
-		if err := validateReportCompletionPayload(&p); err != nil {
+		fields, err := decodeObjectFields(raw)
+		if err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		if err := validateReportCompletionPayload(&p, fields); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
 		return p, nil
@@ -112,7 +122,11 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
-		if err := validateHealthFixPayload(&p); err != nil {
+		fields, err := decodeObjectFields(raw)
+		if err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		if err := validateHealthFixPayload(&p, fields); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
 		return p, nil
@@ -125,12 +139,25 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
 		return p, nil
-	case CommandRegress:
-		var p RegressPayload
+	case CommandEval:
+		var p EvalPayload
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
-		if err := validateRegressPayload(&p); err != nil {
+		if err := validateEvalPayload(&p); err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		return p, nil
+	case CommandVerify:
+		var p VerifyPayload
+		if err := decodeStrict(raw, &p); err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		fields, err := decodeObjectFields(raw)
+		if err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		if err := validateVerifyPayload(&p, fields); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
 		return p, nil
@@ -159,7 +186,8 @@ func isValidCommand(command Command) bool {
 		CommandHealthCheck,
 		CommandHealthFix,
 		CommandCoverage,
-		CommandRegress,
+		CommandEval,
+		CommandVerify,
 		CommandBootstrap:
 		return true
 	default:
@@ -180,23 +208,35 @@ func validateGetContextPayload(p *GetContextPayload) error {
 	if err := validateScopeMode(p.ScopeMode); err != nil {
 		return err
 	}
+	if err := validateTagsFile(p.TagsFile); err != nil {
+		return err
+	}
+	if err := validateRetrievalCaps(p.Caps); err != nil {
+		return err
+	}
 	if p.FallbackMode != "" && p.FallbackMode != "widen_once" && p.FallbackMode != "none" {
 		return fmt.Errorf("fallback_mode must be widen_once|none")
 	}
 	return nil
 }
 
-func validateFetchPayload(p *FetchPayload) error {
+func validateFetchPayload(p *FetchPayload, fields map[string]json.RawMessage) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
 
 	receiptID := strings.TrimSpace(p.ReceiptID)
+	if err := validateOptionalArrayField(fields, "keys", len(p.Keys)); err != nil {
+		return err
+	}
 	if len(p.Keys) == 0 && receiptID == "" {
 		return fmt.Errorf("either keys or receipt_id is required")
 	}
 	if len(p.Keys) > 256 {
 		return fmt.Errorf("keys may include at most 256 entries")
+	}
+	if err := validateUniqueStrings(p.Keys, "keys"); err != nil {
+		return err
 	}
 	for i, key := range p.Keys {
 		if err := validateBoundedKey(key, 512); err != nil {
@@ -231,6 +271,9 @@ func validateProposeMemoryPayload(p *ProposeMemoryPayload) error {
 	if !requestIDRe.MatchString(p.ReceiptID) {
 		return fmt.Errorf("receipt_id format is invalid")
 	}
+	if err := validateTagsFile(p.TagsFile); err != nil {
+		return err
+	}
 	if err := validateMemoryPayload(&p.Memory); err != nil {
 		return err
 	}
@@ -252,13 +295,11 @@ func validateMemoryPayload(m *MemoryPayload) error {
 	if m.Confidence < 1 || m.Confidence > 5 {
 		return fmt.Errorf("memory.confidence must be 1..5")
 	}
-	if len(m.EvidencePointerKeys) < 1 {
-		return fmt.Errorf("memory.evidence_pointer_keys must not be empty")
+	if err := validatePointerKeyList(m.RelatedPointerKeys, 0, 32, "memory.related_pointer_keys"); err != nil {
+		return err
 	}
-	for _, k := range append(append([]string{}, m.RelatedPointerKeys...), m.EvidencePointerKeys...) {
-		if !pointerKeyRe.MatchString(k) {
-			return fmt.Errorf("pointer key format is invalid")
-		}
+	if err := validatePointerKeyList(m.EvidencePointerKeys, 1, 16, "memory.evidence_pointer_keys"); err != nil {
+		return err
 	}
 	if err := validateTags(m.Tags); err != nil {
 		return err
@@ -266,7 +307,7 @@ func validateMemoryPayload(m *MemoryPayload) error {
 	return nil
 }
 
-func validateReportCompletionPayload(p *ReportCompletionPayload) error {
+func validateReportCompletionPayload(p *ReportCompletionPayload, fields map[string]json.RawMessage) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
@@ -279,10 +320,14 @@ func validateReportCompletionPayload(p *ReportCompletionPayload) error {
 	if err := validateScopeMode(p.ScopeMode); err != nil {
 		return err
 	}
-	for _, path := range p.FilesChanged {
-		if err := validateRelativePath(path); err != nil {
-			return err
-		}
+	if err := validateTagsFile(p.TagsFile); err != nil {
+		return err
+	}
+	if err := validateRequiredArrayField(fields, "files_changed"); err != nil {
+		return err
+	}
+	if err := validateRelativePathList(p.FilesChanged, 256, "files_changed"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -302,16 +347,10 @@ func validateWorkPayload(p *WorkPayload) error {
 		return fmt.Errorf("plan_key must not include surrounding whitespace")
 	}
 	if planKey != "" {
-		if err := validateBoundedKey(planKey, 256); err != nil {
-			return fmt.Errorf("plan_key %w", err)
-		}
-		if !strings.HasPrefix(planKey, "plan:") {
-			return fmt.Errorf("plan_key must use format plan:<receipt_id>")
+		if err := validatePlanKeyFormat(planKey, "plan_key"); err != nil {
+			return err
 		}
 		derivedReceiptID := strings.TrimSpace(planKey[len("plan:"):])
-		if derivedReceiptID == "" || !requestIDRe.MatchString(derivedReceiptID) {
-			return fmt.Errorf("plan_key must use format plan:<receipt_id>")
-		}
 		if receiptID != "" && receiptID != derivedReceiptID {
 			return fmt.Errorf("plan_key and receipt_id must reference the same receipt")
 		}
@@ -342,6 +381,17 @@ func validateWorkPayload(p *WorkPayload) error {
 			trimmed := strings.TrimSpace(p.Plan.Objective)
 			if trimmed == "" || len(trimmed) > 2000 {
 				return fmt.Errorf("plan.objective must be 1..2000 chars when provided")
+			}
+		}
+		if p.Plan.Kind != "" {
+			trimmed := strings.TrimSpace(p.Plan.Kind)
+			if !planKindRe.MatchString(trimmed) {
+				return fmt.Errorf("plan.kind must match ^[a-z][a-z0-9_-]{0,63}$")
+			}
+		}
+		if p.Plan.ParentPlanKey != "" {
+			if err := validatePlanKeyFormat(p.Plan.ParentPlanKey, "plan.parent_plan_key"); err != nil {
+				return err
 			}
 		}
 		if p.Plan.Status != "" {
@@ -378,6 +428,9 @@ func validateWorkPayload(p *WorkPayload) error {
 		if err := validateStringList(p.Plan.References, 256, 2048, "plan.references"); err != nil {
 			return err
 		}
+		if err := validateStringList(p.Plan.ExternalRefs, 256, 2048, "plan.external_refs"); err != nil {
+			return err
+		}
 	}
 	if len(p.Tasks) > 256 {
 		return fmt.Errorf("tasks may include at most 256 entries")
@@ -393,6 +446,11 @@ func validateWorkPayload(p *WorkPayload) error {
 		if err := validateWorkItemStatusValue(task.Status, prefix+".status"); err != nil {
 			return err
 		}
+		if task.ParentTaskKey != "" {
+			if err := validateBoundedKey(task.ParentTaskKey, 512); err != nil {
+				return fmt.Errorf("%s.parent_task_key %w", prefix, err)
+			}
+		}
 		if err := validateBoundedKeyList(task.DependsOn, 128, 512, prefix+".depends_on"); err != nil {
 			return err
 		}
@@ -400,6 +458,9 @@ func validateWorkPayload(p *WorkPayload) error {
 			return err
 		}
 		if err := validateStringList(task.References, 256, 2048, prefix+".references"); err != nil {
+			return err
+		}
+		if err := validateStringList(task.ExternalRefs, 256, 2048, prefix+".external_refs"); err != nil {
 			return err
 		}
 		if task.BlockedReason != "" {
@@ -485,7 +546,13 @@ func validateSyncPayload(p *SyncPayload) error {
 	if p.GitRange != "" && len(p.GitRange) > 200 {
 		return fmt.Errorf("git_range too long")
 	}
+	if err := validateOptionalProjectRoot(p.ProjectRoot); err != nil {
+		return err
+	}
 	if err := validateRulesFile(p.RulesFile); err != nil {
+		return err
+	}
+	if err := validateTagsFile(p.TagsFile); err != nil {
 		return err
 	}
 	return nil
@@ -501,7 +568,7 @@ func validateHealthCheckPayload(p *HealthCheckPayload) error {
 	return nil
 }
 
-func validateHealthFixPayload(p *HealthFixPayload) error {
+func validateHealthFixPayload(p *HealthFixPayload, fields map[string]json.RawMessage) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
@@ -512,6 +579,18 @@ func validateHealthFixPayload(p *HealthFixPayload) error {
 		return fmt.Errorf("project_root too long")
 	}
 	if err := validateRulesFile(p.RulesFile); err != nil {
+		return err
+	}
+	if err := validateTagsFile(p.TagsFile); err != nil {
+		return err
+	}
+	if err := validateOptionalArrayField(fields, "fixers", len(p.Fixers)); err != nil {
+		return err
+	}
+	if len(p.Fixers) > 3 {
+		return fmt.Errorf("fixers may include at most 3 entries")
+	}
+	if err := validateUniqueStrings(healthFixerStrings(p.Fixers), "fixers"); err != nil {
 		return err
 	}
 	for i, fixer := range p.Fixers {
@@ -537,7 +616,7 @@ func validateCoveragePayload(p *CoveragePayload) error {
 	return nil
 }
 
-func validateRegressPayload(p *RegressPayload) error {
+func validateEvalPayload(p *EvalPayload) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
@@ -550,6 +629,15 @@ func validateRegressPayload(p *RegressPayload) error {
 	if p.MinimumRecall != nil && (*p.MinimumRecall < 0 || *p.MinimumRecall > 1) {
 		return fmt.Errorf("minimum_recall must be between 0 and 1")
 	}
+	if len(p.EvalSuiteInline) > 500 {
+		return fmt.Errorf("eval_suite_inline may include at most 500 entries")
+	}
+	if p.EvalSuitePath != "" && len(p.EvalSuitePath) > 2048 {
+		return fmt.Errorf("eval_suite_path too long")
+	}
+	if err := validateTagsFile(p.TagsFile); err != nil {
+		return err
+	}
 	for i := range p.EvalSuiteInline {
 		c := p.EvalSuiteInline[i]
 		if strings.TrimSpace(c.TaskText) == "" || len(c.TaskText) > 4000 {
@@ -558,6 +646,67 @@ func validateRegressPayload(p *RegressPayload) error {
 		if c.Phase != PhasePlan && c.Phase != PhaseExecute && c.Phase != PhaseReview {
 			return fmt.Errorf("eval_suite_inline[%d].phase invalid", i)
 		}
+		if err := validatePointerKeyList(c.ExpectedPointerKeys, 0, 64, fmt.Sprintf("eval_suite_inline[%d].expected_pointer_keys", i)); err != nil {
+			return err
+		}
+		if err := validateUniqueBoundedStringList(c.ExpectedMemorySubjects, 64, 160, fmt.Sprintf("eval_suite_inline[%d].expected_memory_subjects", i)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateVerifyPayload(p *VerifyPayload, fields map[string]json.RawMessage) error {
+	if err := validateProjectID(p.ProjectID); err != nil {
+		return err
+	}
+
+	receiptID := strings.TrimSpace(p.ReceiptID)
+	if receiptID != "" && !requestIDRe.MatchString(receiptID) {
+		return fmt.Errorf("receipt_id format is invalid")
+	}
+	planKey := strings.TrimSpace(p.PlanKey)
+	if planKey != "" {
+		if err := validatePlanKeyFormat(planKey, "plan_key"); err != nil {
+			return err
+		}
+		derivedReceiptID := strings.TrimSpace(planKey[len("plan:"):])
+		if receiptID != "" && receiptID != derivedReceiptID {
+			return fmt.Errorf("plan_key and receipt_id must reference the same receipt")
+		}
+	}
+	if p.Phase != "" && p.Phase != PhasePlan && p.Phase != PhaseExecute && p.Phase != PhaseReview {
+		return fmt.Errorf("phase must be plan|execute|review")
+	}
+	if err := validateOptionalArrayField(fields, "test_ids", len(p.TestIDs)); err != nil {
+		return err
+	}
+	if len(p.TestIDs) > 256 {
+		return fmt.Errorf("test_ids may include at most 256 entries")
+	}
+	if err := validateUniqueStrings(p.TestIDs, "test_ids"); err != nil {
+		return err
+	}
+	for i, raw := range p.TestIDs {
+		trimmed := strings.TrimSpace(raw)
+		if !testIDRe.MatchString(trimmed) {
+			return fmt.Errorf("test_ids[%d] format is invalid", i)
+		}
+	}
+	if err := validateOptionalArrayField(fields, "files_changed", len(p.FilesChanged)); err != nil {
+		return err
+	}
+	if err := validateRelativePathList(p.FilesChanged, 4096, "files_changed"); err != nil {
+		return err
+	}
+	if err := validateTestsFile(p.TestsFile); err != nil {
+		return err
+	}
+	if err := validateTagsFile(p.TagsFile); err != nil {
+		return err
+	}
+	if len(p.TestIDs) == 0 && receiptID == "" && planKey == "" && p.Phase == "" && len(p.FilesChanged) == 0 {
+		return fmt.Errorf("test_ids or selection context is required")
 	}
 	return nil
 }
@@ -569,7 +718,13 @@ func validateBootstrapPayload(p *BootstrapPayload) error {
 	if strings.TrimSpace(p.ProjectRoot) == "" {
 		return fmt.Errorf("project_root is required")
 	}
+	if len(strings.TrimSpace(p.ProjectRoot)) > 2048 {
+		return fmt.Errorf("project_root too long")
+	}
 	if err := validateRulesFile(p.RulesFile); err != nil {
+		return err
+	}
+	if err := validateTagsFile(p.TagsFile); err != nil {
 		return err
 	}
 	if p.OutputCandidatesPath != nil {
@@ -585,12 +740,42 @@ func validateBootstrapPayload(p *BootstrapPayload) error {
 }
 
 func validateRulesFile(rulesFile string) error {
-	trimmed := strings.TrimSpace(rulesFile)
+	return validateOptionalFilePath("rules_file", rulesFile)
+}
+
+func validateTagsFile(tagsFile string) error {
+	return validateOptionalFilePath("tags_file", tagsFile)
+}
+
+func validateTestsFile(testsFile string) error {
+	return validateOptionalFilePath("tests_file", testsFile)
+}
+
+func validateOptionalFilePath(fieldName, filePath string) error {
+	trimmed := strings.TrimSpace(filePath)
 	if trimmed == "" {
 		return nil
 	}
 	if len(trimmed) > 2048 {
-		return fmt.Errorf("rules_file too long")
+		return fmt.Errorf("%s too long", fieldName)
+	}
+	return nil
+}
+
+func validatePlanKeyFormat(planKey, field string) error {
+	trimmed := strings.TrimSpace(planKey)
+	if planKey != trimmed {
+		return fmt.Errorf("%s must not include surrounding whitespace", field)
+	}
+	if err := validateBoundedKey(trimmed, 256); err != nil {
+		return fmt.Errorf("%s %w", field, err)
+	}
+	if !strings.HasPrefix(trimmed, "plan:") {
+		return fmt.Errorf("%s must use format plan:<receipt_id>", field)
+	}
+	derivedReceiptID := strings.TrimSpace(trimmed[len("plan:"):])
+	if derivedReceiptID == "" || !requestIDRe.MatchString(derivedReceiptID) {
+		return fmt.Errorf("%s must use format plan:<receipt_id>", field)
 	}
 	return nil
 }
@@ -620,9 +805,15 @@ func validateScopeMode(mode ScopeMode) error {
 }
 
 func validateTags(tags []string) error {
-	for _, t := range tags {
+	if len(tags) > 64 {
+		return fmt.Errorf("memory.tags may include at most 64 entries")
+	}
+	if err := validateUniqueStrings(tags, "memory.tags"); err != nil {
+		return err
+	}
+	for i, t := range tags {
 		if !tagRe.MatchString(t) {
-			return fmt.Errorf("tag format is invalid: %q", t)
+			return fmt.Errorf("memory.tags[%d] format is invalid", i)
 		}
 	}
 	return nil
@@ -652,6 +843,151 @@ func decodeStrict(data []byte, out any) error {
 		return fmt.Errorf("unexpected trailing JSON tokens")
 	}
 	return nil
+}
+
+func decodeObjectFields(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+func validateRetrievalCaps(caps *RetrievalCaps) error {
+	if caps == nil {
+		return nil
+	}
+	if caps.MaxNonRulePointers != 0 && (caps.MaxNonRulePointers < 1 || caps.MaxNonRulePointers > 32) {
+		return fmt.Errorf("caps.max_non_rule_pointers must be between 1 and 32")
+	}
+	if caps.MaxRulePointers < 0 || caps.MaxRulePointers > 512 {
+		return fmt.Errorf("caps.max_rule_pointers must be between 0 and 512")
+	}
+	if caps.MaxHops < 0 || caps.MaxHops > 3 {
+		return fmt.Errorf("caps.max_hops must be between 0 and 3")
+	}
+	if caps.MaxHopExpansion < 0 || caps.MaxHopExpansion > 32 {
+		return fmt.Errorf("caps.max_hop_expansion must be between 0 and 32")
+	}
+	if caps.MaxMemories < 0 || caps.MaxMemories > 32 {
+		return fmt.Errorf("caps.max_memories must be between 0 and 32")
+	}
+	if caps.MinPointerCount != 0 && (caps.MinPointerCount < 1 || caps.MinPointerCount > 8) {
+		return fmt.Errorf("caps.min_pointer_count must be between 1 and 8")
+	}
+	if caps.WordBudgetLimit != 0 && (caps.WordBudgetLimit < 100 || caps.WordBudgetLimit > 10000) {
+		return fmt.Errorf("caps.word_budget_limit must be between 100 and 10000")
+	}
+	return nil
+}
+
+func validateOptionalArrayField(fields map[string]json.RawMessage, field string, length int) error {
+	raw, ok := fields[field]
+	if !ok {
+		return nil
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("%s must be an array", field)
+	}
+	if length == 0 {
+		return fmt.Errorf("%s must not be empty when provided", field)
+	}
+	return nil
+}
+
+func validateRequiredArrayField(fields map[string]json.RawMessage, field string) error {
+	raw, ok := fields[field]
+	if !ok {
+		return fmt.Errorf("%s is required", field)
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("%s must be an array", field)
+	}
+	return nil
+}
+
+func validateUniqueStrings(values []string, field string) error {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			return fmt.Errorf("%s must not contain duplicates", field)
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func validatePointerKeyList(values []string, minItems, maxItems int, field string) error {
+	if len(values) < minItems {
+		return fmt.Errorf("%s must include at least %d entries", field, minItems)
+	}
+	if len(values) > maxItems {
+		return fmt.Errorf("%s may include at most %d entries", field, maxItems)
+	}
+	if err := validateUniqueStrings(values, field); err != nil {
+		return err
+	}
+	for i, value := range values {
+		if err := validateBoundedKey(value, 512); err != nil {
+			return fmt.Errorf("%s[%d] %w", field, i, err)
+		}
+		if !pointerKeyRe.MatchString(value) {
+			return fmt.Errorf("%s[%d] format is invalid", field, i)
+		}
+	}
+	return nil
+}
+
+func validateRelativePathList(values []string, maxItems int, field string) error {
+	if len(values) > maxItems {
+		return fmt.Errorf("%s may include at most %d entries", field, maxItems)
+	}
+	if err := validateUniqueStrings(values, field); err != nil {
+		return err
+	}
+	for i, value := range values {
+		if err := validateRelativePath(value); err != nil {
+			return fmt.Errorf("%s[%d] %w", field, i, err)
+		}
+	}
+	return nil
+}
+
+func validateUniqueBoundedStringList(values []string, maxItems, maxLen int, field string) error {
+	if len(values) > maxItems {
+		return fmt.Errorf("%s may include at most %d entries", field, maxItems)
+	}
+	if err := validateUniqueStrings(values, field); err != nil {
+		return err
+	}
+	for i, raw := range values {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || len(trimmed) > maxLen {
+			return fmt.Errorf("%s[%d] must be 1..%d chars", field, i, maxLen)
+		}
+	}
+	return nil
+}
+
+func validateOptionalProjectRoot(projectRoot string) error {
+	if projectRoot == "" {
+		return nil
+	}
+	if len(strings.TrimSpace(projectRoot)) == 0 {
+		return fmt.Errorf("project_root must be non-empty when provided")
+	}
+	if len(projectRoot) > 2048 {
+		return fmt.Errorf("project_root too long")
+	}
+	return nil
+}
+
+func healthFixerStrings(fixers []HealthFixer) []string {
+	values := make([]string, 0, len(fixers))
+	for _, fixer := range fixers {
+		values = append(values, string(fixer))
+	}
+	return values
 }
 
 func validationError(code, message string) *ErrorPayload {

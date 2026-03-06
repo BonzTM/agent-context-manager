@@ -19,21 +19,23 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/workspace"
 )
 
 const RetrievalVersion = "postgres.get_context.v1"
 
 const (
-	syncModeChanged       = "changed"
-	syncModeFull          = "full"
-	syncModeWorkingTree   = "working_tree"
-	defaultSyncGitRange   = "HEAD~1..HEAD"
-	defaultSyncProjectDir = "."
-	defaultHealthDetails  = true
-	defaultHealthFindings = 100
-	defaultMinimumRecall  = 0.8
+	syncModeChanged         = "changed"
+	syncModeFull            = "full"
+	syncModeWorkingTree     = "working_tree"
+	defaultSyncGitRange     = "HEAD~1..HEAD"
+	defaultSyncProjectDir   = "."
+	defaultHealthDetails    = true
+	defaultHealthFindings   = 100
+	defaultMinimumRecall    = 0.8
+	defaultVerifyTimeoutSec = 300
 
 	requiredVerifyTestsKey      = "verify:tests"
 	requiredVerifyDiffReviewKey = "verify:diff-review"
@@ -43,6 +45,8 @@ const (
 	defaultBootstrapRespectGit   = true
 	defaultBootstrapLLMAssist    = true
 	maxBootstrapWalkErrorSamples = 25
+	maxContextPlanTaskFetchKeys  = 6
+	maxFetchKeyLength            = 512
 )
 
 var healthTagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
@@ -95,8 +99,9 @@ func (e *fetchOperationError) Unwrap() error {
 }
 
 type Service struct {
-	repo          core.Repository
-	runGitCommand gitRunnerFunc
+	repo             core.Repository
+	runGitCommand    gitRunnerFunc
+	runVerifyCommand verifyRunnerFunc
 }
 
 func New(repo core.Repository) (*Service, error) {
@@ -104,8 +109,9 @@ func New(repo core.Repository) (*Service, error) {
 		return nil, fmt.Errorf("repository is required")
 	}
 	return &Service{
-		repo:          repo,
-		runGitCommand: runGitCommand,
+		repo:             repo,
+		runGitCommand:    runGitCommand,
+		runVerifyCommand: runVerifyCommand,
 	}, nil
 }
 
@@ -128,7 +134,12 @@ func (s *Service) Fetch(ctx context.Context, payload v1.FetchPayload) (v1.FetchR
 			err   error
 		)
 
-		if receiptID, ok := parsePlanFetchKey(key); ok {
+		if taskRef, ok := parseTaskFetchKey(key); ok {
+			item, found, err = s.fetchTaskItem(ctx, projectID, key, taskRef)
+			if err != nil {
+				return v1.FetchResult{}, fetchInternalError(fetchOperationFromError(err), err)
+			}
+		} else if receiptID, ok := parsePlanFetchKey(key); ok {
 			item, found, err = s.fetchPlanItem(ctx, projectID, key, receiptID)
 			if err != nil {
 				return v1.FetchResult{}, fetchInternalError(fetchOperationFromError(err), err)
@@ -249,6 +260,8 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 		if payload.Plan != nil {
 			upsertInput.Title = coalesceNonEmpty(strings.TrimSpace(payload.Plan.Title), upsertInput.Title)
 			upsertInput.Objective = strings.TrimSpace(payload.Plan.Objective)
+			upsertInput.Kind = strings.TrimSpace(payload.Plan.Kind)
+			upsertInput.ParentPlanKey = strings.TrimSpace(payload.Plan.ParentPlanKey)
 			upsertInput.Status = string(payload.Plan.Status)
 			if payload.Plan.Stages != nil {
 				upsertInput.Stages = core.WorkPlanStages{
@@ -261,6 +274,7 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 			upsertInput.OutOfScope = normalizeValues(payload.Plan.OutOfScope)
 			upsertInput.Constraints = normalizeValues(payload.Plan.Constraints)
 			upsertInput.References = normalizeValues(payload.Plan.References)
+			upsertInput.ExternalRefs = normalizeValues(payload.Plan.ExternalRefs)
 		}
 
 		upsertResult, err := planRepo.UpsertWorkPlan(ctx, upsertInput)
@@ -356,6 +370,11 @@ func (s *Service) ProposeMemory(ctx context.Context, payload v1.ProposeMemoryPay
 		return v1.ProposeMemoryResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
 	}
 
+	tagNormalizer, err := s.loadCanonicalTagNormalizer("", payload.TagsFile)
+	if err != nil {
+		return v1.ProposeMemoryResult{}, proposeMemoryInternalError("load_canonical_tags", err)
+	}
+
 	scope, err := s.repo.FetchReceiptScope(ctx, core.ReceiptScopeQuery{
 		ProjectID: payload.ProjectID,
 		ReceiptID: payload.ReceiptID,
@@ -374,7 +393,7 @@ func (s *Service) ProposeMemory(ctx context.Context, payload v1.ProposeMemoryPay
 		return v1.ProposeMemoryResult{}, proposeMemoryInternalError("fetch_receipt_scope", err)
 	}
 
-	normalizedMemory := normalizeProposedMemory(payload.Memory)
+	normalizedMemory := normalizeProposedMemory(payload.Memory, tagNormalizer)
 	validation := validateProposedMemoryScope(normalizedMemory, scope.PointerKeys)
 	dedupeKey := deterministicMemoryDedupeKey(normalizedMemory)
 	autoPromote := effectiveAutoPromote(payload.AutoPromote)
@@ -419,6 +438,11 @@ func (s *Service) ProposeMemory(ctx context.Context, payload v1.ProposeMemoryPay
 func (s *Service) ReportCompletion(ctx context.Context, payload v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
 	if s == nil || s.repo == nil {
 		return v1.ReportCompletionResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
+	}
+
+	tagNormalizer, err := s.loadCanonicalTagNormalizer("", payload.TagsFile)
+	if err != nil {
+		return v1.ReportCompletionResult{}, reportCompletionInternalError("load_canonical_tags", err)
 	}
 
 	scope, err := s.repo.FetchReceiptScope(ctx, core.ReceiptScopeQuery{
@@ -480,7 +504,7 @@ func (s *Service) ReportCompletion(ctx context.Context, payload v1.ReportComplet
 	if len(violations) > 0 {
 		switch scopeMode {
 		case v1.ScopeModeAutoIndex:
-			stubs := buildAutoIndexPointerStubs(payload.ProjectID, violations)
+			stubs := buildAutoIndexPointerStubs(payload.ProjectID, violations, tagNormalizer)
 			if len(stubs) > 0 {
 				if _, err := s.repo.UpsertPointerStubs(ctx, strings.TrimSpace(payload.ProjectID), stubs); err != nil {
 					return v1.ReportCompletionResult{}, reportCompletionInternalError("upsert_pointer_stubs", err)
@@ -546,7 +570,7 @@ func (s *Service) Sync(ctx context.Context, payload v1.SyncPayload) (v1.SyncResu
 		return v1.SyncResult{}, syncInternalError("apply_sync", err)
 	}
 
-	if _, err := s.syncCanonicalRulesets(ctx, projectID, projectRoot, payload.RulesFile, true); err != nil {
+	if _, err := s.syncCanonicalRulesets(ctx, projectID, projectRoot, payload.RulesFile, payload.TagsFile, true); err != nil {
 		return v1.SyncResult{}, syncInternalError("sync_ruleset", err)
 	}
 
@@ -602,22 +626,22 @@ func (s *Service) HealthCheck(ctx context.Context, payload v1.HealthCheckPayload
 	}, nil
 }
 
-func (s *Service) Regress(ctx context.Context, payload v1.RegressPayload) (v1.RegressResult, *core.APIError) {
+func (s *Service) Eval(ctx context.Context, payload v1.EvalPayload) (v1.EvalResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.RegressResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
+		return v1.EvalResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
 	}
 
-	suite, err := loadRegressSuite(payload)
+	suite, err := loadEvalSuite(payload)
 	if err != nil {
-		return v1.RegressResult{}, regressInternalError("load_eval_suite", err)
+		return v1.EvalResult{}, evalInternalError("load_eval_suite", err)
 	}
 	if len(suite) == 0 {
-		return v1.RegressResult{}, regressInternalError("load_eval_suite", fmt.Errorf("evaluation suite is empty"))
+		return v1.EvalResult{}, evalInternalError("load_eval_suite", fmt.Errorf("evaluation suite is empty"))
 	}
 
 	minimumRecall := effectiveMinimumRecall(payload.MinimumRecall)
 
-	caseResults := make([]v1.RegressCaseResult, 0, len(suite))
+	caseResults := make([]v1.EvalCaseResult, 0, len(suite))
 	totalTP := 0
 	totalFP := 0
 	totalFN := 0
@@ -627,16 +651,17 @@ func (s *Service) Regress(ctx context.Context, payload v1.RegressPayload) (v1.Re
 			ProjectID: payload.ProjectID,
 			TaskText:  testCase.TaskText,
 			Phase:     testCase.Phase,
+			TagsFile:  payload.TagsFile,
 		})
 		if apiErr != nil {
-			return v1.RegressResult{}, regressInternalError(
+			return v1.EvalResult{}, evalInternalError(
 				"get_context",
 				fmt.Errorf("case %d failed: %s (%s)", i, apiErr.Message, apiErr.Code),
 			)
 		}
 
-		expected := expectedRegressArtifacts(testCase)
-		predicted := predictedRegressArtifacts(ctxResult)
+		expected := expectedEvalArtifacts(testCase)
+		predicted := predictedEvalArtifacts(ctxResult)
 		tp, fp, fn := confusionCounts(expected, predicted)
 		precision, recall, f1 := metricsFromCounts(tp, fp, fn)
 
@@ -644,22 +669,22 @@ func (s *Service) Regress(ctx context.Context, payload v1.RegressPayload) (v1.Re
 		totalFP += fp
 		totalFN += fn
 
-		caseResult := v1.RegressCaseResult{
+		caseResult := v1.EvalCaseResult{
 			Index:     i,
 			Precision: precision,
 			Recall:    recall,
 			F1:        f1,
 		}
-		if note := regressCaseNote(ctxResult.Status); note != "" {
+		if note := evalCaseNote(ctxResult.Status); note != "" {
 			caseResult.Notes = note
 		}
 		caseResults = append(caseResults, caseResult)
 	}
 
 	aggregatePrecision, aggregateRecall, aggregateF1 := metricsFromCounts(totalTP, totalFP, totalFN)
-	return v1.RegressResult{
+	return v1.EvalResult{
 		TotalCases: len(suite),
-		Aggregate: v1.RegressAggregate{
+		Aggregate: v1.EvalAggregate{
 			Precision: aggregatePrecision,
 			Recall:    aggregateRecall,
 			F1:        aggregateF1,
@@ -678,12 +703,16 @@ func (s *Service) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v
 	projectRoot := normalizeBootstrapProjectRoot(payload.ProjectRoot)
 	outputPath, persistCandidates := resolveBootstrapOutputPath(projectRoot, payload.OutputCandidatesPath, payload.PersistCandidates)
 
-	paths, warnings, err := s.collectBootstrapPaths(ctx, projectRoot, outputPath, effectiveRespectGitIgnore(payload.RespectGitIgnore))
+	paths, warnings, err := s.collectBootstrapPaths(ctx, projectRoot, outputPath, payload.RulesFile, payload.TagsFile, effectiveRespectGitIgnore(payload.RespectGitIgnore))
 	if err != nil {
 		return v1.BootstrapResult{}, bootstrapInternalError("collect_project_paths", err)
 	}
 
-	rulesetSync, err := s.syncCanonicalRulesets(ctx, strings.TrimSpace(payload.ProjectID), projectRoot, payload.RulesFile, true)
+	if err := ensureBootstrapScaffold(projectRoot, payload.RulesFile, payload.TagsFile, paths); err != nil {
+		return v1.BootstrapResult{}, bootstrapInternalError("seed_scaffold", err)
+	}
+
+	rulesetSync, err := s.syncCanonicalRulesets(ctx, strings.TrimSpace(payload.ProjectID), projectRoot, payload.RulesFile, payload.TagsFile, true)
 	if err != nil {
 		return v1.BootstrapResult{}, bootstrapInternalError("parse_ruleset", err)
 	}
@@ -745,6 +774,54 @@ func parsePlanFetchKey(raw string) (string, bool) {
 		return "", false
 	}
 	return receiptID, true
+}
+
+type taskFetchRef struct {
+	PlanKey   string
+	ReceiptID string
+	TaskKey   string
+}
+
+func parseTaskFetchKey(raw string) (taskFetchRef, bool) {
+	key := strings.TrimSpace(raw)
+	if !strings.HasPrefix(key, "task:") {
+		return taskFetchRef{}, false
+	}
+
+	remainder := strings.TrimSpace(key[len("task:"):])
+	separator := strings.Index(remainder, "#")
+	if separator <= 0 || separator >= len(remainder)-1 {
+		return taskFetchRef{}, false
+	}
+
+	planKey := strings.TrimSpace(remainder[:separator])
+	receiptID, ok := parsePlanFetchKey(planKey)
+	if !ok {
+		return taskFetchRef{}, false
+	}
+	taskKey := strings.TrimSpace(remainder[separator+1:])
+	if taskKey == "" {
+		return taskFetchRef{}, false
+	}
+
+	return taskFetchRef{
+		PlanKey:   planKey,
+		ReceiptID: receiptID,
+		TaskKey:   taskKey,
+	}, true
+}
+
+func taskFetchKey(planKey, taskKey string) string {
+	normalizedPlanKey := strings.TrimSpace(planKey)
+	normalizedTaskKey := strings.TrimSpace(taskKey)
+	if normalizedPlanKey == "" || normalizedTaskKey == "" {
+		return ""
+	}
+	fetchKey := "task:" + normalizedPlanKey + "#" + normalizedTaskKey
+	if len(fetchKey) > maxFetchKeyLength {
+		return ""
+	}
+	return fetchKey
 }
 
 func parseMemoryFetchKey(raw string) (int64, bool) {
@@ -827,6 +904,98 @@ func (s *Service) fetchPlanItem(ctx context.Context, projectID, key, receiptID s
 		Status:  planStatus,
 		Version: version,
 	}, true, nil
+}
+
+func (s *Service) fetchTaskItem(ctx context.Context, projectID, key string, ref taskFetchRef) (v1.FetchItem, bool, error) {
+	normalizedPlanKey := strings.TrimSpace(ref.PlanKey)
+	normalizedTaskKey := strings.TrimSpace(ref.TaskKey)
+	if normalizedPlanKey == "" || normalizedTaskKey == "" {
+		return v1.FetchItem{}, false, nil
+	}
+
+	if planRepo, ok := s.repo.(core.WorkPlanRepository); ok {
+		plan, err := planRepo.LookupWorkPlan(ctx, core.WorkPlanLookupQuery{
+			ProjectID: projectID,
+			PlanKey:   normalizedPlanKey,
+		})
+		if err == nil {
+			for _, task := range normalizeWorkItems(plan.Tasks) {
+				if task.ItemKey != normalizedTaskKey {
+					continue
+				}
+
+				taskStatus := normalizeWorkItemStatus(task.Status)
+				summary := strings.TrimSpace(task.Summary)
+				if summary == "" {
+					summary = fmt.Sprintf("Task %s in %s is %s", normalizedTaskKey, normalizedPlanKey, taskStatus)
+				}
+				contentJSON, err := json.Marshal(workTaskForFetch(plan.PlanKey, task))
+				if err != nil {
+					return v1.FetchItem{}, false, err
+				}
+
+				version := indexEntryVersion(
+					normalizedPlanKey,
+					normalizedTaskKey,
+					taskStatus,
+					task.UpdatedAt.UTC().String(),
+					string(contentJSON),
+				)
+				return v1.FetchItem{
+					Key:     key,
+					Type:    "task",
+					Summary: summary,
+					Content: string(contentJSON),
+					Status:  taskStatus,
+					Version: version,
+				}, true, nil
+			}
+		} else if !errors.Is(err, core.ErrWorkPlanNotFound) {
+			return v1.FetchItem{}, false, wrapFetchOperationError("lookup_work_plan", err)
+		}
+	}
+
+	if strings.TrimSpace(ref.ReceiptID) == "" {
+		return v1.FetchItem{}, false, nil
+	}
+	workItems, err := s.repo.ListWorkItems(ctx, core.FetchLookupQuery{
+		ProjectID: projectID,
+		ReceiptID: ref.ReceiptID,
+	})
+	if err != nil {
+		return v1.FetchItem{}, false, wrapFetchOperationError("list_work_items", err)
+	}
+	for _, task := range normalizeWorkItems(workItems) {
+		if task.ItemKey != normalizedTaskKey {
+			continue
+		}
+		taskStatus := normalizeWorkItemStatus(task.Status)
+		summary := strings.TrimSpace(task.Summary)
+		if summary == "" {
+			summary = fmt.Sprintf("Task %s in %s is %s", normalizedTaskKey, normalizedPlanKey, taskStatus)
+		}
+		contentJSON, err := json.Marshal(workTaskForFetch(normalizedPlanKey, task))
+		if err != nil {
+			return v1.FetchItem{}, false, err
+		}
+		version := indexEntryVersion(
+			normalizedPlanKey,
+			normalizedTaskKey,
+			taskStatus,
+			task.UpdatedAt.UTC().String(),
+			string(contentJSON),
+		)
+		return v1.FetchItem{
+			Key:     key,
+			Type:    "task",
+			Summary: summary,
+			Content: string(contentJSON),
+			Status:  taskStatus,
+			Version: version,
+		}, true, nil
+	}
+
+	return v1.FetchItem{}, false, nil
 }
 
 func (s *Service) fetchPointerItem(ctx context.Context, projectID, key string) (v1.FetchItem, bool, error) {
@@ -942,9 +1111,11 @@ func workPayloadTasks(payload v1.WorkPayload) []core.WorkItem {
 			ItemKey:            task.Key,
 			Summary:            strings.TrimSpace(task.Summary),
 			Status:             string(task.Status),
+			ParentTaskKey:      strings.TrimSpace(task.ParentTaskKey),
 			DependsOn:          normalizeValues(task.DependsOn),
 			AcceptanceCriteria: normalizeValues(task.AcceptanceCriteria),
 			References:         normalizeValues(task.References),
+			ExternalRefs:       normalizeValues(task.ExternalRefs),
 			BlockedReason:      strings.TrimSpace(task.BlockedReason),
 			Outcome:            strings.TrimSpace(task.Outcome),
 			Evidence:           normalizeValues(task.Evidence),
@@ -973,30 +1144,7 @@ func coalesceNonEmpty(primary, fallback string) string {
 func planForFetch(plan core.WorkPlan) map[string]any {
 	tasks := make([]map[string]any, 0, len(plan.Tasks))
 	for _, task := range normalizeWorkItems(plan.Tasks) {
-		entry := map[string]any{
-			"key":     task.ItemKey,
-			"summary": task.Summary,
-			"status":  normalizeWorkItemStatus(task.Status),
-		}
-		if len(task.DependsOn) > 0 {
-			entry["depends_on"] = normalizeValues(task.DependsOn)
-		}
-		if len(task.AcceptanceCriteria) > 0 {
-			entry["acceptance_criteria"] = normalizeValues(task.AcceptanceCriteria)
-		}
-		if len(task.References) > 0 {
-			entry["references"] = normalizeValues(task.References)
-		}
-		if strings.TrimSpace(task.BlockedReason) != "" {
-			entry["blocked_reason"] = strings.TrimSpace(task.BlockedReason)
-		}
-		if strings.TrimSpace(task.Outcome) != "" {
-			entry["outcome"] = strings.TrimSpace(task.Outcome)
-		}
-		if len(task.Evidence) > 0 {
-			entry["evidence"] = normalizeValues(task.Evidence)
-		}
-		tasks = append(tasks, entry)
+		tasks = append(tasks, workTaskForFetch(plan.PlanKey, task))
 	}
 
 	content := map[string]any{
@@ -1009,6 +1157,12 @@ func planForFetch(plan core.WorkPlan) map[string]any {
 	}
 	if strings.TrimSpace(plan.Objective) != "" {
 		content["objective"] = strings.TrimSpace(plan.Objective)
+	}
+	if strings.TrimSpace(plan.Kind) != "" {
+		content["kind"] = strings.TrimSpace(plan.Kind)
+	}
+	if strings.TrimSpace(plan.ParentPlanKey) != "" {
+		content["parent_plan_key"] = strings.TrimSpace(plan.ParentPlanKey)
 	}
 	stages := map[string]any{}
 	if strings.TrimSpace(plan.Stages.SpecOutline) != "" {
@@ -1035,8 +1189,45 @@ func planForFetch(plan core.WorkPlan) map[string]any {
 	if len(plan.References) > 0 {
 		content["references"] = normalizeValues(plan.References)
 	}
+	if len(plan.ExternalRefs) > 0 {
+		content["external_refs"] = normalizeValues(plan.ExternalRefs)
+	}
 	content["tasks"] = tasks
 	return content
+}
+
+func workTaskForFetch(planKey string, task core.WorkItem) map[string]any {
+	entry := map[string]any{
+		"plan_key": planKey,
+		"key":      task.ItemKey,
+		"summary":  task.Summary,
+		"status":   normalizeWorkItemStatus(task.Status),
+	}
+	if strings.TrimSpace(task.ParentTaskKey) != "" {
+		entry["parent_task_key"] = strings.TrimSpace(task.ParentTaskKey)
+	}
+	if len(task.DependsOn) > 0 {
+		entry["depends_on"] = normalizeValues(task.DependsOn)
+	}
+	if len(task.AcceptanceCriteria) > 0 {
+		entry["acceptance_criteria"] = normalizeValues(task.AcceptanceCriteria)
+	}
+	if len(task.References) > 0 {
+		entry["references"] = normalizeValues(task.References)
+	}
+	if len(task.ExternalRefs) > 0 {
+		entry["external_refs"] = normalizeValues(task.ExternalRefs)
+	}
+	if strings.TrimSpace(task.BlockedReason) != "" {
+		entry["blocked_reason"] = strings.TrimSpace(task.BlockedReason)
+	}
+	if strings.TrimSpace(task.Outcome) != "" {
+		entry["outcome"] = strings.TrimSpace(task.Outcome)
+	}
+	if len(task.Evidence) > 0 {
+		entry["evidence"] = normalizeValues(task.Evidence)
+	}
+	return entry
 }
 
 func workItemsFromPaths(paths []string) []core.WorkItem {
@@ -1080,9 +1271,11 @@ func normalizeWorkItems(items []core.WorkItem) []core.WorkItem {
 			ItemKey:            normalizedKey,
 			Summary:            strings.TrimSpace(item.Summary),
 			Status:             normalizedStatus,
+			ParentTaskKey:      strings.TrimSpace(item.ParentTaskKey),
 			DependsOn:          normalizeValues(item.DependsOn),
 			AcceptanceCriteria: normalizeValues(item.AcceptanceCriteria),
 			References:         normalizeValues(item.References),
+			ExternalRefs:       normalizeValues(item.ExternalRefs),
 			BlockedReason:      strings.TrimSpace(item.BlockedReason),
 			Outcome:            strings.TrimSpace(item.Outcome),
 			Evidence:           normalizeValues(item.Evidence),
@@ -1883,9 +2076,9 @@ func weakMemoryFindings(memories []core.ActiveMemory) []string {
 	return out
 }
 
-func loadRegressSuite(payload v1.RegressPayload) ([]v1.RegressCase, error) {
+func loadEvalSuite(payload v1.EvalPayload) ([]v1.EvalCase, error) {
 	if len(payload.EvalSuiteInline) > 0 {
-		return normalizeAndValidateRegressSuite(payload.EvalSuiteInline)
+		return normalizeAndValidateEvalSuite(payload.EvalSuiteInline)
 	}
 
 	suitePath := strings.TrimSpace(payload.EvalSuitePath)
@@ -1898,16 +2091,16 @@ func loadRegressSuite(payload v1.RegressPayload) ([]v1.RegressCase, error) {
 		return nil, fmt.Errorf("read eval suite path: %w", err)
 	}
 
-	var inline []v1.RegressCase
+	var inline []v1.EvalCase
 	if err := json.Unmarshal(content, &inline); err == nil {
 		if len(inline) == 0 {
 			return nil, fmt.Errorf("evaluation suite file is empty")
 		}
-		return normalizeAndValidateRegressSuite(inline)
+		return normalizeAndValidateEvalSuite(inline)
 	}
 
 	var wrapped struct {
-		Cases []v1.RegressCase `json:"cases"`
+		Cases []v1.EvalCase `json:"cases"`
 	}
 	if err := json.Unmarshal(content, &wrapped); err != nil {
 		return nil, fmt.Errorf("parse eval suite path: %w", err)
@@ -1915,13 +2108,13 @@ func loadRegressSuite(payload v1.RegressPayload) ([]v1.RegressCase, error) {
 	if len(wrapped.Cases) == 0 {
 		return nil, fmt.Errorf("evaluation suite file has no cases")
 	}
-	return normalizeAndValidateRegressSuite(wrapped.Cases)
+	return normalizeAndValidateEvalSuite(wrapped.Cases)
 }
 
-func normalizeAndValidateRegressSuite(cases []v1.RegressCase) ([]v1.RegressCase, error) {
-	normalized := make([]v1.RegressCase, 0, len(cases))
+func normalizeAndValidateEvalSuite(cases []v1.EvalCase) ([]v1.EvalCase, error) {
+	normalized := make([]v1.EvalCase, 0, len(cases))
 	for i := range cases {
-		current := v1.RegressCase{
+		current := v1.EvalCase{
 			TaskText:               strings.TrimSpace(cases[i].TaskText),
 			Phase:                  cases[i].Phase,
 			ExpectedPointerKeys:    normalizeValues(cases[i].ExpectedPointerKeys),
@@ -1938,7 +2131,7 @@ func normalizeAndValidateRegressSuite(cases []v1.RegressCase) ([]v1.RegressCase,
 	return normalized, nil
 }
 
-func expectedRegressArtifacts(testCase v1.RegressCase) map[string]struct{} {
+func expectedEvalArtifacts(testCase v1.EvalCase) map[string]struct{} {
 	expected := make(map[string]struct{}, len(testCase.ExpectedPointerKeys)+len(testCase.ExpectedMemorySubjects))
 	for _, key := range normalizeValues(testCase.ExpectedPointerKeys) {
 		expected["pointer:"+key] = struct{}{}
@@ -1949,7 +2142,7 @@ func expectedRegressArtifacts(testCase v1.RegressCase) map[string]struct{} {
 	return expected
 }
 
-func predictedRegressArtifacts(result v1.GetContextResult) map[string]struct{} {
+func predictedEvalArtifacts(result v1.GetContextResult) map[string]struct{} {
 	predicted := make(map[string]struct{})
 	if result.Status != "ok" || result.Receipt == nil {
 		return predicted
@@ -2091,7 +2284,7 @@ func roundMetric(value float64) float64 {
 	return math.Round(value*1_000_000) / 1_000_000
 }
 
-func regressCaseNote(status string) string {
+func evalCaseNote(status string) string {
 	status = strings.TrimSpace(status)
 	switch status {
 	case "ok":
@@ -2122,6 +2315,187 @@ func normalizeBootstrapProjectRoot(projectRoot string) string {
 		return filepath.Clean(trimmed)
 	}
 	return filepath.Clean(absRoot)
+}
+
+func ensureBootstrapScaffold(projectRoot, rulesFile, tagsFile string, candidatePaths []string) error {
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".acm"), 0o755); err != nil {
+		return err
+	}
+
+	if err := ensureBootstrapRuntimeFiles(projectRoot); err != nil {
+		return err
+	}
+
+	if err := syncBootstrapCanonicalTagsFile(projectRoot, tagsFile, candidatePaths); err != nil {
+		return err
+	}
+
+	if err := ensureBootstrapVerifyTestsScaffold(projectRoot); err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(rulesFile) == "" {
+		exists, err := bootstrapCanonicalRulesetExists(projectRoot)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if err := writeBootstrapScaffoldFile(
+				filepath.Join(projectRoot, filepath.FromSlash(canonicalRulesetPrimarySourcePath)),
+				[]byte("version: "+canonicalRulesVersionV1+"\nrules: []\n"),
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func ensureBootstrapRuntimeFiles(projectRoot string) error {
+	if err := workspace.EnsureGitIgnoreContains(projectRoot, workspace.DefaultSQLiteRelativePath); err != nil {
+		return err
+	}
+	return ensureBootstrapEnvExample(projectRoot)
+}
+
+func ensureBootstrapEnvExample(projectRoot string) error {
+	envExamplePath := filepath.Join(projectRoot, workspace.DotEnvExampleFileName)
+	existingKeys := map[string]struct{}{}
+
+	raw, err := os.ReadFile(envExamplePath)
+	switch {
+	case err == nil:
+		for key := range workspace.ParseDotEnv(raw) {
+			existingKeys[key] = struct{}{}
+		}
+	case errors.Is(err, os.ErrNotExist):
+	default:
+		return err
+	}
+
+	entries := []string{
+		"# ACM runtime configuration",
+		"# Copy this file to .env to override local defaults.",
+		"ACM_SQLITE_PATH=.acm/context.db",
+		"ACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable",
+		"ACM_LOG_LEVEL=info",
+		"ACM_LOG_SINK=stderr",
+	}
+
+	if len(existingKeys) == 0 && len(raw) == 0 {
+		content := strings.Join(entries, "\n") + "\n"
+		return writeBootstrapScaffoldFile(envExamplePath, []byte(content))
+	}
+
+	missing := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry, "#") {
+			continue
+		}
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		if _, ok := existingKeys[key]; ok {
+			continue
+		}
+		missing = append(missing, entry)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	file, err := os.OpenFile(envExamplePath, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if len(raw) > 0 && raw[len(raw)-1] != '\n' {
+		if _, err := file.WriteString("\n"); err != nil {
+			return err
+		}
+	}
+	if len(raw) > 0 {
+		if _, err := file.WriteString("\n# ACM runtime configuration\n"); err != nil {
+			return err
+		}
+	}
+	for _, entry := range missing {
+		if _, err := file.WriteString(entry + "\n"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureBootstrapVerifyTestsScaffold(projectRoot string) error {
+	exists, err := bootstrapVerifyTestsExists(projectRoot)
+	if err != nil || exists {
+		return err
+	}
+
+	return writeBootstrapScaffoldFile(
+		filepath.Join(projectRoot, filepath.FromSlash(verifyTestsPrimarySourcePath)),
+		[]byte("version: "+verifyTestsVersionV1+"\ndefaults:\n  cwd: .\n  timeout_sec: 300\ntests: []\n"),
+	)
+}
+
+func bootstrapCanonicalRulesetExists(projectRoot string) (bool, error) {
+	for _, sourcePath := range canonicalRulesetDefaultPaths {
+		absolutePath := filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(sourcePath)))
+		stat, err := os.Stat(absolutePath)
+		switch {
+		case err == nil:
+			if !stat.IsDir() {
+				return true, nil
+			}
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+func bootstrapVerifyTestsExists(projectRoot string) (bool, error) {
+	for _, sourcePath := range []string{verifyTestsPrimarySourcePath, verifyTestsSecondarySourcePath} {
+		absolutePath := filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(sourcePath)))
+		stat, err := os.Stat(absolutePath)
+		switch {
+		case err == nil:
+			if !stat.IsDir() {
+				return true, nil
+			}
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+func writeBootstrapScaffoldFile(targetPath string, content []byte) error {
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil
+		}
+		return err
+	}
+	defer file.Close()
+
+	if _, err := file.Write(content); err != nil {
+		return err
+	}
+	return nil
 }
 
 func resolveBootstrapOutputPath(projectRoot string, outputPath *string, persistCandidates *bool) (string, bool) {
@@ -2161,14 +2535,14 @@ func effectivePersistCandidates(persistCandidates *bool) bool {
 	return *persistCandidates
 }
 
-func (s *Service) collectBootstrapPaths(ctx context.Context, projectRoot, outputPath string, respectGitIgnore bool) ([]string, []string, error) {
-	excludedPath := bootstrapOutputRelativePath(projectRoot, outputPath)
+func (s *Service) collectBootstrapPaths(ctx context.Context, projectRoot, outputPath, rulesFile, tagsFile string, respectGitIgnore bool) ([]string, []string, error) {
+	excludedPaths := bootstrapManagedRelativePaths(projectRoot, outputPath, rulesFile, tagsFile)
 	warnings := make([]string, 0)
 
 	if respectGitIgnore {
 		gitOutput, err := s.runGit(ctx, projectRoot, "ls-files", "--cached", "--others", "--exclude-standard")
 		if err == nil {
-			return filterBootstrapPaths(parseBootstrapGitPaths(gitOutput), excludedPath), warnings, nil
+			return filterBootstrapPaths(parseBootstrapGitPaths(gitOutput), excludedPaths), warnings, nil
 		}
 		warnings = append(warnings, "respect_gitignore fallback to filesystem walk")
 	}
@@ -2178,7 +2552,7 @@ func (s *Service) collectBootstrapPaths(ctx context.Context, projectRoot, output
 		return nil, nil, err
 	}
 	warnings = append(warnings, walkWarnings...)
-	return filterBootstrapPaths(paths, excludedPath), warnings, nil
+	return filterBootstrapPaths(paths, excludedPaths), warnings, nil
 }
 
 func parseBootstrapGitPaths(output string) []string {
@@ -2269,13 +2643,46 @@ func bootstrapOutputRelativePath(projectRoot, outputPath string) string {
 	return normalized
 }
 
-func filterBootstrapPaths(paths []string, excludedPath string) []string {
-	if excludedPath == "" {
-		return append([]string(nil), paths...)
+func bootstrapManagedRelativePaths(projectRoot, outputPath, rulesFile, tagsFile string) []string {
+	managed := make([]string, 0, len(canonicalRulesetDefaultPaths)+7)
+	if relativeOutputPath := bootstrapOutputRelativePath(projectRoot, outputPath); relativeOutputPath != "" {
+		managed = append(managed, relativeOutputPath)
 	}
+	managed = append(managed, ".gitignore", workspace.DotEnvExampleFileName)
+	managed = append(managed, canonicalTagsDefaultFilePath)
+	managed = append(managed, canonicalRulesetDefaultPaths...)
+	managed = append(managed, verifyTestsPrimarySourcePath, verifyTestsSecondarySourcePath)
+	if relativeRulesPath := bootstrapManagedRelativePath(projectRoot, rulesFile); relativeRulesPath != "" {
+		managed = append(managed, relativeRulesPath)
+	}
+	if relativeTagsPath := bootstrapManagedRelativePath(projectRoot, tagsFile); relativeTagsPath != "" {
+		managed = append(managed, relativeTagsPath)
+	}
+	return normalizeCompletionPaths(managed)
+}
+
+func bootstrapManagedRelativePath(projectRoot, rawPath string) string {
+	trimmed := strings.TrimSpace(rawPath)
+	if trimmed == "" {
+		return ""
+	}
+	if filepath.IsAbs(trimmed) {
+		return bootstrapOutputRelativePath(projectRoot, trimmed)
+	}
+	return normalizeCompletionPath(trimmed)
+}
+
+func filterBootstrapPaths(paths []string, excludedPaths []string) []string {
+	excluded := map[string]struct{}{}
+	for _, excludedPath := range excludedPaths {
+		if trimmedExcludedPath := strings.TrimSpace(excludedPath); trimmedExcludedPath != "" {
+			excluded[trimmedExcludedPath] = struct{}{}
+		}
+	}
+
 	filtered := make([]string, 0, len(paths))
 	for _, candidatePath := range paths {
-		if candidatePath == excludedPath {
+		if _, skip := excluded[candidatePath]; skip {
 			continue
 		}
 		filtered = append(filtered, candidatePath)
@@ -2316,10 +2723,10 @@ func healthCheckInternalError(operation string, err error) *core.APIError {
 	)
 }
 
-func regressInternalError(operation string, err error) *core.APIError {
+func evalInternalError(operation string, err error) *core.APIError {
 	return core.NewError(
 		"INTERNAL_ERROR",
-		"failed to run regress suite",
+		"failed to run eval suite",
 		map[string]any{
 			"operation": operation,
 			"error":     err.Error(),
@@ -2371,13 +2778,13 @@ func reportCompletionInternalError(operation string, err error) *core.APIError {
 	)
 }
 
-func normalizeProposedMemory(memory v1.MemoryPayload) v1.MemoryPayload {
+func normalizeProposedMemory(memory v1.MemoryPayload, tagNormalizer canonicalTagNormalizer) v1.MemoryPayload {
 	return v1.MemoryPayload{
 		Category:            v1.MemoryCategory(strings.TrimSpace(string(memory.Category))),
 		Subject:             strings.TrimSpace(memory.Subject),
 		Content:             strings.TrimSpace(memory.Content),
 		RelatedPointerKeys:  normalizeValues(memory.RelatedPointerKeys),
-		Tags:                normalizeCanonicalTags(memory.Tags),
+		Tags:                tagNormalizer.normalizeTags(memory.Tags),
 		Confidence:          memory.Confidence,
 		EvidencePointerKeys: normalizeValues(memory.EvidencePointerKeys),
 	}
@@ -2654,7 +3061,7 @@ func coverageInternalError(operation string, err error) *core.APIError {
 	)
 }
 
-func buildAutoIndexPointerStubs(projectID string, violations []v1.CompletionViolation) []core.PointerStub {
+func buildAutoIndexPointerStubs(projectID string, violations []v1.CompletionViolation, tagNormalizer canonicalTagNormalizer) []core.PointerStub {
 	projectID = strings.TrimSpace(projectID)
 	seenPath := make(map[string]struct{}, len(violations))
 	stubs := make([]core.PointerStub, 0, len(violations))
@@ -2676,7 +3083,7 @@ func buildAutoIndexPointerStubs(projectID string, violations []v1.CompletionViol
 			Kind:        kind,
 			Label:       label,
 			Description: "Auto-indexed pointer stub created by scope gate. Curate label, description, and tags.",
-			Tags:        inferPointerTagsFromPath(normalizedPath, kind),
+			Tags:        inferPointerTagsFromPath(normalizedPath, kind, tagNormalizer),
 		})
 	}
 	return stubs
@@ -2712,19 +3119,19 @@ func inferPointerKindFromPath(filePath string) string {
 	}
 }
 
-func inferPointerTagsFromPath(filePath, kind string) []string {
+func inferPointerTagsFromPath(filePath, kind string, tagNormalizer canonicalTagNormalizer) []string {
 	tags := []string{"auto-indexed", kind}
 	baseName := strings.TrimSuffix(path.Base(filePath), path.Ext(filePath))
-	if normalized := normalizeCanonicalTag(baseName); healthTagPattern.MatchString(normalized) {
+	if normalized := tagNormalizer.normalizeTag(baseName); healthTagPattern.MatchString(normalized) {
 		tags = append(tags, normalized)
 	}
 	segments := strings.Split(path.Dir(filePath), "/")
 	for _, segment := range segments {
-		normalized := normalizeCanonicalTag(segment)
+		normalized := tagNormalizer.normalizeTag(segment)
 		if !healthTagPattern.MatchString(normalized) {
 			continue
 		}
 		tags = append(tags, normalized)
 	}
-	return normalizeCanonicalTags(tags)
+	return tagNormalizer.normalizeTags(tags)
 }

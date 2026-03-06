@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joshd/agent-context-manager/internal/adapters/cli"
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
-	"github.com/joshd/agent-context-manager/internal/logging"
-	"github.com/joshd/agent-context-manager/internal/runtime"
+	"github.com/bonztm/agent-context-manager/internal/adapters/cli"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/runtime"
 )
 
 type serviceFactory func(context.Context, logging.Logger) (core.Service, runtime.CleanupFunc, error)
@@ -114,8 +114,10 @@ func buildConvenienceEnvelope(subcommand string, args []string, now func() time.
 		return buildHealthFixEnvelope(args, now)
 	case "coverage":
 		return buildCoverageEnvelope(args, now)
-	case "regress":
-		return buildRegressEnvelope(args, now)
+	case "eval":
+		return buildEvalEnvelope(args, now)
+	case "verify":
+		return buildVerifyEnvelope(args, now)
 	case "bootstrap":
 		return buildBootstrapEnvelope(args, now)
 	default:
@@ -126,13 +128,14 @@ func buildConvenienceEnvelope(subcommand string, args []string, now func() time.
 func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"get-context",
-		"acm get-context --project <id> [--task-text <text>|--task-file <path>] [flags]",
+		"acm get-context --project <id> [--task-text <text>|--task-file <path>] [--tags-file <path>] [flags]",
 		"acm get-context --project myproject --task-text \"Add sync checks\" --phase execute",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	taskText := fs.String("task-text", "", "task description")
 	taskFile := fs.String("task-file", "", "file containing task text ('-' for stdin)")
 	phase := fs.String("phase", string(v1.PhaseExecute), "phase: plan|execute|review")
+	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
 	scopeMode := fs.String("scope-mode", "", "scope mode: strict|warn|auto_index")
 	allowStale := fs.Bool("allow-stale", false, "allow stale pointers")
 	fallbackMode := fs.String("fallback-mode", "", "fallback mode: widen_once|none")
@@ -173,6 +176,7 @@ func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnv
 		ProjectID:  strings.TrimSpace(*projectID),
 		TaskText:   trimmedTaskText,
 		Phase:      v1.Phase(strings.TrimSpace(*phase)),
+		TagsFile:   strings.TrimSpace(*tagsFile),
 		AllowStale: *allowStale,
 	}
 	if trimmedScopeMode := strings.TrimSpace(*scopeMode); trimmedScopeMode != "" {
@@ -299,7 +303,7 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"propose-memory",
-		"acm propose-memory --project <id> --receipt-id <id> --category <name> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [flags]",
+		"acm propose-memory --project <id> --receipt-id <id> --category <name> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [flags]",
 		"acm propose-memory --project myproject --receipt-id req-12345678 --category decision --subject \"Use health check\" --content \"Run before completion\" --confidence 4 --evidence-key rule:myproject/rule-1",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
@@ -309,17 +313,18 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 	content := fs.String("content", "", "memory content")
 	contentFile := fs.String("content-file", "", "file containing memory content ('-' for stdin)")
 	confidence := fs.Int("confidence", 0, "memory confidence (1-5)")
+	canonicalTagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
 	relatedKeysFile := fs.String("related-keys-file", "", "JSON file containing an array of related pointer keys")
 	relatedKeysJSON := fs.String("related-keys-json", "", "inline JSON array of related pointer keys")
-	tagsFile := fs.String("tags-file", "", "JSON file containing an array of tags")
-	tagsJSON := fs.String("tags-json", "", "inline JSON array of tags")
+	memoryTagsFile := fs.String("memory-tags-file", "", "JSON file containing an array of memory tags")
+	memoryTagsJSON := fs.String("memory-tags-json", "", "inline JSON array of memory tags")
 	evidenceKeysFile := fs.String("evidence-keys-file", "", "JSON file containing an array of evidence pointer keys")
 	evidenceKeysJSON := fs.String("evidence-keys-json", "", "inline JSON array of evidence pointer keys")
 	var relatedKeys repeatedStringFlag
-	var tags repeatedStringFlag
+	var memoryTags repeatedStringFlag
 	var evidenceKeys repeatedStringFlag
 	fs.Var(&relatedKeys, "related-key", "related pointer key (repeatable)")
-	fs.Var(&tags, "tag", "memory tag (repeatable)")
+	fs.Var(&memoryTags, "memory-tag", "memory tag (repeatable)")
 	fs.Var(&evidenceKeys, "evidence-key", "evidence pointer key (repeatable)")
 	autoPromote := optionalBoolFlag{}
 	fs.Var(&autoPromote, "auto-promote", "auto promote if validations pass (optional bool)")
@@ -377,16 +382,16 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 		allRelatedKeys = mergeUnique(allRelatedKeys, inlineValues)
 	}
 
-	allTags := tags.Values()
-	if trimmedTagsFile := strings.TrimSpace(*tagsFile); trimmedTagsFile != "" {
-		fileValues, err := readStringListFromFile(trimmedTagsFile, "--tags-file")
+	allTags := memoryTags.Values()
+	if trimmedMemoryTagsFile := strings.TrimSpace(*memoryTagsFile); trimmedMemoryTagsFile != "" {
+		fileValues, err := readStringListFromFile(trimmedMemoryTagsFile, "--memory-tags-file")
 		if err != nil {
 			return v1.CommandEnvelope{}, err
 		}
 		allTags = mergeUnique(allTags, fileValues)
 	}
-	if trimmedTagsJSON := strings.TrimSpace(*tagsJSON); trimmedTagsJSON != "" {
-		inlineValues, err := readStringListFromJSON(trimmedTagsJSON, "--tags-json")
+	if trimmedMemoryTagsJSON := strings.TrimSpace(*memoryTagsJSON); trimmedMemoryTagsJSON != "" {
+		inlineValues, err := readStringListFromJSON(trimmedMemoryTagsJSON, "--memory-tags-json")
 		if err != nil {
 			return v1.CommandEnvelope{}, err
 		}
@@ -412,6 +417,7 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 	payload := v1.ProposeMemoryPayload{
 		ProjectID: strings.TrimSpace(*projectID),
 		ReceiptID: strings.TrimSpace(*receiptID),
+		TagsFile:  strings.TrimSpace(*canonicalTagsFile),
 		Memory: v1.MemoryPayload{
 			Category:            v1.MemoryCategory(strings.TrimSpace(*category)),
 			Subject:             *subject,
@@ -529,7 +535,7 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"report-completion",
-		"acm report-completion --project <id> --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--files-changed-json <json>] [--scope-mode <mode>]",
+		"acm report-completion --project <id> --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--files-changed-json <json>] [--scope-mode <mode>] [--tags-file <path>]",
 		"acm report-completion --project myproject --receipt-id req-12345678 --file-changed cmd/acm/main.go --outcome \"Done\"",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
@@ -537,6 +543,7 @@ func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.Comm
 	outcome := fs.String("outcome", "", "completion outcome summary")
 	outcomeFile := fs.String("outcome-file", "", "file containing completion outcome ('-' for stdin)")
 	scopeMode := fs.String("scope-mode", "", "scope mode: strict|warn|auto_index")
+	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
 	filesChangedFile := fs.String("files-changed-file", "", "JSON file containing an array of changed file paths")
 	filesChangedJSON := fs.String("files-changed-json", "", "inline JSON array of changed file paths")
 	var filesChanged repeatedStringFlag
@@ -589,6 +596,7 @@ func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.Comm
 	payload := v1.ReportCompletionPayload{
 		ProjectID:    strings.TrimSpace(*projectID),
 		ReceiptID:    strings.TrimSpace(*receiptID),
+		TagsFile:     strings.TrimSpace(*tagsFile),
 		FilesChanged: allFilesChanged,
 		Outcome:      trimmedOutcome,
 	}
@@ -602,7 +610,7 @@ func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.Comm
 func buildSyncEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"sync",
-		"acm sync --project <id> [--mode changed|full|working_tree] [--git-range <range>] [--project-root <path>] [--rules-file <path>] [--insert-new-candidates[=true|false]]",
+		"acm sync --project <id> [--mode changed|full|working_tree] [--git-range <range>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--insert-new-candidates[=true|false]]",
 		"acm sync --project myproject --mode changed --git-range HEAD~1..HEAD",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
@@ -610,6 +618,7 @@ func buildSyncEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 	gitRange := fs.String("git-range", "", "git revision range")
 	projectRoot := fs.String("project-root", "", "project root for sync")
 	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
+	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
 	insertNewCandidates := optionalBoolFlag{}
 	fs.Var(&insertNewCandidates, "insert-new-candidates", "insert uncovered candidates (optional bool)")
 	if err := parseCommandFlags(fs, args); err != nil {
@@ -625,6 +634,7 @@ func buildSyncEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 		GitRange:    strings.TrimSpace(*gitRange),
 		ProjectRoot: strings.TrimSpace(*projectRoot),
 		RulesFile:   strings.TrimSpace(*rulesFile),
+		TagsFile:    strings.TrimSpace(*tagsFile),
 	}
 	if insertNewCandidates.IsSet() {
 		payload.InsertNewCandidates = insertNewCandidates.Ptr()
@@ -664,7 +674,7 @@ func buildHealthCheckEnvelope(args []string, now func() time.Time) (v1.CommandEn
 func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"health-fix",
-		"acm health-fix --project <id> [--apply[=true|false>] [--project-root <path>] [--rules-file <path>] [--fixer <name>]...",
+		"acm health-fix --project <id> [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--fixer <name>]...",
 		"acm health-fix --project myproject --apply --fixer sync_working_tree",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
@@ -672,6 +682,7 @@ func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 	fs.Var(&applyChanges, "apply", "apply actions instead of dry-run (optional bool)")
 	projectRoot := fs.String("project-root", "", "project root for fixers")
 	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
+	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
 	var fixers repeatedStringFlag
 	fs.Var(&fixers, "fixer", "fixer to run (repeatable): sync_working_tree|index_uncovered_files|sync_ruleset")
 	if err := parseCommandFlags(fs, args); err != nil {
@@ -685,6 +696,7 @@ func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 		ProjectID:   strings.TrimSpace(*projectID),
 		ProjectRoot: strings.TrimSpace(*projectRoot),
 		RulesFile:   strings.TrimSpace(*rulesFile),
+		TagsFile:    strings.TrimSpace(*tagsFile),
 	}
 	if applyChanges.IsSet() {
 		payload.Apply = applyChanges.Ptr()
@@ -721,17 +733,18 @@ func buildCoverageEnvelope(args []string, now func() time.Time) (v1.CommandEnvel
 	return buildEnvelope(v1.CommandCoverage, *requestID, payload, now)
 }
 
-func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+func buildEvalEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
-		"regress",
-		"acm regress --project <id> (--eval-suite-path <path> | --eval-suite-inline-file <path> | --eval-suite-inline-json <json>) [--minimum-recall <0..1>]",
-		"acm regress --project myproject --eval-suite-path ./eval.json --minimum-recall 0.9",
+		"eval",
+		"acm eval --project <id> (--eval-suite-path <path> | --eval-suite-inline-file <path> | --eval-suite-inline-json <json>) [--minimum-recall <0..1>] [--tags-file <path>]",
+		"acm eval --project myproject --eval-suite-path ./eval.json --minimum-recall 0.9",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	evalSuitePath := fs.String("eval-suite-path", "", "path to eval suite JSON file")
-	evalSuiteInlineFile := fs.String("eval-suite-inline-file", "", "path to JSON array of inline regress cases")
-	evalSuiteInlineJSON := fs.String("eval-suite-inline-json", "", "inline JSON array of regress cases")
+	evalSuiteInlineFile := fs.String("eval-suite-inline-file", "", "path to JSON array of inline eval cases")
+	evalSuiteInlineJSON := fs.String("eval-suite-inline-json", "", "inline JSON array of eval cases")
 	minimumRecall := fs.Float64("minimum-recall", -1, "minimum recall threshold (0..1)")
+	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
@@ -759,19 +772,20 @@ func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelo
 		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --eval-suite-path, --eval-suite-inline-file, or --eval-suite-inline-json")
 	}
 
-	payload := v1.RegressPayload{
+	payload := v1.EvalPayload{
 		ProjectID:     strings.TrimSpace(*projectID),
 		EvalSuitePath: trimmedEvalSuitePath,
+		TagsFile:      strings.TrimSpace(*tagsFile),
 	}
 	if trimmedEvalSuiteInlineFile != "" {
-		evalSuiteInline, err := readRegressCasesFromFile(trimmedEvalSuiteInlineFile)
+		evalSuiteInline, err := readEvalCasesFromFile(trimmedEvalSuiteInlineFile)
 		if err != nil {
 			return v1.CommandEnvelope{}, err
 		}
 		payload.EvalSuiteInline = evalSuiteInline
 	}
 	if trimmedEvalSuiteInlineJSON != "" {
-		evalSuiteInline, err := readRegressCasesFromJSON(trimmedEvalSuiteInlineJSON)
+		evalSuiteInline, err := readEvalCasesFromJSON(trimmedEvalSuiteInlineJSON)
 		if err != nil {
 			return v1.CommandEnvelope{}, err
 		}
@@ -781,18 +795,78 @@ func buildRegressEnvelope(args []string, now func() time.Time) (v1.CommandEnvelo
 		payload.MinimumRecall = minimumRecall
 	}
 
-	return buildEnvelope(v1.CommandRegress, *requestID, payload, now)
+	return buildEnvelope(v1.CommandEval, *requestID, payload, now)
+}
+
+func buildVerifyEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	fs := newCommandFlagSet(
+		"verify",
+		"acm verify --project <id> [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]",
+		"acm verify --project myproject --phase review --file-changed internal/service/postgres/service.go --dry-run",
+	)
+	projectID, requestID := addProjectAndRequestFlags(fs)
+	receiptID := fs.String("receipt-id", "", "receipt ID")
+	planKey := fs.String("plan-key", "", "plan key")
+	phase := fs.String("phase", "", "phase: plan|execute|review")
+	testsFile := fs.String("tests-file", "", "explicit verification definitions file path (overrides default discovery)")
+	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
+	filesChangedFile := fs.String("files-changed-file", "", "JSON file containing an array of changed files")
+	filesChangedJSON := fs.String("files-changed-json", "", "inline JSON array of changed files")
+	dryRun := fs.Bool("dry-run", false, "select tests without executing them")
+	var testIDs repeatedStringFlag
+	var filesChanged repeatedStringFlag
+	fs.Var(&testIDs, "test-id", "verification test id (repeatable)")
+	fs.Var(&filesChanged, "file-changed", "repository-relative changed file path (repeatable)")
+	if err := parseCommandFlags(fs, args); err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	if err := requireFlag("project", *projectID); err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+
+	allFilesChanged := filesChanged.Values()
+	if trimmedFilesChangedFile := strings.TrimSpace(*filesChangedFile); trimmedFilesChangedFile != "" {
+		fileValues, err := readStringListFromFile(trimmedFilesChangedFile, "--files-changed-file")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allFilesChanged = mergeUnique(allFilesChanged, fileValues)
+	}
+	if trimmedFilesChangedJSON := strings.TrimSpace(*filesChangedJSON); trimmedFilesChangedJSON != "" {
+		inlineValues, err := readStringListFromJSON(trimmedFilesChangedJSON, "--files-changed-json")
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		allFilesChanged = mergeUnique(allFilesChanged, inlineValues)
+	}
+
+	payload := v1.VerifyPayload{
+		ProjectID:    strings.TrimSpace(*projectID),
+		ReceiptID:    strings.TrimSpace(*receiptID),
+		PlanKey:      strings.TrimSpace(*planKey),
+		TestIDs:      mergeUnique(nil, testIDs.Values()),
+		FilesChanged: allFilesChanged,
+		TestsFile:    strings.TrimSpace(*testsFile),
+		TagsFile:     strings.TrimSpace(*tagsFile),
+		DryRun:       *dryRun,
+	}
+	if trimmedPhase := strings.TrimSpace(*phase); trimmedPhase != "" {
+		payload.Phase = v1.Phase(trimmedPhase)
+	}
+
+	return buildEnvelope(v1.CommandVerify, *requestID, payload, now)
 }
 
 func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"bootstrap",
-		"acm bootstrap --project <id> --project-root <path> [--rules-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--llm-assist-descriptions[=true|false]] [--output-candidates-path <path>]",
+		"acm bootstrap --project <id> --project-root <path> [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--llm-assist-descriptions[=true|false]] [--output-candidates-path <path>]",
 		"acm bootstrap --project myproject --project-root . --respect-gitignore",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	projectRoot := fs.String("project-root", "", "project root to analyze")
 	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
+	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
 	persistCandidates := optionalBoolFlag{}
 	fs.Var(&persistCandidates, "persist-candidates", "persist bootstrap candidates to disk (optional bool)")
 	respectGitIgnore := optionalBoolFlag{}
@@ -814,6 +888,7 @@ func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 		ProjectID:   strings.TrimSpace(*projectID),
 		ProjectRoot: strings.TrimSpace(*projectRoot),
 		RulesFile:   strings.TrimSpace(*rulesFile),
+		TagsFile:    strings.TrimSpace(*tagsFile),
 	}
 	if respectGitIgnore.IsSet() {
 		payload.RespectGitIgnore = respectGitIgnore.Ptr()
@@ -998,16 +1073,16 @@ func readWorkItemsFromJSON(raw string) ([]v1.WorkItemPayload, error) {
 	return items, nil
 }
 
-func readRegressCasesFromFile(path string) ([]v1.RegressCase, error) {
-	var cases []v1.RegressCase
+func readEvalCasesFromFile(path string) ([]v1.EvalCase, error) {
+	var cases []v1.EvalCase
 	if err := readJSONFileStrict(path, &cases); err != nil {
 		return nil, fmt.Errorf("read --eval-suite-inline-file %s: %w", path, err)
 	}
 	return cases, nil
 }
 
-func readRegressCasesFromJSON(raw string) ([]v1.RegressCase, error) {
-	var cases []v1.RegressCase
+func readEvalCasesFromJSON(raw string) ([]v1.EvalCase, error) {
+	var cases []v1.EvalCase
 	if err := readJSONInlineStrict(raw, &cases); err != nil {
 		return nil, fmt.Errorf("read --eval-suite-inline-json: %w", err)
 	}

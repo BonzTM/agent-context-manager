@@ -15,10 +15,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/logging"
-	"github.com/joshd/agent-context-manager/internal/runtime"
-	postgressvc "github.com/joshd/agent-context-manager/internal/service/postgres"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/runtime"
+	postgressvc "github.com/bonztm/agent-context-manager/internal/service/postgres"
 )
 
 const (
@@ -226,6 +226,7 @@ func assertMigrationsApplied(t *testing.T, ctx context.Context, pool *pgxpool.Po
 		"0003_acm_sync.sql",
 		"0004_acm_work_items.sql",
 		"0005_acm_work_plans.sql",
+		"0006_acm_work_plan_hierarchy.sql",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected migration record set: got %v want %v", got, want)

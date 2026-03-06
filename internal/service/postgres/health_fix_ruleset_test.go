@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 type trackingRuleSyncRepository struct {

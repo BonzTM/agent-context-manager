@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
-	"github.com/joshd/agent-context-manager/internal/logging"
-	"github.com/joshd/agent-context-manager/internal/service/unconfigured"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/service/unconfigured"
 )
 
 type fakeService struct{}
@@ -52,8 +52,12 @@ func (f fakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.Cover
 	return v1.CoverageResult{}, nil
 }
 
-func (f fakeService) Regress(_ context.Context, _ v1.RegressPayload) (v1.RegressResult, *core.APIError) {
-	return v1.RegressResult{}, nil
+func (f fakeService) Eval(_ context.Context, _ v1.EvalPayload) (v1.EvalResult, *core.APIError) {
+	return v1.EvalResult{}, nil
+}
+
+func (f fakeService) Verify(_ context.Context, _ v1.VerifyPayload) (v1.VerifyResult, *core.APIError) {
+	return v1.VerifyResult{}, nil
 }
 
 func (f fakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {
@@ -143,7 +147,7 @@ func TestRun_UnconfiguredServiceNotImplementedEnvelope(t *testing.T) {
 	}
 }
 
-func TestRun_DispatchesHealthCheckRegressAndBootstrap(t *testing.T) {
+func TestRun_DispatchesHealthCheckEvalAndBootstrap(t *testing.T) {
 	tests := []struct {
 		name    string
 		command string
@@ -165,8 +169,8 @@ func TestRun_DispatchesHealthCheckRegressAndBootstrap(t *testing.T) {
 			payload: `{"project_id":"my-cool-app"}`,
 		},
 		{
-			name:    "regress",
-			command: "regress",
+			name:    "eval",
+			command: "eval",
 			payload: `{"project_id":"my-cool-app","eval_suite_inline":[{"task_text":"x","phase":"execute"}]}`,
 		},
 		{

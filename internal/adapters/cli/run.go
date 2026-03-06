@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joshd/agent-context-manager/internal/contracts/v1"
-	"github.com/joshd/agent-context-manager/internal/core"
-	"github.com/joshd/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/logging"
 )
 
 const (
@@ -134,8 +134,10 @@ func dispatch(ctx context.Context, svc core.Service, command v1.Command, payload
 		return svc.HealthFix(ctx, payload.(v1.HealthFixPayload))
 	case v1.CommandCoverage:
 		return svc.Coverage(ctx, payload.(v1.CoveragePayload))
-	case v1.CommandRegress:
-		return svc.Regress(ctx, payload.(v1.RegressPayload))
+	case v1.CommandEval:
+		return svc.Eval(ctx, payload.(v1.EvalPayload))
+	case v1.CommandVerify:
+		return svc.Verify(ctx, payload.(v1.VerifyPayload))
 	case v1.CommandBootstrap:
 		return svc.Bootstrap(ctx, payload.(v1.BootstrapPayload))
 	default:
@@ -169,7 +171,9 @@ func projectIDFromPayload(payload any) string {
 		return strings.TrimSpace(p.ProjectID)
 	case v1.CoveragePayload:
 		return strings.TrimSpace(p.ProjectID)
-	case v1.RegressPayload:
+	case v1.EvalPayload:
+		return strings.TrimSpace(p.ProjectID)
+	case v1.VerifyPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case v1.BootstrapPayload:
 		return strings.TrimSpace(p.ProjectID)

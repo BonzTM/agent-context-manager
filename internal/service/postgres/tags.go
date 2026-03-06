@@ -3,29 +3,108 @@ package postgres
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
+	"os"
+	"path"
+	"path/filepath"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
-const maxTaskCanonicalTags = 6
+const (
+	maxTaskCanonicalTags         = 6
+	canonicalTagsVersionV1       = "acm.tags.v1"
+	canonicalTagsDefaultFilePath = ".acm/acm-tags.yaml"
+	maxBootstrapSuggestedTags    = 16
+	minBootstrapTagFileCount     = 2
+)
+
+var bootstrapIgnoredTagTokens = map[string]struct{}{
+	"adapter":    {},
+	"adapters":   {},
+	"agent":      {},
+	"agents":     {},
+	"cmd":        {},
+	"common":     {},
+	"config":     {},
+	"configs":    {},
+	"contract":   {},
+	"contracts":  {},
+	"core":       {},
+	"dir":        {},
+	"example":    {},
+	"examples":   {},
+	"file":       {},
+	"files":      {},
+	"helper":     {},
+	"helpers":    {},
+	"impl":       {},
+	"index":      {},
+	"internal":   {},
+	"lib":        {},
+	"main":       {},
+	"manager":    {},
+	"model":      {},
+	"models":     {},
+	"pkg":        {},
+	"project":    {},
+	"readme":     {},
+	"reference":  {},
+	"references": {},
+	"schema":     {},
+	"schemas":    {},
+	"spec":       {},
+	"specs":      {},
+	"src":        {},
+	"type":       {},
+	"types":      {},
+	"util":       {},
+	"utils":      {},
+	"vendor":     {},
+}
 
 //go:embed canonical_tags.json
 var canonicalTagsJSON []byte
 
-type canonicalTagsConfig struct {
-	CanonicalTags map[string][]string `json:"canonical_tags"`
+type canonicalTagsDocumentV1 struct {
+	Version       string              `json:"version,omitempty" yaml:"version"`
+	CanonicalTags map[string][]string `json:"canonical_tags" yaml:"canonical_tags"`
 }
 
-var canonicalTagAliasMap = loadCanonicalTagAliasMap(canonicalTagsJSON)
+type canonicalTagsSource struct {
+	SourcePath   string
+	AbsolutePath string
+	Exists       bool
+}
+
+type canonicalTagNormalizer struct {
+	aliasMap map[string]string
+}
+
+type bootstrapTagSuggestion struct {
+	Tag       string
+	FileCount int
+	DirCount  int
+	BaseCount int
+}
+
+var defaultCanonicalTagNormalizer = canonicalTagNormalizer{
+	aliasMap: loadCanonicalTagAliasMap(canonicalTagsJSON),
+}
 
 func loadCanonicalTagAliasMap(raw []byte) map[string]string {
-	cfg := canonicalTagsConfig{}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	doc := canonicalTagsDocumentV1{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
 		return map[string]string{}
 	}
+	return loadCanonicalTagAliasMapFromDocument(doc)
+}
 
+func loadCanonicalTagAliasMapFromDocument(doc canonicalTagsDocumentV1) map[string]string {
 	aliasMap := make(map[string]string)
-	for canonical, aliases := range cfg.CanonicalTags {
+	for canonical, aliases := range doc.CanonicalTags {
 		canonical = strings.ToLower(strings.TrimSpace(canonical))
 		if canonical == "" {
 			continue
@@ -42,18 +121,316 @@ func loadCanonicalTagAliasMap(raw []byte) map[string]string {
 	return aliasMap
 }
 
+func (s *Service) loadCanonicalTagNormalizer(projectRoot, tagsFile string) (canonicalTagNormalizer, error) {
+	aliasMap, err := loadMergedCanonicalTagAliasMap(projectRoot, tagsFile)
+	if err != nil {
+		return canonicalTagNormalizer{}, err
+	}
+	return canonicalTagNormalizer{aliasMap: aliasMap}, nil
+}
+
+func loadMergedCanonicalTagAliasMap(projectRoot, tagsFile string) (map[string]string, error) {
+	aliasMap := cloneCanonicalTagAliasMap(defaultCanonicalTagNormalizer.aliasMap)
+
+	source, err := discoverCanonicalTagsSource(projectRoot, tagsFile)
+	if err != nil {
+		return nil, err
+	}
+	if !source.Exists {
+		return aliasMap, nil
+	}
+
+	document, err := parseCanonicalTagsFile(source)
+	if err != nil {
+		return nil, err
+	}
+	for alias, canonical := range loadCanonicalTagAliasMapFromDocument(document) {
+		aliasMap[alias] = canonical
+	}
+	return aliasMap, nil
+}
+
+func discoverCanonicalTagsSource(projectRoot, tagsFile string) (canonicalTagsSource, error) {
+	root := normalizeBootstrapProjectRoot(projectRoot)
+	sourcePath := canonicalTagsDefaultFilePath
+	if trimmedTagsFile := strings.TrimSpace(tagsFile); trimmedTagsFile != "" {
+		sourcePath = trimmedTagsFile
+	}
+
+	sourcePath = normalizeCompletionPath(sourcePath)
+	if sourcePath == "" {
+		return canonicalTagsSource{}, nil
+	}
+
+	absolutePath := filepath.Clean(filepath.Join(root, filepath.FromSlash(sourcePath)))
+	stat, err := os.Stat(absolutePath)
+	exists := false
+	switch {
+	case err == nil:
+		exists = !stat.IsDir()
+	case errors.Is(err, os.ErrNotExist):
+		exists = false
+	default:
+		return canonicalTagsSource{}, err
+	}
+
+	return canonicalTagsSource{
+		SourcePath:   sourcePath,
+		AbsolutePath: absolutePath,
+		Exists:       exists,
+	}, nil
+}
+
+func parseCanonicalTagsFile(source canonicalTagsSource) (canonicalTagsDocumentV1, error) {
+	blob, err := os.ReadFile(source.AbsolutePath)
+	if err != nil {
+		return canonicalTagsDocumentV1{}, err
+	}
+
+	decoder := yaml.NewDecoder(strings.NewReader(string(blob)))
+	decoder.KnownFields(true)
+
+	doc := canonicalTagsDocumentV1{}
+	if err := decoder.Decode(&doc); err != nil {
+		return canonicalTagsDocumentV1{}, err
+	}
+	if strings.TrimSpace(doc.Version) != canonicalTagsVersionV1 {
+		return canonicalTagsDocumentV1{}, errors.New("canonical tags file has unsupported version")
+	}
+	if doc.CanonicalTags == nil {
+		doc.CanonicalTags = map[string][]string{}
+	}
+	return doc, nil
+}
+
+func cloneCanonicalTagAliasMap(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return map[string]string{}
+	}
+	cloned := make(map[string]string, len(source))
+	for alias, canonical := range source {
+		cloned[alias] = canonical
+	}
+	return cloned
+}
+
+func syncBootstrapCanonicalTagsFile(projectRoot, tagsFile string, candidatePaths []string) error {
+	source, err := discoverCanonicalTagsSource(projectRoot, tagsFile)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(source.AbsolutePath) == "" {
+		return nil
+	}
+
+	suggestions := bootstrapCanonicalTagsDocument(candidatePaths)
+	if source.Exists {
+		existing, err := parseCanonicalTagsFile(source)
+		if err != nil {
+			return err
+		}
+		if len(existing.CanonicalTags) > 0 || len(suggestions.CanonicalTags) == 0 {
+			return nil
+		}
+		return os.WriteFile(source.AbsolutePath, renderCanonicalTagsDocumentYAML(suggestions), 0o644)
+	}
+
+	return writeBootstrapScaffoldFile(source.AbsolutePath, renderCanonicalTagsDocumentYAML(suggestions))
+}
+
+func bootstrapCanonicalTagsDocument(candidatePaths []string) canonicalTagsDocumentV1 {
+	document := canonicalTagsDocumentV1{
+		Version:       canonicalTagsVersionV1,
+		CanonicalTags: map[string][]string{},
+	}
+
+	suggestions := suggestBootstrapCanonicalTags(candidatePaths)
+	for _, suggestion := range suggestions {
+		document.CanonicalTags[suggestion.Tag] = []string{}
+	}
+	return document
+}
+
+func suggestBootstrapCanonicalTags(candidatePaths []string) []bootstrapTagSuggestion {
+	type tagStats struct {
+		fileCount int
+		dirCount  int
+		baseCount int
+	}
+
+	stats := map[string]*tagStats{}
+	for _, candidatePath := range normalizeCompletionPaths(candidatePaths) {
+		dirTokens, baseTokens := bootstrapTagTokensForPath(candidatePath)
+
+		seenInFile := map[string]struct{}{}
+		for _, token := range dirTokens {
+			stat := stats[token]
+			if stat == nil {
+				stat = &tagStats{}
+				stats[token] = stat
+			}
+			stat.dirCount++
+			seenInFile[token] = struct{}{}
+		}
+		for _, token := range baseTokens {
+			stat := stats[token]
+			if stat == nil {
+				stat = &tagStats{}
+				stats[token] = stat
+			}
+			stat.baseCount++
+			seenInFile[token] = struct{}{}
+		}
+		for token := range seenInFile {
+			stats[token].fileCount++
+		}
+	}
+
+	suggestions := make([]bootstrapTagSuggestion, 0, len(stats))
+	for token, stat := range stats {
+		if stat.fileCount < minBootstrapTagFileCount {
+			continue
+		}
+		suggestions = append(suggestions, bootstrapTagSuggestion{
+			Tag:       token,
+			FileCount: stat.fileCount,
+			DirCount:  stat.dirCount,
+			BaseCount: stat.baseCount,
+		})
+	}
+
+	sort.Slice(suggestions, func(i, j int) bool {
+		leftScore := bootstrapTagSuggestionScore(suggestions[i])
+		rightScore := bootstrapTagSuggestionScore(suggestions[j])
+		if leftScore != rightScore {
+			return leftScore > rightScore
+		}
+		if suggestions[i].FileCount != suggestions[j].FileCount {
+			return suggestions[i].FileCount > suggestions[j].FileCount
+		}
+		return suggestions[i].Tag < suggestions[j].Tag
+	})
+	if len(suggestions) > maxBootstrapSuggestedTags {
+		suggestions = suggestions[:maxBootstrapSuggestedTags]
+	}
+	sort.Slice(suggestions, func(i, j int) bool {
+		return suggestions[i].Tag < suggestions[j].Tag
+	})
+
+	return suggestions
+}
+
+func bootstrapTagSuggestionScore(suggestion bootstrapTagSuggestion) int {
+	return (suggestion.FileCount * 3) + (suggestion.DirCount * 2) + suggestion.BaseCount
+}
+
+func bootstrapTagTokensForPath(candidatePath string) ([]string, []string) {
+	normalizedPath := normalizeCompletionPath(candidatePath)
+	if normalizedPath == "" {
+		return nil, nil
+	}
+
+	dirTokens := make(map[string]struct{})
+	dirPath := path.Dir(normalizedPath)
+	if dirPath != "" && dirPath != "." {
+		for _, segment := range strings.Split(dirPath, "/") {
+			addBootstrapTagTokens(dirTokens, segment)
+		}
+	}
+
+	baseTokens := make(map[string]struct{})
+	baseName := strings.TrimSuffix(path.Base(normalizedPath), path.Ext(normalizedPath))
+	addBootstrapTagTokens(baseTokens, baseName)
+
+	return mapKeysSorted(dirTokens), mapKeysSorted(baseTokens)
+}
+
+func addBootstrapTagTokens(dest map[string]struct{}, raw string) {
+	for _, token := range strings.FieldsFunc(strings.ToLower(strings.TrimSpace(raw)), isTagTokenSeparator) {
+		token = strings.TrimSpace(token)
+		if !shouldSuggestBootstrapTagToken(token) {
+			continue
+		}
+		dest[token] = struct{}{}
+	}
+}
+
+func shouldSuggestBootstrapTagToken(token string) bool {
+	if len(token) < 3 {
+		return false
+	}
+	if token[0] < 'a' || token[0] > 'z' {
+		return false
+	}
+	if !healthTagPattern.MatchString(token) {
+		return false
+	}
+	if _, ignored := bootstrapIgnoredTagTokens[token]; ignored {
+		return false
+	}
+	if _, known := defaultCanonicalTagNormalizer.aliasMap[token]; known {
+		return false
+	}
+	return true
+}
+
+func renderCanonicalTagsDocumentYAML(document canonicalTagsDocumentV1) []byte {
+	var builder strings.Builder
+	builder.WriteString("version: ")
+	builder.WriteString(canonicalTagsVersionV1)
+	builder.WriteString("\n")
+	if len(document.CanonicalTags) == 0 {
+		builder.WriteString("canonical_tags: {}\n")
+		return []byte(builder.String())
+	}
+
+	builder.WriteString("canonical_tags:\n")
+	keys := make([]string, 0, len(document.CanonicalTags))
+	for key := range document.CanonicalTags {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		aliases := append([]string(nil), document.CanonicalTags[key]...)
+		sort.Strings(aliases)
+		builder.WriteString("  ")
+		builder.WriteString(key)
+		builder.WriteString(": ")
+		if len(aliases) == 0 {
+			builder.WriteString("[]\n")
+			continue
+		}
+		builder.WriteString("[")
+		builder.WriteString(strings.Join(aliases, ", "))
+		builder.WriteString("]\n")
+	}
+	return []byte(builder.String())
+}
+
 func normalizeCanonicalTag(raw string) string {
+	return defaultCanonicalTagNormalizer.normalizeTag(raw)
+}
+
+func normalizeCanonicalTags(values []string) []string {
+	return defaultCanonicalTagNormalizer.normalizeTags(values)
+}
+
+func canonicalTagsFromTaskText(taskText string) []string {
+	return defaultCanonicalTagNormalizer.canonicalTagsFromTaskText(taskText)
+}
+
+func (n canonicalTagNormalizer) normalizeTag(raw string) string {
 	tag := strings.ToLower(strings.TrimSpace(raw))
 	if tag == "" {
 		return ""
 	}
-	if canonical, ok := canonicalTagAliasMap[tag]; ok {
+	if canonical, ok := n.aliasMap[tag]; ok {
 		return canonical
 	}
 	return tag
 }
 
-func normalizeCanonicalTags(values []string) []string {
+func (n canonicalTagNormalizer) normalizeTags(values []string) []string {
 	if len(values) == 0 {
 		return nil
 	}
@@ -61,7 +438,7 @@ func normalizeCanonicalTags(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	out := make([]string, 0, len(values))
 	for _, raw := range values {
-		tag := normalizeCanonicalTag(raw)
+		tag := n.normalizeTag(raw)
 		if tag == "" {
 			continue
 		}
@@ -78,8 +455,8 @@ func normalizeCanonicalTags(values []string) []string {
 	return out
 }
 
-func canonicalTagsFromTaskText(taskText string) []string {
-	if strings.TrimSpace(taskText) == "" || len(canonicalTagAliasMap) == 0 {
+func (n canonicalTagNormalizer) canonicalTagsFromTaskText(taskText string) []string {
+	if strings.TrimSpace(taskText) == "" || len(n.aliasMap) == 0 {
 		return nil
 	}
 
@@ -90,11 +467,11 @@ func canonicalTagsFromTaskText(taskText string) []string {
 		if token == "" {
 			continue
 		}
-		if canonical, ok := canonicalTagAliasMap[token]; ok {
+		if canonical, ok := n.aliasMap[token]; ok {
 			seen[canonical] = struct{}{}
 		}
 		for _, part := range strings.FieldsFunc(token, isTagTokenSeparator) {
-			if canonical, ok := canonicalTagAliasMap[part]; ok {
+			if canonical, ok := n.aliasMap[part]; ok {
 				seen[canonical] = struct{}{}
 			}
 		}
