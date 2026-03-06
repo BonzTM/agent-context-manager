@@ -86,9 +86,10 @@ Once connected, agents call acm operations automatically during tasks:
 1. `get_context` — retrieves a scoped receipt (rules, suggestions, memories, active plans from prior runs)
 2. `fetch` — pulls full content for pointer keys, plan keys, or task keys
 3. `work` — creates/updates structured plans with tasks (survives context compaction)
-4. `verify` — runs repo-defined executable checks and updates `verify:tests` when work context is present
-5. `report_completion` — closes the task, validates scope, and enforces `verify:tests`
-6. `propose_memory` — saves durable facts for future retrieval
+4. `history_search` — lists or searches work, receipt, and run history with targeted fetch keys
+5. `verify` — runs repo-defined executable checks and updates `verify:tests` when work context is present
+6. `report_completion` — closes the task, validates scope, and enforces `verify:tests`
+7. `propose_memory` — saves durable facts for future retrieval
 
 You can test any operation manually via CLI (e.g., `acm get-context --project my-cool-app --task-text "fix the login bug" --phase execute`). See the [CLI Reference](#cli-reference) below.
 
@@ -135,7 +136,7 @@ acm work           --project <id> [--plan-key <key>|--receipt-id <id>] [--mode <
 acm work list      --project <id> [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
 acm work search    --project <id> (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
 acm history search --project <id> [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
-acm propose-memory --project <id> --receipt-id <id> --category <cat> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> --evidence-key <key> [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [--auto-promote]
+acm propose-memory --project <id> --receipt-id <id> --category <cat> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [--evidence-key <key>]... [--evidence-keys-file <path>|--evidence-keys-json <json>] [--related-key <key>]... [--related-keys-file <path>|--related-keys-json <json>] [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [--auto-promote]
 acm report-completion --project <id> --receipt-id <id> [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] (--outcome <text>|--outcome-file <path>) [--scope-mode <strict|warn|auto_index>] [--tags-file <path>]
 ```
 

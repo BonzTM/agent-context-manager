@@ -60,7 +60,11 @@ Each plan has:
 - **Objective** — what the plan aims to achieve
 - **Kind** — free-form label (e.g., `bugfix`, `feature`)
 - **Status** — `pending`, `in_progress`, `complete`, or `blocked`
-- **Stages** — optional planning stages: spec outline, refined spec, implementation plan
+- **Stages** — optional planning stages that track spec maturity:
+  - `spec_outline` — initial high-level spec drafted
+  - `refined_spec` — spec reviewed and refined with details
+  - `implementation_plan` — concrete implementation steps defined
+  Each stage has its own status (`pending`, `in_progress`, `complete`, `blocked`).
 - **Scope** — in-scope/out-of-scope/constraints lists
 
 Plans are created and updated via the `work` command. Updates can use `merge` mode (default, upserts tasks by key) or `replace` mode (replaces all tasks).
@@ -106,6 +110,27 @@ Every `get_context` call includes a phase that controls how results are weighted
 - **review** — rules weighted highest, then tests, then code
 
 The phase doesn't filter results — it changes their ranking so the most useful pointers surface first.
+
+## Retrieval Caps
+
+`get_context` applies built-in defaults for how many pointers, memories, and relation hops to include. You can override these defaults per call:
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--max-non-rule-pointers` | 8 | Maximum non-rule pointers returned |
+| `--max-rule-pointers` | unbounded | Maximum rule pointers returned |
+| `--max-hops` | 1 | Relation-hop expansion depth |
+| `--max-hop-expansion` | +5 | Maximum additional pointers from hop expansion |
+| `--max-memories` | 6 | Maximum memories returned |
+| `--min-pointer-count` | 2 | Minimum pointers before triggering fallback |
+| `--word-budget-limit` | 0 (off) | Optional word budget for returned content |
+
+Additional flags:
+- `--allow-stale` — include stale pointers (default: false)
+- `--fallback-mode` — `widen_once` (default) or `none` for controlling what happens when too few pointers match
+- `--unbounded` — remove all built-in retrieval caps
+
+These are advanced tuning knobs. The defaults work well for most projects.
 
 ## Scope Mode
 

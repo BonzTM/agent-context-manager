@@ -272,7 +272,7 @@ acm propose-memory --project myproject \
   --memory-tag auth
 ```
 
-For longer memory content, use `--content-file`. Memory tags and evidence keys also accept `--memory-tags-json` / `--evidence-keys-json` and `--memory-tags-file` / `--evidence-keys-file` (JSON arrays). Use `--tags-file` when you need to override the canonical tag dictionary used for runtime normalization. Add `--auto-promote` to skip quarantine and promote directly if validations pass.
+For longer memory content, use `--content-file`. Memory tags, evidence keys, and related keys also accept `--memory-tags-json` / `--evidence-keys-json` / `--related-keys-json` and `--memory-tags-file` / `--evidence-keys-file` / `--related-keys-file` (JSON arrays). Use `--related-key` (repeatable) to link the memory to related pointers beyond the evidence chain. Use `--tags-file` when you need to override the canonical tag dictionary used for runtime normalization. Add `--auto-promote` to skip quarantine and promote directly if validations pass.
 
 Memories are available in future `get_context` calls when relevant tags match.
 
@@ -311,7 +311,7 @@ Add an `AGENTS.md` to your project root. A starter template is at [docs/examples
 For models with native tool support, use the MCP adapter:
 
 ```bash
-acm-mcp tools          # list all 12 available tools
+acm-mcp tools          # list all 13 available tools
 acm-mcp invoke --tool get_context --in payload.json
 ```
 

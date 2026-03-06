@@ -50,6 +50,8 @@ Convenience subcommands (build v1 envelopes internally):
 - `acm work` -> `work(project_id, plan_key|receipt_id, mode?, plan?, tasks?)`
 - `acm propose-memory` -> `propose_memory(receipt_id, payload_json)`
 - `acm report-completion` -> `report_completion(receipt_id, files_changed, outcome)`
+- `acm work list` / `acm work search` -> work plan history
+- `acm history search` -> `history_search(project_id, entity?, query?, scope?)`
 - `acm sync` -> pointer/hash upkeep from git diff
 - `acm health` / `acm health-check` -> integrity and drift report
 - `acm health-fix` -> apply safe remediations (sync_working_tree, index_uncovered_files, sync_ruleset)
@@ -69,6 +71,7 @@ Agent-facing tools:
 - `propose_memory`
 - `report_completion`
 - `work`
+- `history_search`
 
 Maintenance tools (same operations as CLI, exposed for tool-native orchestration):
 
