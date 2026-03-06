@@ -64,6 +64,11 @@ rules:
     summary: Close every task with report_completion.
     enforcement: hard
     tags: [completion]
+
+  - id: rule_verify_before_completion
+    summary: Run verify before report_completion when code changes.
+    enforcement: hard
+    tags: [verification]
 ```
 
 ### 3. Sync rules into acm
@@ -81,8 +86,9 @@ Once connected, agents call acm operations automatically during tasks:
 1. `get_context` — retrieves a scoped receipt (rules, suggestions, memories, active plans from prior runs)
 2. `fetch` — pulls full content for pointer keys, plan keys, or task keys
 3. `work` — creates/updates structured plans with tasks (survives context compaction)
-4. `report_completion` — closes the task, validates scope
-5. `propose_memory` — saves durable facts for future retrieval
+4. `verify` — runs repo-defined executable checks and updates `verify:tests` when work context is present
+5. `report_completion` — closes the task, validates scope, and enforces `verify:tests`
+6. `propose_memory` — saves durable facts for future retrieval
 
 You can test any operation manually via CLI (e.g., `acm get-context --project my-cool-app --task-text "fix the login bug" --phase execute`). See the [CLI Reference](#cli-reference) below.
 
@@ -91,18 +97,22 @@ You can test any operation manually via CLI (e.g., `acm get-context --project my
 ### Claude Code (slash commands)
 
 ```bash
-./scripts/install-skill-pack.sh --claude-target /path/to/your/project
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude /path/to/your/project
 ```
 
-This installs `/acm-get`, `/acm-report`, and `/acm-memory` slash commands.
+This installs `/acm-get`, `/acm-work`, `/acm-verify`, `/acm-report`, `/acm-memory`, and `/acm-eval` slash commands.
+
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude /path/to/your/project`.
 
 ### Codex (skill pack)
 
 ```bash
-./scripts/install-skill-pack.sh --skip-claude
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --codex
 ```
 
 Installs the acm-broker skill to `~/.codex/skills/acm-broker`.
+
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --codex`.
 
 ### MCP (tool-native models)
 
@@ -140,14 +150,39 @@ acm eval          --project <id> (--eval-suite-path ./eval.json|--eval-suite-inl
 acm verify        --project <id> [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]
 ```
 
-### JSON envelope mode
+### Structured JSON Contract Mode
 
-The original JSON envelope interface is still available for programmatic use:
+`acm run` and `acm validate` operate on the full `acm.v1` request envelope. This is the canonical machine-facing contract behind the convenience CLI commands, checked-in request fixtures, and thin adapters built around acm.
+
+Use it when you want:
+
+- one complete JSON request per call in scripts or CI
+- request fixtures checked into a repo for repeatable agent workflows
+- validation of a payload before execution
+
+Envelope shape:
+
+```json
+{
+  "version": "acm.v1",
+  "command": "get_context",
+  "request_id": "req-get-context-001",
+  "payload": {
+    "project_id": "my-cool-app",
+    "task_text": "add input validation to the signup form",
+    "phase": "execute"
+  }
+}
+```
+
+Run or validate it with:
 
 ```bash
 acm run --in request.json
 acm validate --in request.json
 ```
+
+MCP tools use the same payload schema but omit the outer envelope because the tool name already identifies the command. See [Schema Reference](spec/v1/README.md) and [skills/acm-broker/assets/requests](skills/acm-broker/assets/requests) for worked request examples.
 
 ## Storage Backend
 
@@ -169,17 +204,23 @@ export ACM_SQLITE_PATH=/path/to/context.db
 export ACM_PG_DSN='postgres://user:pass@localhost:5432/agents_context?sslmode=disable'
 ```
 
-See [SQLite Operations](docs/SQLITE_OPERATIONS.md) for deployment, backup, and rotation guidance.
+See [SQLite Operations](docs/sqlite.md) for deployment, backup, and rotation guidance.
 
 ## Documentation
 
+User guides:
+
 - [Getting Started](docs/getting-started.md) — full walkthrough from zero to working acm setup
-- [Concepts](docs/concepts.md) — what pointers, receipts, rules, memories, and work items are
-- [Architecture (ADR-001)](docs/ADR-001-context-broker.md) — design decisions and data model
-- [SQLite Operations](docs/SQLITE_OPERATIONS.md) — deployment and backup procedures
-- [Logging Standards](docs/LOGGING_STANDARDS.md) — structured logging contract (for contributors)
+- [Concepts](docs/concepts.md) — what pointers, receipts, rules, memories, plans, and tags are
+- [SQLite Operations](docs/sqlite.md) — deployment, backup, and rotation
 - [Schema Reference](spec/v1/README.md) — v1 wire contract schemas
 - [Skill Templates](skills/acm-broker/references/templates.md) — request/response examples
+
+Architecture (contributors):
+
+- [ADR-001: Context Broker](docs/architecture/ADR-001-context-broker.md) — design decisions and data model
+- [Proposal: Executable Verification](docs/architecture/proposal-verify.md) — eval vs verify design
+- [Logging Standards](docs/logging.md) — structured logging contract
 
 ## Canonical Rules
 

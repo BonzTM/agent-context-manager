@@ -1,25 +1,52 @@
-# AGENTS.md (Starter)
+# AGENTS.md
 
-Minimal startup contract for repositories using `acm`.
+Default operating contract for a repo that uses `acm`.
+Start here, then customize once the project develops stronger local conventions.
 
-## Required Startup Order
+## Source Of Truth
 
-1. Read this file.
-2. Confirm canonical rules exist at `.acm/acm-rules.yaml` (or `acm-rules.yaml` in the project root).
-3. Run `get_context` for the task.
-4. Run `fetch` only for needed keys.
-5. Implement the task.
-6. Run `report_completion`.
+- Follow this file first.
+- Keep canonical rules in `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` at the repo root.
+- Keep canonical tags in `.acm/acm-tags.yaml` and executable checks in `.acm/acm-tests.yaml`.
+- If tool-specific instructions conflict with this file, this file wins unless a human explicitly says otherwise.
 
-## Canonical Rules Maintenance
+## Required Task Loop
 
-When a rule changes:
+1. Read this file and the human task.
+2. Run `get_context` before opening or editing project files.
+3. Follow all hard rules returned in the receipt.
+4. Use `fetch` only for the pointers, plans, and task keys needed for the current step.
+5. When a task spans multiple steps, multiple files, or a likely handoff, create or update `work`.
+6. If code, config, schema, or other executable behavior changes, run `verify` before `report_completion`.
+7. End every task with `report_completion`, including every changed file and a concise outcome.
+8. If you learn a reusable decision, gotcha, or preference, record it with `propose_memory`.
 
-1. Add/remove/update rule entries in your canonical ruleset file.
-2. Run `sync` or `health_fix apply`.
-3. Run `health_check` and resolve blocking issues.
+## Working Rules
 
-## CLAUDE.md Mapping
+- Do not silently expand scope. Refresh context first if the task spills into adjacent systems.
+- Prefer small, reviewable changes over broad cleanup.
+- Do not invent product requirements, compatibility guarantees, or migration behavior when the repo does not define them.
+- If verification fails, either fix the issue or report the failure clearly. Do not claim the task is complete as if checks passed.
+- Keep work state current when you pause, hand off, or hit a blocker.
 
-`CLAUDE.md` should stay thin and map Claude behavior to this file.
-If `CLAUDE.md` and `AGENTS.md` disagree, `AGENTS.md` is authoritative.
+## When To Use work
+
+Use `work` when any of the following are true:
+
+- the task will take more than one material step
+- more than one file or subsystem is involved
+- the task includes explicit planning, verification, or handoff
+- you need durable task state that should survive compaction or session reset
+
+For code changes, include a `verify:tests` task. Add other task keys only when they help resumption or coordination.
+
+## Ruleset Maintenance
+
+1. Edit the canonical rules, tags, or tests files.
+2. Run `sync` or `health-fix --apply`.
+3. Run `health` and resolve blocking findings.
+
+## Tool-Specific Companions
+
+`CLAUDE.md`, slash commands, and Codex skills should stay thin and map their workflow back to this file.
+If they disagree with this file, this file is authoritative.

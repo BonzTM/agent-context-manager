@@ -25,7 +25,7 @@ When you call `get_context`, acm returns a receipt. A receipt is a scoped snapsh
 - **Plans** — active work plans for the project, with task counts and fetch keys for resumption
 - **Meta** — receipt ID, resolved tags, budget accounting
 
-The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `report_completion`, `propose_memory`). It ties everything back to the original retrieval.
+The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `verify`, `report_completion`, `propose_memory`). It ties everything back to the original retrieval.
 
 ## Rule
 
@@ -81,7 +81,7 @@ Tasks can reference a `parent_task_key` for grouping, and can be fetched individ
 
 Two special task keys are used for definition-of-done verification:
 - `verify:tests` — confirms tests were run
-- `verify:diff-review` — confirms the diff was reviewed for unintended changes
+- `verify:diff-review` — optional manual review task for diff inspection
 
 ## Tag
 
@@ -156,15 +156,24 @@ tests:
     summary: Run Go unit tests for ACM packages
     command:
       argv: ["go", "test", "./cmd/...", "./internal/..."]
+      env:
+        GOFLAGS: "-count=1"
     select:
       phases: ["execute", "review"]
       tags_any: ["backend"]
       changed_paths_any: ["cmd/**", "internal/**"]
     expected:
       exit_code: 0
+
+  - id: smoke
+    summary: Run repo smoke checks on every verification pass
+    command:
+      argv: ["go", "test", "./cmd/...", "./internal/..."]
+    select:
+      always_run: true
 ```
 
-v1 test definitions are argv-only. `verify` reuses the existing `verify:tests` task key for definition-of-done updates when work context is present.
+v1 test definitions are argv-only. They support optional `command.env` entries for repo-defined environment variables and `select.always_run: true` for default smoke checks that should auto-select. `verify` reuses the existing `verify:tests` task key for definition-of-done updates when work context is present. `verify:diff-review` is optional workflow metadata, not a built-in acm completion gate.
 
 ## File-Based Flags
 
@@ -183,7 +192,7 @@ Most CLI commands that accept text or list values support inline flags and file-
 | `--expect` (repeatable) | `--expected-versions-json` | `--expected-versions-file` | JSON object (`{"key": "version"}`) |
 | - | `--plan-json` | `--plan-file` | JSON object (work plan metadata) |
 | - | `--tasks-json` | `--tasks-file` | JSON array of work tasks |
-| - | `--items-json` | `--items-file` | JSON array of legacy work items |
+| - | `--items-json` | `--items-file` | JSON array of alternate work items |
 | - | `--eval-suite-inline-json` | `--eval-suite-inline-file` | JSON array of eval cases |
 
 All file flags accept `-` for stdin.

@@ -1,20 +1,30 @@
-# CLAUDE.md (Starter)
+# CLAUDE.md
 
-Claude-specific companion for a repository whose primary contract is `AGENTS.md`.
+Claude companion for a repo whose primary contract is `AGENTS.md`.
 
-## Source of Truth
+## Source Of Truth
 
-- Follow `AGENTS.md` startup order and rules.
-- If any instruction conflicts, prefer `AGENTS.md`.
+- Follow `AGENTS.md` first.
+- Use this file only to map Claude's workflow to the repo contract.
+- If this file conflicts with `AGENTS.md`, `AGENTS.md` wins.
 
-## Minimal acm Flow
+## Claude Workflow
 
-1. Retrieve task context with `get_context`.
-2. Read only required artifacts via `fetch`.
-3. Execute requested work.
-4. Send `report_completion` with changed files and outcome.
+1. Start with `/acm-get ...`.
+2. Read the returned hard rules before touching files.
+3. Use `/acm-work ...` when the task is multi-step, spans multiple files, or needs durable state.
+4. Use `/acm-verify ...` before `/acm-report ...` for any code, config, schema, or executable behavior change.
+5. Use `/acm-report ...` to close the task.
+6. Use `/acm-memory ...` for durable decisions and gotchas.
+7. Use `/acm-eval ...` only for retrieval-quality maintenance, not task completion.
 
-## Canonical Rules Changes
+## Claude-Specific Notes
 
-When canonical rules are edited, follow the same maintenance flow defined in `AGENTS.md`:
-add/remove/update rules, then run `sync` or `health_fix apply`, then `health_check`.
+- Keep prompts specific enough that `get_context` can retrieve the right pointers.
+- If the receipt looks stale or too narrow, re-run `/acm-get` with a better task description instead of guessing.
+- Do not claim success when `/acm-verify` failed or was skipped for code changes.
+- When blocked on a missing product or architectural decision, surface the decision instead of improvising it.
+
+## Ruleset Maintenance
+
+When `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, or `.acm/acm-tests.yaml` changes, refresh broker state with `sync` or `health-fix --apply`, then run `health`.

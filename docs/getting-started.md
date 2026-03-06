@@ -90,6 +90,12 @@ rules:
     content: Call report_completion with files_changed and a concise outcome summary.
     enforcement: hard
     tags: [completion, audit]
+
+  - id: rule_verify_before_completion
+    summary: Run verify before report_completion when code changes.
+    content: Use verify to satisfy executable checks before closing code changes with report_completion.
+    enforcement: hard
+    tags: [verification, quality]
 ```
 
 These are starter rules. Add, remove, or modify them to match how you want agents to behave in your project. See [concepts.md](concepts.md) for the rule format reference.
@@ -114,6 +120,14 @@ ACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable
 ACM_LOG_LEVEL=info
 ACM_LOG_SINK=stderr
 ```
+
+If you want a stronger baseline than the blank scaffolds, start by copying these starter files into your repo and trimming them down:
+
+- [examples/acm-rules.yaml](examples/acm-rules.yaml)
+- [examples/acm-tags.yaml](examples/acm-tags.yaml)
+- [examples/acm-tests.yaml](examples/acm-tests.yaml)
+- [examples/AGENTS.md](examples/AGENTS.md)
+- [examples/CLAUDE.md](examples/CLAUDE.md)
 
 ## Step 4: Sync rules into acm
 
@@ -189,14 +203,24 @@ One-shot (no temp files) with inline JSON:
 ```bash
 acm work --project myproject --receipt-id <receipt-id> --mode merge \
   --plan-json '{"title":"Signup validation","objective":"Implement + verify validation changes","status":"in_progress"}' \
-  --tasks-json '[{"key":"add-validation","summary":"Add input validation logic","status":"in_progress"},{"key":"verify:tests","summary":"Run tests for changed behavior","status":"pending"},{"key":"verify:diff-review","summary":"Review diff for unintended changes","status":"pending"}]'
+  --tasks-json '[{"key":"add-validation","summary":"Add input validation logic","status":"in_progress"},{"key":"verify:tests","summary":"Run tests for changed behavior","status":"pending"}]'
 ```
 
-`tasks` are the canonical payload for rich tracking. Legacy `items` are still accepted for compatibility.
+`tasks` are the canonical payload for rich tracking. Legacy `items` are still accepted for compatibility. `verify:diff-review` remains available as an optional manual workflow task, but acm only enforces `verify:tests` as a built-in completion gate.
+
+### verify
+
+Before `report_completion` for code changes, run repo-defined executable verification:
+
+```bash
+acm verify --project myproject --receipt-id <receipt-id> --phase review \
+  --file-changed src/signup.go \
+  --file-changed src/signup_test.go
+```
 
 ### report_completion
 
-Agents call this to close a task. acm validates that changed files are within the receipt's scope:
+Agents call this to close a task after verification is satisfied. acm validates that changed files are within the receipt's scope:
 
 ```bash
 acm report-completion --project myproject \
@@ -245,10 +269,12 @@ Once the index and rules are set up, connect your agents so they call acm operat
 Install the slash command pack into your project:
 
 ```bash
-./scripts/install-skill-pack.sh --claude-target .
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude .
 ```
 
-This gives agents `/acm-get`, `/acm-report`, and `/acm-memory` commands.
+This gives agents `/acm-get`, `/acm-work`, `/acm-verify`, `/acm-report`, `/acm-memory`, and `/acm-eval` commands.
+
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude .`.
 
 Add a thin `CLAUDE.md` to your project root. A starter template is at [docs/examples/CLAUDE.md](examples/CLAUDE.md).
 
@@ -257,8 +283,10 @@ Add a thin `CLAUDE.md` to your project root. A starter template is at [docs/exam
 Install the skill pack:
 
 ```bash
-./scripts/install-skill-pack.sh --skip-claude
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --codex
 ```
+
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --codex`.
 
 Add an `AGENTS.md` to your project root. A starter template is at [docs/examples/AGENTS.md](examples/AGENTS.md).
 
@@ -356,9 +384,20 @@ tests:
     summary: Run Go unit tests for the repo
     command:
       argv: ["go", "test", "./..."]
+      env:
+        GOFLAGS: "-count=1"
     select:
       phases: ["execute", "review"]
       changed_paths_any: ["cmd/**", "internal/**"]
+    expected:
+      exit_code: 0
+
+  - id: smoke
+    summary: Run repo smoke checks on every verification pass
+    command:
+      argv: ["go", "test", "./cmd/...", "./internal/..."]
+    select:
+      always_run: true
     expected:
       exit_code: 0
 ```
@@ -375,7 +414,7 @@ Run the selected checks:
 acm verify --project myproject --phase review --file-changed internal/auth/service.go
 ```
 
-When you include `--receipt-id` or `--plan-key`, `verify` reuses the existing `verify:tests` work item for definition-of-done updates.
+When you include `--receipt-id` or `--plan-key`, `verify` reuses the existing `verify:tests` work item for definition-of-done updates. `verify:diff-review` can still exist as an optional manual review task, but acm does not enforce it by default.
 
 ## Storage
 
@@ -393,10 +432,10 @@ For production or multi-writer environments, switch to Postgres:
 export ACM_PG_DSN='postgres://user:pass@localhost:5432/agents_context?sslmode=disable'
 ```
 
-See [SQLITE_OPERATIONS.md](SQLITE_OPERATIONS.md) for backup, restore, and rotation procedures.
+See [SQLite Operations](sqlite.md) for backup, restore, and rotation procedures.
 
 ## Next Steps
 
 - Read [Concepts](concepts.md) if any terms are unclear
 - Browse [example request templates](../skills/acm-broker/references/templates.md) for all command formats
-- Review [ADR-001](ADR-001-context-broker.md) for architecture and design decisions
+- Review [ADR-001](architecture/ADR-001-context-broker.md) for architecture and design decisions

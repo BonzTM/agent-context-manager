@@ -43,7 +43,7 @@ The MCP flow is index-first:
 - Each rule entry now includes `rule_id`, a deterministic stable identifier derived from the existing rule `key` semantics (no additional input required).
 - `fetch` resolves receipt/plan-scoped artifacts by key, or via `receipt_id` shorthand when keys are omitted.
 - `work` creates/updates structured plans with tasks (max 256 per request). Supports `receipt_id` without `plan_key` (derives `plan_key` as `plan:<receipt_id>`). `mode` controls merge vs replace semantics.
-- For work updates, standard verification keys are `verify:tests` and `verify:diff-review`.
+- For work updates, `verify:tests` is the built-in executable verification key. `verify:diff-review` is optional workflow metadata.
 - `eval` is the public retrieval-evaluation command/tool name. `verify` selects repo-defined executable checks from `.acm/acm-tests.yaml` or `acm-tests.yaml`, with `tests_file` as the explicit override.
 - `propose_memory` and `report_completion` remain receipt-scoped write operations.
 

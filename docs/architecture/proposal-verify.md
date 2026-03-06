@@ -70,6 +70,8 @@ tests:
     summary: Run Go unit tests for ACM packages
     command:
       argv: ["go", "test", "./cmd/...", "./internal/..."]
+      env:
+        GOFLAGS: "-count=1"
     select:
       phases: ["execute", "review"]
       tags_any: ["backend"]
@@ -87,6 +89,15 @@ tests:
       tags_any: ["auth", "retrieval"]
     expected:
       exit_code: 0
+
+  - id: smoke
+    summary: Run repo smoke checks on every verification pass
+    command:
+      argv: ["go", "test", "./cmd/...", "./internal/..."]
+    select:
+      always_run: true
+    expected:
+      exit_code: 0
 ```
 
 ### Field Semantics
@@ -99,10 +110,12 @@ tests:
 - `tests[].command.argv`: required non-empty argv vector
 - `tests[].command.cwd`: optional repo-relative working directory override
 - `tests[].command.timeout_sec`: optional timeout override
+- `tests[].command.env`: optional repo-defined environment variables applied only to that test command
 - `tests[].select.phases`: optional allowed phases
 - `tests[].select.tags_any`: optional canonical tag intersection selector
 - `tests[].select.changed_paths_any`: optional repo-relative glob selectors
 - `tests[].select.pointer_keys_any`: optional receipt pointer key intersection selector
+- `tests[].select.always_run`: optional boolean for smoke checks that should auto-select on every verify call
 - `tests[].expected.exit_code`: optional expected exit code, default `0`
 
 There is no `record_as.work_item_key` in v1. `verify` updates `verify:tests` at the batch level when work context is present.
@@ -174,6 +187,7 @@ Selector groups:
 - `tags_any`: matches when any selector tag intersects resolved receipt tags
 - `changed_paths_any`: matches when any changed file matches any configured glob
 - `pointer_keys_any`: matches when any configured pointer key is inside receipt scope
+- `always_run`: auto-selects the test on every verify run; it must not be combined with other selector groups
 
 If a test defines multiple selector groups, all present groups must match.
 

@@ -1,6 +1,6 @@
 # ADR-001: Deterministic Context Broker (`acm`) for LLM Task Context and Memory
 
-> This is an architecture decision record. For getting started, see [getting-started.md](getting-started.md). For terminology, see [concepts.md](concepts.md).
+> This is an architecture decision record. For getting started, see [getting-started.md](../getting-started.md). For terminology, see [concepts.md](../concepts.md).
 
 - Status: Proposed
 - Date: 2026-03-04
@@ -58,7 +58,7 @@ Convenience subcommands (build v1 envelopes internally):
 - `acm bootstrap` -> initial pointer candidate generation (respects .gitignore, LLM-assisted descriptions, optional candidate persistence)
 - `acm coverage` -> file coverage analysis
 
-JSON envelope mode is also available via `acm run --in request.json` and `acm validate --in request.json`.
+Structured command-envelope mode is also available via `acm run --in request.json` and `acm validate --in request.json`.
 
 #### MCP (`cmd/acm-mcp/`)
 
@@ -87,7 +87,7 @@ v1.1 ergonomics defaults:
 - Advisory scope mode defaults to `warn` when `scope_mode` is omitted.
 - `fetch` accepts `receipt_id` shorthand without explicit `keys`.
 - `work` accepts `receipt_id` without `plan_key`; derives `plan_key` as `plan:<receipt_id>`. Supports structured `plan` metadata and `tasks` array (max 256). `mode` controls merge vs replace semantics.
-- Work updates should include verification tasks keyed `verify:tests` and `verify:diff-review` for DoD tracking.
+- Work updates should include a verification task keyed `verify:tests` for executable DoD tracking. `verify:diff-review` is optional workflow metadata.
 - `eval` is the public retrieval-evaluation surface. `verify` discovers repo-defined executable checks from `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml`, with `tests_file` as an explicit override.
 - `get_context` rule entries expose `rule_id`, derived deterministically from the existing stable rule key semantics.
 
@@ -314,7 +314,7 @@ Rules:
 2. Allow configured generated-file exceptions.
 3. Violations default to advisory warnings (`scope_mode=warn`).
 4. `scope_mode=strict` can enforce rejection and require re-retrieval; CI repeats strict scope checks and blocks merge on violation.
-5. When work items are present, `verify:tests` and `verify:diff-review` are enforced in `strict` mode and surfaced as warnings in `warn` mode.
+5. When work items are present, `verify:tests` is enforced in `strict` mode and surfaced as a warning in `warn` mode. `verify:diff-review` is optional and not enforced by acm.
 
 ## Memory Ingestion Contract
 
