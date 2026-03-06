@@ -82,6 +82,18 @@ func EnsureGitIgnoreContains(rootPath string, entries ...string) error {
 	return appendUniqueLines(gitignorePath, entries)
 }
 
+func SQLiteGitIgnoreEntries(relativePath string) []string {
+	normalized := normalizeRelativePath(relativePath)
+	if normalized == "" {
+		return nil
+	}
+	return []string{
+		normalized,
+		normalized + "-shm",
+		normalized + "-wal",
+	}
+}
+
 func ParseDotEnvFile(path string) (map[string]string, error) {
 	blob, err := os.ReadFile(path)
 	if err != nil {

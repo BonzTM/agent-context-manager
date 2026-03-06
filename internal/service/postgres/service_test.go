@@ -74,8 +74,8 @@ type fakeRepository struct {
 	workPlanListCalls    []core.WorkPlanListQuery
 	verifySaveCalls      []core.VerificationBatch
 
-	saveResult core.RunReceiptIDs
-	saveError  error
+	saveResult         core.RunReceiptIDs
+	saveError          error
 	receiptUpsertError error
 }
 
@@ -554,6 +554,56 @@ func TestGetContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 	}
 	if result2.Receipt.Meta.ReceiptID != result.Receipt.Meta.ReceiptID {
 		t.Fatalf("expected deterministic receipt_id, got %q and %q", result.Receipt.Meta.ReceiptID, result2.Receipt.Meta.ReceiptID)
+	}
+}
+
+func TestGetContext_FiltersManagedProjectPointersFromRetrieval(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			candidate("rule:startup", "AGENTS.md", true, []string{"governance"}),
+			candidate("managed:gitignore", ".gitignore", false, []string{"config"}),
+			candidate("managed:dbwal", ".acm/context.db-wal", false, []string{"config"}),
+			candidate("code:service", "internal/service/postgres/get_context.go", false, []string{"backend"}),
+		}},
+		hopResults: [][]core.HopPointer{{
+			hop("code:service", 1, candidate("managed:tests", ".acm/acm-tests.yaml", false, []string{"config"})),
+			hop("code:service", 1, candidate("test:get-context", "internal/service/postgres/service_test.go", false, []string{"tests"})),
+		}},
+		memoryResults: [][]core.ActiveMemory{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.GetContext(context.Background(), v1.GetContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "retrieve useful implementation context",
+		Phase:     v1.PhaseExecute,
+		Caps: &v1.RetrievalCaps{
+			MinPointerCount: 1,
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "ok" || result.Receipt == nil {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	wantKeys := []string{"code:service", "rule:startup", "test:get-context"}
+	if got := pointerKeys(result.Receipt); !reflect.DeepEqual(got, wantKeys) {
+		t.Fatalf("unexpected pointer keys: got %v want %v", got, wantKeys)
+	}
+	if result.Diagnostics == nil || result.Diagnostics.InitialPointerCount != 3 {
+		t.Fatalf("unexpected diagnostics: %+v", result.Diagnostics)
+	}
+	if len(repo.receiptUpsertCalls) != 1 {
+		t.Fatalf("expected one receipt scope upsert, got %d", len(repo.receiptUpsertCalls))
+	}
+	wantPersistedKeys := []string{"rule:startup", "code:service", "test:get-context"}
+	if got := repo.receiptUpsertCalls[0].PointerKeys; !reflect.DeepEqual(got, wantPersistedKeys) {
+		t.Fatalf("unexpected persisted pointer keys: got %v want %v", got, wantPersistedKeys)
 	}
 }
 
@@ -1450,6 +1500,49 @@ func TestReportCompletion_StrictModeRejectsOutOfScopeWithoutPersistence(t *testi
 	}
 }
 
+func TestReportCompletion_StrictModeAcceptsManagedAcmFiles(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"internal/core/repository.go"},
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "verify:tests", Status: core.WorkItemStatusComplete},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 72, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		FilesChanged: []string{
+			".acm/acm-rules.yaml",
+			".acm/acm-tags.yaml",
+			".acm/acm-tests.yaml",
+			".gitignore",
+		},
+		Outcome:   "updated ACM-managed onboarding files",
+		ScopeMode: v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected strict-mode acceptance for ACM-managed files: %+v", result)
+	}
+	if len(result.Violations) != 0 {
+		t.Fatalf("expected no scope violations, got %+v", result.Violations)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one persisted run summary, got %d", len(repo.saveCalls))
+	}
+}
+
 func TestReportCompletion_StrictModeAcceptsCompletedVerifyTestsWithoutDiffReview(t *testing.T) {
 	repo := &fakeRepository{
 		scopeResults: []core.ReceiptScope{{
@@ -1851,8 +1944,17 @@ func TestSync_ChangedDefaultsAndDeterministicProcessedPaths(t *testing.T) {
 	if !reflect.DeepEqual(result.ProcessedPaths, wantProcessed) {
 		t.Fatalf("unexpected processed paths: got %v want %v", result.ProcessedPaths, wantProcessed)
 	}
-	if result.Updated != 3 || result.MarkedStale != 0 || result.NewCandidates != 1 || result.DeletedMarkedStale != 2 {
+	if result.Updated != 3 || result.MarkedStale != 0 || result.NewCandidates != 3 || result.IndexedStubs != 3 || result.DeletedMarkedStale != 2 {
 		t.Fatalf("unexpected result counts: %+v", result)
+	}
+	if len(repo.upsertStubCalls) != 1 {
+		t.Fatalf("expected one stub upsert call, got %d", len(repo.upsertStubCalls))
+	}
+	if got := repo.upsertStubProjectIDs[0]; got != "project.alpha" {
+		t.Fatalf("unexpected stub upsert project id: %q", got)
+	}
+	if got := len(repo.upsertStubCalls[0]); got != 3 {
+		t.Fatalf("unexpected stub upsert count: %d", got)
 	}
 }
 
@@ -1897,6 +1999,12 @@ func TestSync_ExplicitInsertNewCandidatesFalseHonored(t *testing.T) {
 	}
 	if !reflect.DeepEqual(result.ProcessedPaths, []string{"src/main.go"}) {
 		t.Fatalf("unexpected processed paths: %v", result.ProcessedPaths)
+	}
+	if result.NewCandidates != 0 || result.IndexedStubs != 0 {
+		t.Fatalf("expected zero indexed stubs when disabled, got %+v", result)
+	}
+	if len(repo.upsertStubCalls) != 0 {
+		t.Fatalf("did not expect stub upsert calls when disabled, got %d", len(repo.upsertStubCalls))
 	}
 	if len(gitCalls) != 2 || gitCalls[0] != ".::diff --name-status --find-renames base..main" {
 		t.Fatalf("unexpected git calls: %v", gitCalls)
@@ -1952,11 +2060,14 @@ func TestSync_FullModeMapsRepositoryCounters(t *testing.T) {
 	if !reflect.DeepEqual(call.Paths, wantPaths) {
 		t.Fatalf("unexpected paths: got %#v want %#v", call.Paths, wantPaths)
 	}
-	if result.Updated != 7 || result.MarkedStale != 3 || result.NewCandidates != 2 || result.DeletedMarkedStale != 0 {
+	if result.Updated != 7 || result.MarkedStale != 3 || result.NewCandidates != 2 || result.IndexedStubs != 2 || result.DeletedMarkedStale != 0 {
 		t.Fatalf("unexpected result counters: %+v", result)
 	}
 	if !reflect.DeepEqual(result.ProcessedPaths, []string{"a/file.go", "z/file.go"}) {
 		t.Fatalf("unexpected processed paths: %v", result.ProcessedPaths)
+	}
+	if len(repo.upsertStubCalls) != 1 || len(repo.upsertStubCalls[0]) != 2 {
+		t.Fatalf("expected 2 stub upserts, got %+v", repo.upsertStubCalls)
 	}
 }
 
@@ -2030,10 +2141,21 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 			{ID: 1, Confidence: 1, Tags: []string{"BadTag"}, RelatedPointerKeys: nil},
 			{ID: 2, Confidence: 4, Tags: []string{"backend"}, RelatedPointerKeys: []string{"ptr:one"}},
 		}},
+		inventoryResults: []core.PointerInventory{
+			{Path: "internal/a.go"},
+			{Path: "internal/b.go"},
+			{Path: "internal/c.go"},
+		},
 	}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
+	}
+	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
+		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+			t.Fatalf("unexpected git args: %v", args)
+		}
+		return "internal/a.go\ninternal/b.go\ninternal/c.go\n", nil
 	}
 
 	result, apiErr := svc.HealthCheck(context.Background(), v1.HealthCheckPayload{
@@ -2057,6 +2179,7 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 		"orphan_relations",
 		"pending_quarantines",
 		"stale_pointers",
+		"unindexed_files",
 		"unknown_tags",
 		"weak_memories",
 	}
@@ -2092,11 +2215,21 @@ func TestHealthCheck_IncludeDetailsFalseOmitsSamples(t *testing.T) {
 				Description: "",
 			},
 		}},
+		inventoryResults: []core.PointerInventory{
+			{Path: "internal/a.go"},
+			{Path: "internal/b.go"},
+		},
 		memoryResults: [][]core.ActiveMemory{{}},
 	}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
+	}
+	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
+		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+			t.Fatalf("unexpected git args: %v", args)
+		}
+		return "internal/a.go\ninternal/b.go\n", nil
 	}
 
 	includeDetails := false
@@ -2112,6 +2245,50 @@ func TestHealthCheck_IncludeDetailsFalseOmitsSamples(t *testing.T) {
 		if len(check.Samples) != 0 {
 			t.Fatalf("expected no samples when include_details=false, got check=%s samples=%v", check.Name, check.Samples)
 		}
+	}
+}
+
+func TestHealthCheck_EmptyIndexFlagsUnindexedFiles(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{}},
+		memoryResults:    [][]core.ActiveMemory{{}},
+		inventoryResults: []core.PointerInventory{},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
+		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+			t.Fatalf("unexpected git args: %v", args)
+		}
+		return "README.md\ninternal/service/postgres/service.go\n", nil
+	}
+
+	result, apiErr := svc.HealthCheck(context.Background(), v1.HealthCheckPayload{
+		ProjectID: "project.alpha",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Summary.OK {
+		t.Fatalf("expected non-ok summary for empty index: %+v", result.Summary)
+	}
+	var unindexed *v1.HealthCheckItem
+	for i := range result.Checks {
+		if result.Checks[i].Name == "unindexed_files" {
+			unindexed = &result.Checks[i]
+			break
+		}
+	}
+	if unindexed == nil {
+		t.Fatalf("expected unindexed_files check in %+v", result.Checks)
+	}
+	if unindexed.Count != 2 {
+		t.Fatalf("unexpected unindexed count: got %d want 2", unindexed.Count)
+	}
+	if len(unindexed.Samples) == 0 {
+		t.Fatalf("expected unindexed file samples, got %+v", unindexed)
 	}
 }
 
@@ -2707,6 +2884,12 @@ func TestBootstrap_DefaultEphemeralAndDeterministicEnumeration(t *testing.T) {
 	if result.CandidateCount != 2 {
 		t.Fatalf("unexpected candidate count: got %d want 2", result.CandidateCount)
 	}
+	if result.IndexedStubs != 2 {
+		t.Fatalf("unexpected indexed stub count: got %d want 2", result.IndexedStubs)
+	}
+	if len(repo.upsertStubCalls) != 1 || len(repo.upsertStubCalls[0]) != 2 {
+		t.Fatalf("expected 2 stub upserts, got %+v", repo.upsertStubCalls)
+	}
 	defaultPersistPath := filepath.Join(root, ".acm", "bootstrap_candidates.json")
 	if _, err := os.Stat(defaultPersistPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected no persisted candidates file by default, stat err=%v", err)
@@ -2722,6 +2905,9 @@ func TestBootstrap_DefaultEphemeralAndDeterministicEnumeration(t *testing.T) {
 	}
 	if again.CandidateCount != 2 {
 		t.Fatalf("expected deterministic candidate count across runs, got %d", again.CandidateCount)
+	}
+	if again.IndexedStubs != 2 {
+		t.Fatalf("expected deterministic indexed stub count across runs, got %d", again.IndexedStubs)
 	}
 }
 
@@ -2764,6 +2950,9 @@ func TestBootstrap_PersistCandidatesWritesDefaultAcmPath(t *testing.T) {
 	}
 	if result.CandidateCount != 2 {
 		t.Fatalf("unexpected candidate count: got %d want 2", result.CandidateCount)
+	}
+	if result.IndexedStubs != 2 {
+		t.Fatalf("unexpected indexed stub count: got %d want 2", result.IndexedStubs)
 	}
 
 	raw, err := os.ReadFile(outputPath)
@@ -2879,8 +3068,63 @@ func TestBootstrap_SeedsCanonicalScaffoldFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read scaffolded gitignore: %v", err)
 	}
-	if string(gitignoreRaw) != ".acm/context.db\n" {
+	if string(gitignoreRaw) != ".acm/context.db\n.acm/context.db-shm\n.acm/context.db-wal\n" {
 		t.Fatalf("unexpected scaffolded gitignore contents: %q", string(gitignoreRaw))
+	}
+}
+
+func TestBootstrap_ExcludesManagedFilesFromInitialCandidateIndex(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	files := map[string]string{
+		"README.md":           "# hello\n",
+		".env":                "SECRET=value\n",
+		".env.example":        "ACM_SQLITE_PATH=.acm/context.db\n",
+		".gitignore":          ".acm/context.db\n",
+		"acm-rules.yaml":      "version: acm.rules.v1\nrules: []\n",
+		"acm-tests.yaml":      "version: acm.tests.v1\ndefaults:\n  cwd: .\n  timeout_sec: 60\ntests: []\n",
+		".acm/context.db":     "sqlite",
+		".acm/context.db-wal": "wal",
+		".acm/context.db-shm": "shm",
+		".acm/acm-rules.yaml": "version: acm.rules.v1\nrules: []\n",
+		".acm/acm-tags.yaml":  "version: acm.tags.v1\ncanonical_tags: {}\n",
+		".acm/acm-tests.yaml": "version: acm.tests.v1\ndefaults:\n  cwd: .\n  timeout_sec: 300\ntests: []\n",
+	}
+	for rel, contents := range files {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
+		}
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.CandidateCount != 1 || result.IndexedStubs != 1 {
+		t.Fatalf("unexpected bootstrap counts: %+v", result)
+	}
+	if len(repo.upsertStubCalls) != 1 || len(repo.upsertStubCalls[0]) != 1 {
+		t.Fatalf("expected exactly one stub upsert, got %+v", repo.upsertStubCalls)
+	}
+	if got := repo.upsertStubCalls[0][0].Path; got != "README.md" {
+		t.Fatalf("unexpected indexed path: got %q want %q", got, "README.md")
 	}
 }
 
@@ -3059,8 +3303,9 @@ func TestBootstrap_DoesNotOverwriteExistingCanonicalScaffoldFiles(t *testing.T) 
 	if err != nil {
 		t.Fatalf("read gitignore: %v", err)
 	}
-	if !reflect.DeepEqual(gitignoreRaw, gitignoreContent) {
-		t.Fatalf("gitignore was unexpectedly changed: got %q want %q", string(gitignoreRaw), string(gitignoreContent))
+	wantGitIgnore := "node_modules/\n.acm/context.db\n.acm/context.db-shm\n.acm/context.db-wal\n"
+	if string(gitignoreRaw) != wantGitIgnore {
+		t.Fatalf("unexpected gitignore contents: got %q want %q", string(gitignoreRaw), wantGitIgnore)
 	}
 }
 
@@ -3511,9 +3756,9 @@ func TestSync_WorkingTreeModeIncludesUntrackedAndUsesFilesystemHashes(t *testing
 		gitCalls = append(gitCalls, joined)
 		switch joined {
 		case "diff --name-status --find-renames HEAD":
-			return "M\tsrc/tracked.go\n", nil
+			return "M\tsrc/tracked.go\nM\t.gitignore\n", nil
 		case "ls-files --others --exclude-standard":
-			return "src/new.go\n", nil
+			return "src/new.go\n.acm/context.db-wal\n", nil
 		default:
 			t.Fatalf("unexpected git args: %s", joined)
 		}
@@ -3594,6 +3839,38 @@ func TestCoverage_ComputesSummaryAndDetails(t *testing.T) {
 	}
 	if !reflect.DeepEqual(result.ZeroCoverageDirs, []string{"cmd/tool"}) {
 		t.Fatalf("unexpected zero coverage dirs: %v", result.ZeroCoverageDirs)
+	}
+}
+
+func TestCoverage_ExcludesManagedFilesFromCoverageSet(t *testing.T) {
+	repo := &fakeRepository{
+		inventoryResults: []core.PointerInventory{
+			{Path: "src/covered.go", IsStale: false},
+		},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
+		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+			t.Fatalf("unexpected git args: %v", args)
+		}
+		return ".gitignore\n.env.example\n.acm/acm-tests.yaml\n.acm/context.db-wal\nsrc/covered.go\nsrc/unindexed.go\n", nil
+	}
+
+	result, apiErr := svc.Coverage(context.Background(), v1.CoveragePayload{
+		ProjectID: "project.alpha",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Summary.TotalFiles != 2 || result.Summary.IndexedFiles != 1 || result.Summary.UnindexedFiles != 1 {
+		t.Fatalf("unexpected coverage summary: %+v", result.Summary)
+	}
+	if !reflect.DeepEqual(result.UnindexedPaths, []string{"src/unindexed.go"}) {
+		t.Fatalf("unexpected unindexed paths: %v", result.UnindexedPaths)
 	}
 }
 

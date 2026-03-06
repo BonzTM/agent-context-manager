@@ -217,6 +217,7 @@
         "updated",
         "marked_stale",
         "new_candidates",
+        "indexed_stubs",
         "deleted_marked_stale"
       ],
       "properties": {
@@ -229,6 +230,10 @@
           "minimum": 0
         },
         "new_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "indexed_stubs": {
           "type": "integer",
           "minimum": 0
         },
@@ -641,10 +646,15 @@
       "additionalProperties": false,
       "required": [
         "candidate_count",
+        "indexed_stubs",
         "candidates_persisted"
       ],
       "properties": {
         "candidate_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "indexed_stubs": {
           "type": "integer",
           "minimum": 0
         },

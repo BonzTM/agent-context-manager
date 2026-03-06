@@ -42,23 +42,24 @@ acm --help
 
 ## Step 2: Bootstrap your index
 
-From your project root, generate an initial set of pointer candidates:
+From your project root, seed ACM and generate an initial retrievable pointer set:
 
 ```bash
 acm bootstrap --project myproject --project-root .
 ```
 
-This scans your repo and creates pointer entries for discovered files. The `--project` flag is your project's identifier — use a short, stable name (e.g., `my-cool-app`).
+This scans your repo and creates auto-indexed pointer stubs for discovered files so `get-context` can work immediately. The `--project` flag is your project's identifier — use a short, stable name (e.g., `my-cool-app`).
 
 Bootstrap defaults:
 - `.gitignore` is respected (`--respect-gitignore` defaults on)
 - Descriptions are generated with LLM assistance (`--llm-assist-descriptions` defaults on)
-- Candidate lists are generated in memory only — add `--persist-candidates` to save them to `.acm/bootstrap_candidates.json` (or set a custom path with `--output-candidates-path`)
+- Enumerated file lists are generated in memory only — add `--persist-candidates` to save them to `.acm/bootstrap_candidates.json` (or set a custom path with `--output-candidates-path`)
 - `.acm/acm-rules.yaml` is seeded if it does not already exist
 - `.acm/acm-tags.yaml` is seeded if it does not already exist, with inferred repo tag suggestions when bootstrap finds strong repeated terms
 - `.acm/acm-tests.yaml` is seeded if neither canonical verification definition location exists
 - `.env.example` is created or extended with ACM runtime variables
-- `.gitignore` is updated to ignore `.acm/context.db`
+- `.gitignore` is updated to ignore `.acm/context.db`, `.acm/context.db-shm`, and `.acm/context.db-wal`
+- discovered repo files are auto-indexed into initial pointer stubs
 
 Check what was indexed:
 
@@ -323,7 +324,7 @@ acm sync --project myproject --mode working_tree
 2. Run `acm sync --project myproject --mode working_tree`
 3. Run `acm health --project myproject` to verify
 
-`sync` re-syncs both file pointers and canonical rules. If you only want to sync rules without touching file pointers, use `acm health-fix --project myproject --apply --fixer sync_ruleset` instead.
+`sync` re-syncs both file pointers and canonical rules. With `--insert-new-candidates` enabled, uncovered files are auto-indexed into usable pointer stubs during sync. If you only want to sync rules without touching file pointers, use `acm health-fix --project myproject --apply --fixer sync_ruleset` instead.
 
 If your ruleset is in a non-standard location, use `--rules-file`. If you also keep a repo-local tag dictionary outside the default location, pass `--tags-file` the same way:
 

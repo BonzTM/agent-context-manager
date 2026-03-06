@@ -397,6 +397,7 @@ type SyncResult struct {
 	Updated            int      `json:"updated"`
 	MarkedStale        int      `json:"marked_stale"`
 	NewCandidates      int      `json:"new_candidates"`
+	IndexedStubs       int      `json:"indexed_stubs"`
 	DeletedMarkedStale int      `json:"deleted_marked_stale"`
 	ProcessedPaths     []string `json:"processed_paths,omitempty"`
 }
@@ -514,6 +515,7 @@ type VerifyResult struct {
 
 type BootstrapResult struct {
 	CandidateCount       int      `json:"candidate_count"`
+	IndexedStubs         int      `json:"indexed_stubs"`
 	CandidatesPersisted  bool     `json:"candidates_persisted"`
 	OutputCandidatesPath string   `json:"output_candidates_path,omitempty"`
 	Warnings             []string `json:"warnings,omitempty"`

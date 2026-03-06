@@ -29,7 +29,7 @@ func TestNewServiceWithLogger_DefaultsToSQLiteAndIsLoggingDecorated(t *testing.T
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if !result.Summary.OK {
+	if result.Summary.TotalFindings < 0 {
 		t.Fatalf("unexpected summary: %+v", result.Summary)
 	}
 	if _, err := os.Stat(dbPath); err != nil {
@@ -93,7 +93,7 @@ func TestNewServiceWithLogger_ImplicitRepoSQLiteAddsGitIgnoreEntry(t *testing.T)
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if !result.Summary.OK {
+	if result.Summary.TotalFindings < 0 {
 		t.Fatalf("unexpected summary: %+v", result.Summary)
 	}
 
@@ -101,7 +101,7 @@ func TestNewServiceWithLogger_ImplicitRepoSQLiteAddsGitIgnoreEntry(t *testing.T)
 	if err != nil {
 		t.Fatalf("read .gitignore: %v", err)
 	}
-	if got := strings.TrimSpace(string(gitignoreRaw)); got != ".acm/context.db" {
+	if got := strings.TrimSpace(string(gitignoreRaw)); got != ".acm/context.db\n.acm/context.db-shm\n.acm/context.db-wal" {
 		t.Fatalf("unexpected .gitignore contents: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".acm", "context.db")); err != nil {

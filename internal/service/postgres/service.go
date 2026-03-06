@@ -469,6 +469,9 @@ func (s *Service) ReportCompletion(ctx context.Context, payload v1.ReportComplet
 	for _, filePath := range allowedPaths {
 		allowed[filePath] = struct{}{}
 	}
+	for _, filePath := range completionScopeManagedPaths() {
+		allowed[filePath] = struct{}{}
+	}
 
 	violations := make([]v1.CompletionViolation, 0)
 	for _, filePath := range filesChanged {
@@ -543,6 +546,19 @@ func (s *Service) ReportCompletion(ctx context.Context, payload v1.ReportComplet
 	}, nil
 }
 
+func completionScopeManagedPaths() []string {
+	return normalizeCompletionPaths([]string{
+		".gitignore",
+		workspace.DotEnvExampleFileName,
+		defaultBootstrapOutputPath,
+		canonicalTagsDefaultFilePath,
+		canonicalRulesetPrimarySourcePath,
+		canonicalRulesetSecondarySourcePath,
+		verifyTestsPrimarySourcePath,
+		verifyTestsSecondarySourcePath,
+	})
+}
+
 func (s *Service) Sync(ctx context.Context, payload v1.SyncPayload) (v1.SyncResult, *core.APIError) {
 	if s == nil || s.repo == nil {
 		return v1.SyncResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
@@ -573,10 +589,19 @@ func (s *Service) Sync(ctx context.Context, payload v1.SyncPayload) (v1.SyncResu
 		return v1.SyncResult{}, syncInternalError("sync_ruleset", err)
 	}
 
+	indexedStubs := 0
+	if insertNewCandidates {
+		indexedStubs, err = s.upsertAutoIndexedPaths(ctx, projectID, projectRoot, payload.TagsFile, liveSyncPaths(paths))
+		if err != nil {
+			return v1.SyncResult{}, syncInternalError("upsert_pointer_stubs", err)
+		}
+	}
+
 	return v1.SyncResult{
 		Updated:            applied.Updated,
 		MarkedStale:        applied.MarkedStale,
-		NewCandidates:      applied.NewCandidates,
+		NewCandidates:      indexedStubs,
+		IndexedStubs:       indexedStubs,
 		DeletedMarkedStale: applied.DeletedMarkedStale,
 		ProcessedPaths:     processedSyncPaths(paths),
 	}, nil
@@ -609,7 +634,11 @@ func (s *Service) HealthCheck(ctx context.Context, payload v1.HealthCheckPayload
 
 	includeDetails := effectiveHealthIncludeDetails(payload.IncludeDetails)
 	maxFindings := effectiveMaxFindingsPerCheck(payload.MaxFindingsPerCheck)
-	checks := buildHealthChecks(candidates, memories, includeDetails, maxFindings)
+	coverageResult, apiErr := s.Coverage(ctx, v1.CoveragePayload{ProjectID: strings.TrimSpace(payload.ProjectID)})
+	if apiErr != nil {
+		return v1.HealthCheckResult{}, healthCheckInternalError("coverage", fmt.Errorf("%s", apiErr.Message))
+	}
+	checks := buildHealthChecks(candidates, memories, coverageResult.UnindexedPaths, includeDetails, maxFindings)
 
 	totalFindings := 0
 	for _, check := range checks {
@@ -717,6 +746,11 @@ func (s *Service) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v
 	}
 	warnings = append(warnings, canonicalRulesetWarnings(rulesetSync)...)
 
+	indexedStubs, err := s.upsertAutoIndexedPaths(ctx, strings.TrimSpace(payload.ProjectID), projectRoot, payload.TagsFile, paths)
+	if err != nil {
+		return v1.BootstrapResult{}, bootstrapInternalError("upsert_pointer_stubs", err)
+	}
+
 	if persistCandidates {
 		if err := writeBootstrapCandidates(outputPath, paths); err != nil {
 			return v1.BootstrapResult{}, bootstrapInternalError("write_candidates", err)
@@ -727,6 +761,7 @@ func (s *Service) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v
 
 	result := v1.BootstrapResult{
 		CandidateCount:      len(paths),
+		IndexedStubs:        indexedStubs,
 		CandidatesPersisted: persistCandidates,
 	}
 	if persistCandidates {
@@ -1656,6 +1691,9 @@ func addSyncPathRecord(byPath map[string]syncPathRecord, path string, deleted bo
 	if path == "" {
 		return
 	}
+	if isManagedProjectPath(path) {
+		return
+	}
 
 	current, exists := byPath[path]
 	if !exists {
@@ -1696,6 +1734,9 @@ func parseLsTreeHashes(output string) (map[string]string, error) {
 		}
 		filePath := normalizeCompletionPath(parts[1])
 		if filePath == "" {
+			continue
+		}
+		if isManagedProjectPath(filePath) {
 			continue
 		}
 		hashByPath[filePath] = contentHash
@@ -1803,6 +1844,20 @@ func processedSyncPaths(paths []syncPathRecord) []string {
 	return out
 }
 
+func liveSyncPaths(paths []syncPathRecord) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	for _, record := range paths {
+		if record.Deleted {
+			continue
+		}
+		out = append(out, record.Path)
+	}
+	return normalizeCompletionPaths(out)
+}
+
 func toCoreSyncPaths(paths []syncPathRecord) []core.SyncPath {
 	if len(paths) == 0 {
 		return nil
@@ -1874,6 +1929,54 @@ func effectiveInsertNewCandidates(insertNewCandidates *bool) bool {
 		return true
 	}
 	return *insertNewCandidates
+}
+
+func (s *Service) upsertAutoIndexedPaths(ctx context.Context, projectID, projectRoot, tagsFile string, paths []string) (int, error) {
+	projectID = strings.TrimSpace(projectID)
+	normalizedPaths := normalizeCompletionPaths(paths)
+	if projectID == "" || len(normalizedPaths) == 0 {
+		return 0, nil
+	}
+
+	inventory, err := s.repo.ListPointerInventory(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+
+	indexedByPath := make(map[string]struct{}, len(inventory))
+	for _, item := range inventory {
+		normalizedPath := normalizeCompletionPath(item.Path)
+		if normalizedPath == "" {
+			continue
+		}
+		indexedByPath[normalizedPath] = struct{}{}
+	}
+
+	unindexedPaths := make([]string, 0, len(normalizedPaths))
+	for _, filePath := range normalizedPaths {
+		if _, exists := indexedByPath[filePath]; exists {
+			continue
+		}
+		unindexedPaths = append(unindexedPaths, filePath)
+	}
+	if len(unindexedPaths) == 0 {
+		return 0, nil
+	}
+
+	tagNormalizer, err := s.loadCanonicalTagNormalizer(projectRoot, tagsFile)
+	if err != nil {
+		return 0, err
+	}
+
+	violations := make([]v1.CompletionViolation, 0, len(unindexedPaths))
+	for _, filePath := range unindexedPaths {
+		violations = append(violations, v1.CompletionViolation{
+			Path:   filePath,
+			Reason: "auto-index uncovered file",
+		})
+	}
+
+	return s.repo.UpsertPointerStubs(ctx, projectID, buildAutoIndexPointerStubs(projectID, violations, tagNormalizer))
 }
 
 func (s *Service) runGit(ctx context.Context, projectRoot string, args ...string) (string, error) {
@@ -1961,13 +2064,14 @@ func effectiveMaxFindingsPerCheck(maxFindings *int) int {
 	return *maxFindings
 }
 
-func buildHealthChecks(candidates []core.CandidatePointer, memories []core.ActiveMemory, includeDetails bool, maxFindings int) []v1.HealthCheckItem {
+func buildHealthChecks(candidates []core.CandidatePointer, memories []core.ActiveMemory, unindexedPaths []string, includeDetails bool, maxFindings int) []v1.HealthCheckItem {
 	checks := []v1.HealthCheckItem{
 		healthCheckItem("duplicate_labels", "warn", duplicateLabelFindings(candidates), includeDetails, maxFindings),
 		healthCheckItem("empty_descriptions", "warn", emptyDescriptionFindings(candidates), includeDetails, maxFindings),
 		healthCheckItem("orphan_relations", "info", []string{}, includeDetails, maxFindings),
 		healthCheckItem("pending_quarantines", "info", []string{}, includeDetails, maxFindings),
 		healthCheckItem("stale_pointers", "warn", stalePointerFindings(candidates), includeDetails, maxFindings),
+		healthCheckItem("unindexed_files", "warn", normalizeValues(unindexedPaths), includeDetails, maxFindings),
 		healthCheckItem("unknown_tags", "warn", unknownTagFindings(candidates, memories), includeDetails, maxFindings),
 		healthCheckItem("weak_memories", "warn", weakMemoryFindings(memories), includeDetails, maxFindings),
 	}
@@ -2384,7 +2488,7 @@ func ensureBootstrapScaffold(projectRoot, rulesFile, tagsFile string, candidateP
 }
 
 func ensureBootstrapRuntimeFiles(projectRoot string) error {
-	if err := workspace.EnsureGitIgnoreContains(projectRoot, workspace.DefaultSQLiteRelativePath); err != nil {
+	if err := workspace.EnsureGitIgnoreContains(projectRoot, workspace.SQLiteGitIgnoreEntries(workspace.DefaultSQLiteRelativePath)...); err != nil {
 		return err
 	}
 	return ensureBootstrapEnvExample(projectRoot)
@@ -2594,6 +2698,9 @@ func parseBootstrapGitPaths(output string) []string {
 		if normalized == "" {
 			continue
 		}
+		if isManagedProjectPath(normalized) {
+			continue
+		}
 		paths = append(paths, normalized)
 	}
 	return normalizeCompletionPaths(paths)
@@ -2618,7 +2725,8 @@ func collectBootstrapPathsFromWalk(ctx context.Context, projectRoot string) ([]s
 		}
 
 		if entry.IsDir() {
-			if entry.Name() == ".git" {
+			switch entry.Name() {
+			case ".git", ".acm":
 				return filepath.SkipDir
 			}
 			return nil
@@ -2636,6 +2744,9 @@ func collectBootstrapPathsFromWalk(ctx context.Context, projectRoot string) ([]s
 		}
 		normalized := normalizeCompletionPath(relative)
 		if normalized == "" {
+			return nil
+		}
+		if isManagedProjectPath(normalized) {
 			return nil
 		}
 		paths = append(paths, normalized)
@@ -2713,12 +2824,33 @@ func filterBootstrapPaths(paths []string, excludedPaths []string) []string {
 
 	filtered := make([]string, 0, len(paths))
 	for _, candidatePath := range paths {
+		if isManagedProjectPath(candidatePath) {
+			continue
+		}
 		if _, skip := excluded[candidatePath]; skip {
 			continue
 		}
 		filtered = append(filtered, candidatePath)
 	}
 	return filtered
+}
+
+func isManagedProjectPath(raw string) bool {
+	normalized := normalizeCompletionPath(raw)
+	if normalized == "" {
+		return false
+	}
+
+	switch normalized {
+	case ".gitignore",
+		workspace.DotEnvFileName,
+		workspace.DotEnvExampleFileName,
+		canonicalRulesetSecondarySourcePath,
+		verifyTestsSecondarySourcePath:
+		return true
+	}
+
+	return normalized == ".acm" || strings.HasPrefix(normalized, ".acm/")
 }
 
 func writeBootstrapCandidates(outputPath string, paths []string) error {
@@ -3033,7 +3165,7 @@ func (s *Service) collectCoveragePaths(ctx context.Context, projectRoot string) 
 	if walkErr != nil {
 		return nil, walkErr
 	}
-	return paths, nil
+	return filterBootstrapPaths(paths, nil), nil
 }
 
 func zeroCoverageDirectories(paths []string, pointerByPath map[string]core.PointerInventory) []string {
@@ -3107,13 +3239,13 @@ func buildAutoIndexPointerStubs(projectID string, violations []v1.CompletionViol
 		seenPath[normalizedPath] = struct{}{}
 
 		kind := inferPointerKindFromPath(normalizedPath)
-		label := fmt.Sprintf("Auto-indexed: %s", path.Base(normalizedPath))
+		label := normalizedPath
 		stubs = append(stubs, core.PointerStub{
 			PointerKey:  fmt.Sprintf("%s:%s", projectID, normalizedPath),
 			Path:        normalizedPath,
 			Kind:        kind,
 			Label:       label,
-			Description: "Auto-indexed pointer stub created by scope gate. Curate label, description, and tags.",
+			Description: fmt.Sprintf("Auto-indexed %s pointer stub for %s. Curate label, description, and tags.", kind, normalizedPath),
 			Tags:        inferPointerTagsFromPath(normalizedPath, kind, tagNormalizer),
 		})
 	}

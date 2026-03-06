@@ -623,7 +623,7 @@ func buildSyncEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
 	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
 	insertNewCandidates := optionalBoolFlag{}
-	fs.Var(&insertNewCandidates, "insert-new-candidates", "insert uncovered candidates (optional bool)")
+	fs.Var(&insertNewCandidates, "insert-new-candidates", "auto-index uncovered files as pointer stubs (optional bool)")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}

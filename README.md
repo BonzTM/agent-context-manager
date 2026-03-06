@@ -39,14 +39,14 @@ go build -o dist/acm-mcp ./cmd/acm-mcp
 
 ### 1. Bootstrap your project
 
-Scan your repo and generate an initial pointer index:
+Scan your repo, seed repo-local ACM files, and materialize an initial auto-indexed pointer set:
 
 ```bash
 acm bootstrap --project my-cool-app --project-root .
 ```
 
-Bootstrap respects `.gitignore` by default and generates descriptions with LLM assistance. Use `--persist-candidates` to save the candidate list to `.acm/bootstrap_candidates.json`.
-Bootstrap also seeds `.acm/acm-rules.yaml` when it is missing, seeds `.acm/acm-tags.yaml` with inferred repo tag suggestions when possible, seeds a blank structured `.acm/acm-tests.yaml`, appends `.acm/context.db` to `.gitignore`, and creates or extends `.env.example`.
+Bootstrap respects `.gitignore` by default and generates descriptions with LLM assistance. Use `--persist-candidates` to save the enumerated file list to `.acm/bootstrap_candidates.json`.
+Bootstrap also seeds `.acm/acm-rules.yaml` when it is missing, seeds `.acm/acm-tags.yaml` with inferred repo tag suggestions when possible, seeds a blank structured `.acm/acm-tests.yaml`, appends `.acm/context.db` to `.gitignore`, creates or extends `.env.example`, and auto-indexes discovered repo files into initial pointer stubs so `get_context` works immediately.
 
 ### 2. Fill in your seeded rules
 
@@ -192,7 +192,7 @@ SQLite is zero-config by default. acm resolves config in this order:
 2. Repo-root `.env`
 3. Implicit SQLite at `<repo-root>/.acm/context.db`
 
-When acm chooses that implicit repo-local SQLite path, it also ensures `.gitignore` contains `.acm/context.db`.
+When acm chooses that implicit repo-local SQLite path, it also ensures `.gitignore` contains `.acm/context.db`, `.acm/context.db-shm`, and `.acm/context.db-wal`.
 
 Set `ACM_PG_DSN` for Postgres when you need write concurrency.
 

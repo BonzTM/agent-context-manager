@@ -182,6 +182,7 @@ func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPaylo
 	if err != nil {
 		return pointerSelection{}, err
 	}
+	candidates = filterManagedCandidatePointers(candidates)
 
 	rules, nonRules := splitCandidatePointers(candidates)
 	if caps.MaxRulePointers > 0 && len(rules) > caps.MaxRulePointers {
@@ -224,6 +225,9 @@ func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPaylo
 			if hop.HopCount < 1 || hop.HopCount > caps.MaxHops {
 				continue
 			}
+			if isManagedProjectPath(hop.Pointer.Path) {
+				continue
+			}
 			why := []string{fmt.Sprintf("related %d-hop expansion", hop.HopCount)}
 			source := strings.TrimSpace(hop.SourceKey)
 			if source != "" {
@@ -249,6 +253,21 @@ func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPaylo
 
 	selection.PointerTags = mapKeysSorted(tagSet)
 	return selection, nil
+}
+
+func filterManagedCandidatePointers(candidates []core.CandidatePointer) []core.CandidatePointer {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	filtered := make([]core.CandidatePointer, 0, len(candidates))
+	for _, candidate := range candidates {
+		if isManagedProjectPath(candidate.Path) {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	return filtered
 }
 
 func (s *Service) fetchMemories(ctx context.Context, projectID string, pointerKeys, tags []string, maxMemories int) ([]core.ActiveMemory, error) {

@@ -78,5 +78,5 @@ func ensureImplicitSQLiteGitIgnore(cfg Config) error {
 		return nil
 	}
 
-	return workspace.EnsureGitIgnoreContains(cfg.ProjectRoot, relativePath)
+	return workspace.EnsureGitIgnoreContains(cfg.ProjectRoot, workspace.SQLiteGitIgnoreEntries(relativePath)...)
 }
