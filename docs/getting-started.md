@@ -170,7 +170,7 @@ The response is a JSON receipt containing:
 - `rules` — hard constraints (full content included for hard enforcement rules)
 - `suggestions` — relevant code/doc/test pointers (key + summary only)
 - `memories` — durable facts from past work
-- `plans` — active work plans for the project, with task counts and fetch keys for resumption
+- `plans` — active work plans for the project, with fetch keys for resumption
 - `_meta` — receipt ID, resolved tags, budget info
 
 Plans from prior runs are automatically included — agents can see in-progress work and choose to resume or start fresh. The `receipt_id` from `_meta` is the handle for all subsequent operations.

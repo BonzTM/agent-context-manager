@@ -92,6 +92,7 @@ v1.1 ergonomics defaults:
 - `work` accepts `receipt_id` without `plan_key`; derives `plan_key` as `plan:<receipt_id>`. Supports structured `plan` metadata and `tasks` array (max 256). `mode` controls merge vs replace semantics.
 - Work updates should include a verification task keyed `verify:tests` for executable DoD tracking. `verify:diff-review` is optional workflow metadata.
 - `eval` is the public retrieval-evaluation surface. `verify` discovers repo-defined executable checks from `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml`, with `tests_file` as an explicit override.
+- `history_search` lists or searches compact history across `work`, `memory`, `receipt`, and `run` entities. Returns targeted `fetch_keys` (`plan:`, `mem:`, `receipt:`, `run:`) for selective follow-up `fetch`. `entity` defaults to `all`; `scope` defaults to `all` for generic search.
 - `get_context` rule entries expose `rule_id`, derived deterministically from the existing stable rule key semantics.
 
 MCP layer is intentionally thin and delegates all business logic to `context-core`.
@@ -306,7 +307,7 @@ Rules:
 7. Expand related hops for non-rules up to `caps.max_hops` (default 1), cap `max_hop_expansion` (default +5).
 8. Fetch active memories by selected pointer keys and tags, confidence-ranked, cap 6.
 9. If fewer than `min_pointer_count` (default 2), widen once to FTS-only by dropping tag overlap while preserving task text and stale policy; if still below threshold, return `insufficient_context`.
-10. Query active work plans for the project (up to 8), include task counts and fetch keys for each plan so agents can resume prior work.
+10. Query active work plans for the project (up to 8), include fetch keys for each plan so agents can resume prior work.
 11. Return an index-first context receipt with `receipt_id`, `retrieval_version`, indexed artifacts/keys, active plans, reasons, and budget accounting.
 
 ## Scope Gate Enforcement

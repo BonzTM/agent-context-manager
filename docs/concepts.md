@@ -22,7 +22,7 @@ When you call `get_context`, acm returns a receipt. A receipt is a scoped snapsh
 - **Rules** — hard constraints the agent must follow
 - **Suggestions** — code/doc/test pointers relevant to the task (advisory)
 - **Memories** — durable facts from past work
-- **Plans** — active work plans for the project, with task counts and fetch keys for resumption
+- **Plans** — active work plans for the project, with fetch keys for resumption
 - **Meta** — receipt ID, resolved tags, budget accounting
 
 The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `verify`, `report_completion`, `propose_memory`). It ties everything back to the original retrieval.
@@ -51,7 +51,7 @@ Memories are proposed via `propose_memory`, validated, and either promoted to du
 
 ## Plan
 
-A plan is a durable work container that tracks what an agent is doing. Plans survive context compaction — when an agent loses its conversation history, `get_context` returns active plans with task counts and fetch keys, so the agent can resume where it left off.
+A plan is a durable work container that tracks what an agent is doing. Plans survive context compaction — when an agent loses its conversation history, `get_context` returns active plans with fetch keys, so the agent can resume where it left off.
 
 Each plan has:
 

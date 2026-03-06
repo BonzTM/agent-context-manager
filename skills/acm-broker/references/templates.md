@@ -376,3 +376,53 @@ Run:
 ```bash
 acm-mcp invoke --tool propose_memory --in assets/requests/mcp_propose_memory.json
 ```
+
+## CLI `history search` request
+
+```json
+{
+  "version": "acm.v1",
+  "command": "history_search",
+  "request_id": "req-history-001",
+  "payload": {
+    "project_id": "customer-portal",
+    "entity": "all",
+    "query": "profile save",
+    "scope": "current",
+    "limit": 20
+  }
+}
+```
+
+Run:
+
+```bash
+acm validate --in assets/requests/history_search.json
+acm run --in assets/requests/history_search.json
+```
+
+Convenience CLI equivalents:
+
+```bash
+acm work list --project customer-portal --scope current
+acm work search --project customer-portal --query "profile save"
+acm history search --project customer-portal --entity all --query "profile save" --limit 20
+acm history search --project customer-portal --entity memory --query "profile save"
+```
+
+## MCP `history_search` input
+
+```json
+{
+  "project_id": "customer-portal",
+  "entity": "memory",
+  "query": "profile save",
+  "limit": 10
+}
+```
+
+Run:
+
+```bash
+acm-mcp invoke --tool history_search --in assets/requests/mcp_history_search.json
+```
