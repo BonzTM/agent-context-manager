@@ -515,19 +515,11 @@ func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID str
 					if summary == "" {
 						summary = fmt.Sprintf("Plan %s is %s", planKey, status)
 					}
-					taskCounts := v1.ContextPlanTaskCounts{
-						Total:      maxZero(row.TaskCountTotal),
-						Pending:    maxZero(row.TaskCountPending),
-						InProgress: maxZero(row.TaskCountInProgress),
-						Blocked:    maxZero(row.TaskCountBlocked),
-						Complete:   maxZero(row.TaskCountComplete),
-					}
 					plans = append(plans, v1.ContextPlan{
-						Key:        planKey,
-						Summary:    summary,
-						Status:     v1.WorkItemStatus(status),
-						TaskCounts: taskCounts,
-						FetchKeys:  contextPlanFetchKeys(planKey),
+						Key:       planKey,
+						Summary:   summary,
+						Status:    v1.WorkItemStatus(status),
+						FetchKeys: contextPlanFetchKeys(planKey),
 					})
 				}
 				if len(plans) > 0 {
@@ -543,11 +535,10 @@ func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID str
 	}
 	status := v1.WorkItemStatusPending
 	return []v1.ContextPlan{{
-		Key:        "plan:" + receiptID,
-		Summary:    fmt.Sprintf("Plan %s is %s", receiptID, status),
-		Status:     status,
-		TaskCounts: v1.ContextPlanTaskCounts{},
-		FetchKeys:  contextPlanFetchKeys("plan:" + receiptID),
+		Key:       "plan:" + receiptID,
+		Summary:   fmt.Sprintf("Plan %s is %s", receiptID, status),
+		Status:    status,
+		FetchKeys: contextPlanFetchKeys("plan:" + receiptID),
 	}}
 }
 

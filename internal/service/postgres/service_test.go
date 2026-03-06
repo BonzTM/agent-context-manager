@@ -5040,9 +5040,6 @@ func TestMakeContextPlans_UsesStoredPlanSummariesWhenAvailable(t *testing.T) {
 	if plans[0].Key != "plan:receipt.abc123" || plans[0].Status != v1.WorkItemStatusInProgress {
 		t.Fatalf("unexpected context plan: %+v", plans[0])
 	}
-	if plans[0].TaskCounts.Total != 3 || plans[0].TaskCounts.Blocked != 1 || plans[0].TaskCounts.InProgress != 1 {
-		t.Fatalf("unexpected task counts: %+v", plans[0].TaskCounts)
-	}
 	if !reflect.DeepEqual(plans[0].FetchKeys, []string{"plan:receipt.abc123"}) {
 		t.Fatalf("unexpected plan fetch keys: %+v", plans[0].FetchKeys)
 	}

@@ -565,8 +565,7 @@
       "required": [
         "key",
         "summary",
-        "status",
-        "task_counts"
+        "status"
       ],
       "properties": {
         "key": {
@@ -580,9 +579,6 @@
         },
         "status": {
           "$ref": "#/$defs/workItemStatus"
-        },
-        "task_counts": {
-          "$ref": "#/$defs/contextPlanTaskCounts"
         },
         "fetch_keys": {
           "type": "array",

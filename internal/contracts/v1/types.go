@@ -324,11 +324,10 @@ type ContextMemory struct {
 }
 
 type ContextPlan struct {
-	Key        string                `json:"key"`
-	Summary    string                `json:"summary"`
-	Status     WorkItemStatus        `json:"status"`
-	TaskCounts ContextPlanTaskCounts `json:"task_counts"`
-	FetchKeys  []string              `json:"fetch_keys,omitempty"`
+	Key       string         `json:"key"`
+	Summary   string         `json:"summary"`
+	Status    WorkItemStatus `json:"status"`
+	FetchKeys []string       `json:"fetch_keys,omitempty"`
 }
 
 type ContextPlanTaskCounts struct {
