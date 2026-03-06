@@ -1,0 +1,111 @@
+# AGENTS.md - agent-context-manager Maintainer Contract
+
+IMPORTANT: This file is the repository-local operating contract for work in `agent-context-manager`.
+Read it before doing substantive work in this repo. After any compaction, reset, or handoff, re-read this file and restart the ACM task loop before resuming.
+
+## Source Of Truth
+
+- This file is the top-level maintainer contract for this repository.
+- Canonical ACM rules live only in `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` at the repo root.
+- Canonical ACM tags live in `.acm/acm-tags.yaml`.
+- Canonical ACM verification definitions live in `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml` at the repo root.
+- `docs/examples/AGENTS.md` and `docs/examples/CLAUDE.md` are generic starter templates, not the contract for maintaining this repo.
+- Tool-specific companions such as `CLAUDE.md` and skill-pack prompts must stay consistent with this file. If they disagree, this file wins.
+
+## Required Startup Order
+
+Complete this sequence before making code changes or giving repo-specific implementation guidance:
+
+1. Read `AGENTS.md`.
+2. If the active tool is Claude, read `CLAUDE.md`.
+3. Run `acm get-context --project agent-context-manager --task-text "<current task>" --phase <plan|execute|review>`.
+4. Read the returned hard rules and fetch only the keys needed for the current step.
+5. If the task is multi-step, multi-file, or handoff-prone, create or update `work` immediately.
+6. If you change code, config, contracts, onboarding, or other executable behavior, run `verify` before `report-completion`.
+7. End the task with `report-completion`, including every changed file and a concise outcome.
+8. Capture durable decisions or recurring pitfalls with `propose-memory`.
+
+If `acm` is not on `PATH`, fix the environment or invoke the installed binary directly. Do not substitute `go run ./cmd/acm` for normal repository workflow unless you are explicitly testing source-build behavior.
+
+## Required ACM Task Loop
+
+Use these commands as the default flow for this repo:
+
+1. `acm get-context --project agent-context-manager ...`
+2. `acm fetch --project agent-context-manager ...`
+3. `acm work --project agent-context-manager ...` when the work is not trivially one-step
+4. `acm verify --project agent-context-manager ...` for executable changes
+5. `acm report-completion --project agent-context-manager ...`
+6. `acm propose-memory --project agent-context-manager ...` when the result should survive future sessions
+
+Do not skip `work` for multi-step changes. Do not skip `verify` for executable changes. Do not treat `report-completion` as optional.
+
+## Repository-Specific Rules
+
+Keep these constraints front-of-mind. They are derived from `.acm/acm-rules.yaml` and are expected on every relevant change:
+
+- Contract and schema lockstep:
+  Any payload, result, validation, or command semantics change must update `internal/contracts/v1`, `spec/v1`, and the relevant tests in the same change.
+- CLI and MCP parity:
+  Command-surface changes must be reflected across `cmd/acm`, `cmd/acm-mcp`, MCP tool definitions, help output, and tests.
+- Storage parity:
+  Postgres and SQLite behavior must stay aligned unless a backend-specific divergence is intentional and documented. Update both adapters, migrations, and parity tests together.
+- Onboarding invariants:
+  `bootstrap` must leave a clean repo in a usable first-run state. Do not let ACM-managed runtime files or SQLite sidecars leak into indexing, retrieval, or health coverage.
+- Docs, examples, and skills sync:
+  User-facing command, onboarding, install, or workflow changes must update `README.md`, `docs/getting-started.md`, `docs/examples`, and `skills/acm-broker/**` in the same change.
+- Verification before completion:
+  Code, config, contract, onboarding, and behavior changes require `verify` evidence before `report-completion`.
+- Durable decisions:
+  If a decision or pitfall would save future agent time, record it with `propose-memory`.
+
+## When To Use work
+
+Create or update `work` when any of the following are true:
+
+- the task takes more than one material step
+- more than one file or subsystem is involved
+- the task includes explicit planning, verification, or handoff
+- you need durable state that should survive compaction or session reset
+
+For code or behavior changes, include `verify:tests`. Add other tasks only when they help execution or resumption.
+
+## Verification Expectations
+
+- `.acm/acm-tests.yaml` is the repo-local verification contract.
+- Current baseline:
+  - `smoke` always runs
+  - `cli-build` runs in `execute` and `review` when `cmd/**`, `internal/**`, `go.mod`, or `go.sum` changes
+  - `full-go-suite` runs in `review` when `cmd/**`, `internal/**`, `spec/**`, `skills/**`, `scripts/**`, `go.mod`, or `go.sum` changes
+- If your change is not adequately covered, update `.acm/acm-tests.yaml` before claiming completion.
+- For broad product changes, expect `go test ./...` to run through `verify` or as explicit supplemental validation.
+
+## Governance And Maintenance Changes
+
+When changing ACM governance, onboarding, or tool-surface behavior:
+
+1. Update the relevant repo-local ACM files and product code.
+2. Run `acm sync --project agent-context-manager --mode working_tree --insert-new-candidates`.
+3. Run `acm health --project agent-context-manager --include-details`.
+4. Update docs and skill-pack assets in the same change when behavior or workflow changed.
+
+When rules, tags, or tests changed but you only need to refresh ACM-managed state, `acm health-fix --project agent-context-manager --apply` is also acceptable if it covers the needed fixers. Re-run `acm health` afterward.
+
+When changing rules, tags, or tests specifically, keep these files coherent:
+
+- `.acm/acm-rules.yaml`
+- `.acm/acm-tags.yaml`
+- `.acm/acm-tests.yaml`
+- `README.md`
+- `docs/getting-started.md`
+- `docs/examples/AGENTS.md`
+- `docs/examples/CLAUDE.md`
+- `skills/acm-broker/**`
+
+## Repository Notes
+
+- `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, and `.acm/acm-tests.yaml` are tracked product inputs.
+- `.acm/context.db`, `.acm/context.db-shm`, and `.acm/context.db-wal` are local runtime state and should stay ignored.
+- Prefer small, reviewable changes over broad cleanup.
+- Do not invent compatibility promises, migration behavior, or product requirements that the repo does not define.
+- If verification fails, fix the issue or report the failure clearly. Do not claim success as if checks passed.
