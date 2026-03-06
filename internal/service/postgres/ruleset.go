@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -139,7 +138,6 @@ func (s *Service) syncCanonicalRulesets(ctx context.Context, projectID, projectR
 }
 
 func discoverCanonicalRulesetSources(projectRoot, rulesFile string) ([]canonicalRulesetSource, error) {
-	root := normalizeBootstrapProjectRoot(projectRoot)
 	sourcePaths := canonicalRulesetDefaultPaths
 	if trimmedRulesFile := strings.TrimSpace(rulesFile); trimmedRulesFile != "" {
 		sourcePaths = []string{trimmedRulesFile}
@@ -147,11 +145,10 @@ func discoverCanonicalRulesetSources(projectRoot, rulesFile string) ([]canonical
 
 	sources := make([]canonicalRulesetSource, 0, len(sourcePaths))
 	for _, rawPath := range sourcePaths {
-		sourcePath := normalizeCompletionPath(rawPath)
-		if sourcePath == "" {
-			continue
+		sourcePath, absolutePath, err := resolveProjectSourcePath(projectRoot, rawPath)
+		if err != nil {
+			return nil, fmt.Errorf("stat canonical ruleset %s: %w", strings.TrimSpace(rawPath), err)
 		}
-		absolutePath := filepath.Clean(filepath.Join(root, filepath.FromSlash(sourcePath)))
 		stat, err := os.Stat(absolutePath)
 		exists := false
 		switch {

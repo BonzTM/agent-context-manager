@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	pathpkg "path"
 	"regexp"
 	"strings"
 )
@@ -820,13 +821,19 @@ func validateTags(tags []string) error {
 }
 
 func validateRelativePath(path string) error {
-	if strings.TrimSpace(path) == "" {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
 		return fmt.Errorf("relative path must not be empty")
 	}
-	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "\\") {
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	if strings.HasPrefix(normalized, "/") {
 		return fmt.Errorf("absolute paths are not allowed")
 	}
-	if len(path) >= 3 && ((path[1] == ':' && (path[2] == '\\' || path[2] == '/')) || (path[0] == '.' && path[1] == '.')) {
+	if len(normalized) >= 3 && normalized[1] == ':' && normalized[2] == '/' {
+		return fmt.Errorf("absolute paths are not allowed")
+	}
+	cleaned := pathpkg.Clean(normalized)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return fmt.Errorf("path must be repository-relative")
 	}
 	return nil

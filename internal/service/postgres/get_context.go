@@ -124,11 +124,40 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 		},
 	}
 
+	if err := s.repo.UpsertReceiptScope(ctx, core.ReceiptScope{
+		ProjectID:    strings.TrimSpace(payload.ProjectID),
+		ReceiptID:    receiptID,
+		TaskText:     strings.TrimSpace(payload.TaskText),
+		Phase:        strings.TrimSpace(string(payload.Phase)),
+		ResolvedTags: append([]string(nil), resolvedTags...),
+		PointerKeys:  append([]string(nil), selected.PointerKeys...),
+		MemoryIDs:    activeMemoryIDs(activeMemories),
+	}); err != nil {
+		return v1.GetContextResult{}, internalError("persist_receipt_scope", err)
+	}
+
 	return v1.GetContextResult{
 		Status:      "ok",
 		Receipt:     &receipt,
 		Diagnostics: diagnostics,
 	}, nil
+}
+
+func activeMemoryIDs(memories []core.ActiveMemory) []int64 {
+	if len(memories) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(memories))
+	for _, memory := range memories {
+		if memory.ID <= 0 {
+			continue
+		}
+		ids = append(ids, memory.ID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
 }
 
 func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPayload, caps effectiveCaps, fallback bool, tagNormalizer canonicalTagNormalizer) (pointerSelection, error) {

@@ -29,6 +29,7 @@ const (
 	verifyTestsPrimarySourcePath   = ".acm/acm-tests.yaml"
 	verifyTestsSecondarySourcePath = "acm-tests.yaml"
 	maxVerifyOutputExcerptChars    = 1600
+	maxVerifyWorkEvidenceEntries   = 128
 	maxVerifyDefinitions           = 512
 	maxVerifyArgs                  = 256
 	maxVerifyTimeoutSec            = 86400
@@ -37,6 +38,7 @@ const (
 var (
 	verifyTestIDPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 	verifyPointerKeyPattern = regexp.MustCompile(`^[^\s]+:[^\s#]+(?:#[^\s]+)?$`)
+	verifyEnvKeyPattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 )
 
 type verifyRunnerFunc func(ctx context.Context, projectRoot string, def verifyTestDefinition) verifyCommandRun
@@ -67,9 +69,10 @@ type verifyTestDocumentV1 struct {
 }
 
 type verifyTestCommandV1 struct {
-	Argv       []string `yaml:"argv"`
-	CWD        string   `yaml:"cwd"`
-	TimeoutSec int      `yaml:"timeout_sec"`
+	Argv       []string          `yaml:"argv"`
+	CWD        string            `yaml:"cwd"`
+	TimeoutSec int               `yaml:"timeout_sec"`
+	Env        map[string]string `yaml:"env"`
 }
 
 type verifyTestSelectionV1 struct {
@@ -77,6 +80,7 @@ type verifyTestSelectionV1 struct {
 	TagsAny         []string `yaml:"tags_any"`
 	ChangedPathsAny []string `yaml:"changed_paths_any"`
 	PointerKeysAny  []string `yaml:"pointer_keys_any"`
+	AlwaysRun       bool     `yaml:"always_run"`
 }
 
 type verifyTestExpectedExitV1 struct {
@@ -89,10 +93,12 @@ type verifyTestDefinition struct {
 	Argv             []string
 	CWD              string
 	TimeoutSec       int
+	Env              map[string]string
 	Phases           []v1.Phase
 	TagsAny          []string
 	ChangedPathsAny  []string
 	PointerKeysAny   []string
+	AlwaysRun        bool
 	ExpectedExitCode int
 	DefinitionHash   string
 }
@@ -344,11 +350,10 @@ func discoverVerifyTestsSource(projectRoot, testsFile string) (verifyTestsSource
 }
 
 func statVerifyTestsSource(projectRoot, sourcePath string) (verifyTestsSource, error) {
-	normalized := normalizeVerifySourcePath(sourcePath)
-	if normalized == "" {
-		return verifyTestsSource{}, fmt.Errorf("verification definitions source path is required")
+	normalized, absolutePath, err := resolveProjectSourcePath(projectRoot, sourcePath)
+	if err != nil {
+		return verifyTestsSource{}, fmt.Errorf("verification definitions source path is required: %w", err)
 	}
-	absolutePath := filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(normalized)))
 	stat, err := os.Stat(absolutePath)
 	exists := false
 	switch {
@@ -383,6 +388,10 @@ func normalizeVerifyDefinition(sourcePath string, index int, raw verifyTestDocum
 	if err != nil {
 		return verifyTestDefinition{}, fmt.Errorf("%s.command.argv %w", prefix, err)
 	}
+	env, err := normalizeVerifyEnv(raw.Command.Env)
+	if err != nil {
+		return verifyTestDefinition{}, fmt.Errorf("%s.command.env %w", prefix, err)
+	}
 
 	cwdValue := firstNonEmpty(raw.Command.CWD, defaultCWD)
 	cwd, err := normalizeVerifyWorkingDir(cwdValue)
@@ -412,6 +421,9 @@ func normalizeVerifyDefinition(sourcePath string, index int, raw verifyTestDocum
 	if err != nil {
 		return verifyTestDefinition{}, fmt.Errorf("%s.select.pointer_keys_any %w", prefix, err)
 	}
+	if raw.Select.AlwaysRun && (len(phases) > 0 || len(tagsAny) > 0 || len(changedPathsAny) > 0 || len(pointerKeysAny) > 0) {
+		return verifyTestDefinition{}, fmt.Errorf("%s.select.always_run must not be combined with other selector fields", prefix)
+	}
 
 	expectedExitCode := 0
 	if raw.Expected.ExitCode != nil {
@@ -427,10 +439,12 @@ func normalizeVerifyDefinition(sourcePath string, index int, raw verifyTestDocum
 		Argv:             argv,
 		CWD:              cwd,
 		TimeoutSec:       timeout,
+		Env:              env,
 		Phases:           phases,
 		TagsAny:          tagsAny,
 		ChangedPathsAny:  changedPathsAny,
 		PointerKeysAny:   pointerKeysAny,
+		AlwaysRun:        raw.Select.AlwaysRun,
 		ExpectedExitCode: expectedExitCode,
 	}
 	definition.DefinitionHash = verifyDefinitionHash(definition)
@@ -527,6 +541,10 @@ func selectVerifyDefinitions(definitions []verifyTestDefinition, payload v1.Veri
 }
 
 func matchVerifyDefinition(definition verifyTestDefinition, selection verifySelectionContext) ([]string, bool) {
+	if definition.AlwaysRun {
+		return []string{"always_run=true"}, true
+	}
+
 	selectorCount := len(definition.Phases) + len(definition.TagsAny) + len(definition.ChangedPathsAny) + len(definition.PointerKeysAny)
 	if selectorCount == 0 {
 		return nil, false
@@ -644,6 +662,7 @@ func runVerifyCommand(ctx context.Context, projectRoot string, def verifyTestDef
 	startedAt := time.Now().UTC()
 	command := exec.CommandContext(timeoutCtx, def.Argv[0], def.Argv[1:]...)
 	command.Dir = filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(def.CWD)))
+	command.Env = append(os.Environ(), verifyEnvPairs(def.Env)...)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -749,6 +768,9 @@ func (s *Service) updateVerifyWork(ctx context.Context, projectID string, select
 
 	evidence := []string{"verifyrun:" + batchRunID}
 	for _, result := range results {
+		if len(evidence) >= maxVerifyWorkEvidenceEntries {
+			break
+		}
 		evidence = append(evidence, fmt.Sprintf("verifyrun:%s#%s", batchRunID, result.TestID))
 	}
 
@@ -818,6 +840,27 @@ func normalizeVerifyArgv(raw []string) ([]string, error) {
 		argv = append(argv, trimmed)
 	}
 	return argv, nil
+}
+
+func normalizeVerifyEnv(raw map[string]string) (map[string]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	if len(raw) > 64 {
+		return nil, fmt.Errorf("may include at most 64 entries")
+	}
+	out := make(map[string]string, len(raw))
+	for rawKey, rawValue := range raw {
+		key := strings.TrimSpace(rawKey)
+		if !verifyEnvKeyPattern.MatchString(key) {
+			return nil, fmt.Errorf("key %q is invalid", rawKey)
+		}
+		if len(rawValue) > 4096 {
+			return nil, fmt.Errorf("value for %q may not exceed 4096 chars", key)
+		}
+		out[key] = rawValue
+	}
+	return out, nil
 }
 
 func normalizeVerifyWorkingDir(raw string) (string, error) {
@@ -918,16 +961,27 @@ func normalizeVerifyPointerKeys(raw []string) ([]string, error) {
 }
 
 func verifyDefinitionHash(definition verifyTestDefinition) string {
+	type envEntry struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	env := make([]envEntry, 0, len(definition.Env))
+	for _, pair := range verifyEnvPairs(definition.Env) {
+		name, value, _ := strings.Cut(pair, "=")
+		env = append(env, envEntry{Key: name, Value: value})
+	}
 	payload, _ := json.Marshal(struct {
 		ID               string     `json:"id"`
 		Summary          string     `json:"summary"`
 		Argv             []string   `json:"argv"`
 		CWD              string     `json:"cwd"`
 		TimeoutSec       int        `json:"timeout_sec"`
+		Env              []envEntry `json:"env,omitempty"`
 		Phases           []v1.Phase `json:"phases,omitempty"`
 		TagsAny          []string   `json:"tags_any,omitempty"`
 		ChangedPathsAny  []string   `json:"changed_paths_any,omitempty"`
 		PointerKeysAny   []string   `json:"pointer_keys_any,omitempty"`
+		AlwaysRun        bool       `json:"always_run,omitempty"`
 		ExpectedExitCode int        `json:"expected_exit_code"`
 	}{
 		ID:               definition.ID,
@@ -935,22 +989,32 @@ func verifyDefinitionHash(definition verifyTestDefinition) string {
 		Argv:             definition.Argv,
 		CWD:              definition.CWD,
 		TimeoutSec:       definition.TimeoutSec,
+		Env:              env,
 		Phases:           definition.Phases,
 		TagsAny:          definition.TagsAny,
 		ChangedPathsAny:  definition.ChangedPathsAny,
 		PointerKeysAny:   definition.PointerKeysAny,
+		AlwaysRun:        definition.AlwaysRun,
 		ExpectedExitCode: definition.ExpectedExitCode,
 	})
 	digest := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
-func normalizeVerifySourcePath(raw string) string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return ""
+func verifyEnvPairs(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
 	}
-	return strings.TrimPrefix(path.Clean(strings.ReplaceAll(trimmed, "\\", "/")), "./")
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	pairs := make([]string, 0, len(keys))
+	for _, key := range keys {
+		pairs = append(pairs, key+"="+values[key])
+	}
+	return pairs
 }
 
 func newVerifyBatchRunID() (string, error) {

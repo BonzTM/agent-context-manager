@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/adapters/mcp"
@@ -19,6 +20,15 @@ import (
 const mcpInvokeRequestID = "mcp.invoke"
 
 type serviceFactory func(context.Context, logging.Logger) (core.Service, runtime.CleanupFunc, error)
+
+type invokeWrapperEnvelope struct {
+	Version   string           `json:"version"`
+	RequestID string           `json:"request_id"`
+	Tool      string           `json:"tool,omitempty"`
+	OK        bool             `json:"ok"`
+	Timestamp string           `json:"timestamp"`
+	Error     *v1.ErrorPayload `json:"error,omitempty"`
+}
 
 func main() {
 	logger := runtime.NewLogger()
@@ -57,28 +67,37 @@ func invokeWithDeps(ctx context.Context, logger logging.Logger, args []string, s
 	logger = logging.Normalize(logger)
 	logger.Info(ctx, logging.EventACMMCP, "stage", "start", "subcommand", "invoke")
 
+	if wantsHelp(args) {
+		invokeUsage(stdout)
+		return 0
+	}
+
 	fs := flag.NewFlagSet("invoke", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	tool := fs.String("tool", "", "tool name: get_context|fetch|propose_memory|report_completion|work|sync|health_check|health_fix|coverage|eval|verify|bootstrap")
 	in := fs.String("in", "-", "tool input JSON file or '-' for stdin")
 	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
 		logger.Error(ctx, logging.EventACMMCP, "stage", "parse_flags", "subcommand", "invoke", "ok", false, "error_code", "INVALID_FLAGS")
-		writeEnvelope(stdout, envelopeForTool(*tool, now(), false, nil, &v1.ErrorPayload{Code: "INVALID_FLAGS", Message: err.Error()}))
+		writeInvokeWrapper(stdout, invokeWrapperError(*tool, now(), "INVALID_FLAGS", err.Error()))
 		return 2
 	}
 	if *tool == "" {
 		logger.Error(ctx, logging.EventACMMCP, "stage", "parse_flags", "subcommand", "invoke", "ok", false, "error_code", "MISSING_TOOL")
-		writeEnvelope(stdout, envelopeForTool("", now(), false, nil, &v1.ErrorPayload{Code: "MISSING_TOOL", Message: "--tool is required"}))
+		writeInvokeWrapper(stdout, invokeWrapperError("", now(), "MISSING_TOOL", "--tool is required"))
+		return 2
+	}
+
+	command, ok := commandForTool(*tool)
+	if !ok {
+		logger.Error(ctx, logging.EventACMMCP, "stage", "parse_flags", "subcommand", "invoke", "ok", false, "tool", *tool, "error_code", "UNKNOWN_TOOL")
+		writeInvokeWrapper(stdout, invokeWrapperError(*tool, now(), "UNKNOWN_TOOL", "tool is not recognized"))
 		return 2
 	}
 
 	input, err := readInput(*in, stdin)
 	if err != nil {
 		logger.Error(ctx, logging.EventACMIORead, "stage", "read_input", "subcommand", "invoke", "ok", false, "path", *in, "error_code", "READ_FAILED")
-		writeEnvelope(stdout, envelopeForTool(*tool, now(), false, nil, &v1.ErrorPayload{Code: "READ_FAILED", Message: err.Error()}))
+		writeEnvelope(stdout, envelopeForCommand(command, now(), false, nil, &v1.ErrorPayload{Code: "READ_FAILED", Message: err.Error()}))
 		return 1
 	}
 	logger.Info(ctx, logging.EventACMIORead, "stage", "read_input", "subcommand", "invoke", "ok", true, "path", *in, "bytes", len(input))
@@ -86,7 +105,7 @@ func invokeWithDeps(ctx context.Context, logger logging.Logger, args []string, s
 	svc, closeService, err := newService(ctx, logger)
 	if err != nil {
 		logger.Error(ctx, logging.EventACMMCP, "stage", "service_init", "subcommand", "invoke", "ok", false, "error_code", "SERVICE_INIT_FAILED")
-		writeEnvelope(stdout, envelopeForTool(*tool, now(), false, nil, &v1.ErrorPayload{Code: "SERVICE_INIT_FAILED", Message: err.Error()}))
+		writeEnvelope(stdout, envelopeForCommand(command, now(), false, nil, &v1.ErrorPayload{Code: "SERVICE_INIT_FAILED", Message: err.Error()}))
 		return 1
 	}
 	defer closeService()
@@ -94,10 +113,10 @@ func invokeWithDeps(ctx context.Context, logger logging.Logger, args []string, s
 	result, apiErr := mcp.InvokeWithLogger(ctx, svc, *tool, input, logger)
 	if apiErr != nil {
 		logger.Error(ctx, logging.EventACMMCP, "stage", "invoke", "subcommand", "invoke", "ok", false, "tool", *tool, "error_code", apiErr.Code)
-		writeEnvelope(stdout, envelopeForTool(*tool, now(), false, nil, apiErr.ToPayload()))
+		writeEnvelope(stdout, envelopeForCommand(command, now(), false, nil, apiErr.ToPayload()))
 		return 1
 	}
-	writeEnvelope(stdout, envelopeForTool(*tool, now(), true, result, nil))
+	writeEnvelope(stdout, envelopeForCommand(command, now(), true, result, nil))
 	logger.Info(ctx, logging.EventACMMCP, "stage", "finish", "subcommand", "invoke", "tool", *tool, "exit_code", 0)
 	return 0
 }
@@ -119,15 +138,71 @@ func writeEnvelope(out io.Writer, env v1.ResultEnvelope) {
 	printJSON(out, env)
 }
 
-func envelopeForTool(tool string, now time.Time, ok bool, result any, err *v1.ErrorPayload) v1.ResultEnvelope {
+func writeInvokeWrapper(out io.Writer, env invokeWrapperEnvelope) {
+	printJSON(out, env)
+}
+
+func envelopeForCommand(command v1.Command, now time.Time, ok bool, result any, err *v1.ErrorPayload) v1.ResultEnvelope {
 	return v1.ResultEnvelope{
 		Version:   v1.Version,
-		Command:   v1.Command(tool),
+		Command:   command,
 		RequestID: mcpInvokeRequestID,
 		OK:        ok,
 		Timestamp: now.UTC().Format(time.RFC3339),
 		Result:    result,
 		Error:     err,
+	}
+}
+
+func invokeWrapperError(tool string, now time.Time, code, message string) invokeWrapperEnvelope {
+	return invokeWrapperEnvelope{
+		Version:   v1.Version,
+		RequestID: mcpInvokeRequestID,
+		Tool:      strings.TrimSpace(tool),
+		OK:        false,
+		Timestamp: now.UTC().Format(time.RFC3339),
+		Error:     &v1.ErrorPayload{Code: code, Message: message},
+	}
+}
+
+func wantsHelp(args []string) bool {
+	for _, arg := range args {
+		switch strings.TrimSpace(arg) {
+		case "--help", "-h", "help":
+			return true
+		}
+	}
+	return false
+}
+
+func commandForTool(tool string) (v1.Command, bool) {
+	switch strings.TrimSpace(tool) {
+	case string(v1.CommandGetContext):
+		return v1.CommandGetContext, true
+	case string(v1.CommandFetch):
+		return v1.CommandFetch, true
+	case string(v1.CommandProposeMemory):
+		return v1.CommandProposeMemory, true
+	case string(v1.CommandReportCompletion):
+		return v1.CommandReportCompletion, true
+	case string(v1.CommandWork):
+		return v1.CommandWork, true
+	case string(v1.CommandSync):
+		return v1.CommandSync, true
+	case string(v1.CommandHealthCheck):
+		return v1.CommandHealthCheck, true
+	case string(v1.CommandHealthFix):
+		return v1.CommandHealthFix, true
+	case string(v1.CommandCoverage):
+		return v1.CommandCoverage, true
+	case string(v1.CommandEval):
+		return v1.CommandEval, true
+	case string(v1.CommandVerify):
+		return v1.CommandVerify, true
+	case string(v1.CommandBootstrap):
+		return v1.CommandBootstrap, true
+	default:
+		return "", false
 	}
 }
 
@@ -147,4 +222,19 @@ func usage() {
 	fmt.Println("  2. Repo-root `.env` is loaded when present.")
 	fmt.Println("  3. `ACM_PG_DSN` takes precedence over SQLite.")
 	fmt.Println("  4. Default SQLite path is `<repo-root>/.acm/context.db`.")
+}
+
+func invokeUsage(w io.Writer) {
+	fmt.Fprintln(w, "acm-mcp invoke - invoke one MCP tool with JSON input")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  acm-mcp invoke --tool <name> [--in <input.json|->]")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Flags:")
+	fmt.Fprintln(w, "  --tool <name>   required MCP tool name")
+	fmt.Fprintln(w, "  --in <path>     JSON input file or '-' for stdin (default: -)")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Tool names:")
+	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, work")
+	fmt.Fprintln(w, "  sync, health_check, health_fix, coverage, eval, verify, bootstrap")
 }

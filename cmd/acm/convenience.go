@@ -293,6 +293,9 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 		Keys:      allKeys,
 		ReceiptID: strings.TrimSpace(*receiptID),
 	}
+	if len(allKeys) == 0 {
+		payload.Keys = nil
+	}
 	if len(expectedVersions) > 0 {
 		payload.ExpectedVersions = expectedVersions
 	}
@@ -852,6 +855,9 @@ func buildVerifyEnvelope(args []string, now func() time.Time) (v1.CommandEnvelop
 	}
 	if trimmedPhase := strings.TrimSpace(*phase); trimmedPhase != "" {
 		payload.Phase = v1.Phase(trimmedPhase)
+	}
+	if len(payload.TestIDs) == 0 && payload.ReceiptID == "" && payload.PlanKey == "" && payload.Phase == "" && len(payload.FilesChanged) == 0 {
+		return v1.CommandEnvelope{}, fmt.Errorf("verify requires --test-id or selection context (--receipt-id, --plan-key, --phase, or --file-changed)")
 	}
 
 	return buildEnvelope(v1.CommandVerify, *requestID, payload, now)

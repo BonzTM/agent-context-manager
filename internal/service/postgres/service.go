@@ -37,8 +37,7 @@ const (
 	defaultMinimumRecall    = 0.8
 	defaultVerifyTimeoutSec = 300
 
-	requiredVerifyTestsKey      = "verify:tests"
-	requiredVerifyDiffReviewKey = "verify:diff-review"
+	requiredVerifyTestsKey = "verify:tests"
 
 	defaultBootstrapOutputPath   = ".acm/bootstrap_candidates.json"
 	defaultBootstrapPersist      = false
@@ -490,7 +489,7 @@ func (s *Service) ReportCompletion(ctx context.Context, payload v1.ReportComplet
 		return v1.ReportCompletionResult{}, reportCompletionInternalError("list_work_items", err)
 	}
 
-	definitionOfDoneIssues := evaluateDefinitionOfDoneIssues(workItems)
+	definitionOfDoneIssues := evaluateDefinitionOfDoneIssues(workItems, filesChanged)
 	scopeMode := effectiveScopeMode(payload.ScopeMode)
 	if scopeMode == v1.ScopeModeStrict && (len(violations) > 0 || len(definitionOfDoneIssues) > 0) {
 		return v1.ReportCompletionResult{
@@ -515,7 +514,7 @@ func (s *Service) ReportCompletion(ctx context.Context, payload v1.ReportComplet
 			runStatus = "accepted_with_warnings"
 		}
 	}
-	if len(definitionOfDoneIssues) > 0 {
+	if len(definitionOfDoneIssues) > 0 && runStatus == "accepted" {
 		runStatus = "accepted_with_warnings"
 	}
 
@@ -1367,10 +1366,14 @@ func derivePlanStatusFromWorkItems(items []core.WorkItem) string {
 	}
 }
 
-func evaluateDefinitionOfDoneIssues(items []core.WorkItem) []string {
+func evaluateDefinitionOfDoneIssues(items []core.WorkItem, filesChanged []string) []string {
+	if len(filesChanged) == 0 {
+		return nil
+	}
+
 	normalizedItems := normalizeWorkItems(items)
 	if len(normalizedItems) == 0 {
-		return nil
+		return []string{fmt.Sprintf("required verification work item is missing: %s", requiredVerifyTestsKey)}
 	}
 
 	statusByKey := make(map[string]string, len(normalizedItems))
@@ -1378,7 +1381,7 @@ func evaluateDefinitionOfDoneIssues(items []core.WorkItem) []string {
 		statusByKey[item.ItemKey] = normalizeWorkItemStatus(item.Status)
 	}
 
-	requiredKeys := []string{requiredVerifyTestsKey, requiredVerifyDiffReviewKey}
+	requiredKeys := []string{requiredVerifyTestsKey}
 	issues := make([]string, 0, len(requiredKeys))
 	for _, requiredKey := range requiredKeys {
 		status, ok := statusByKey[requiredKey]
@@ -1426,11 +1429,39 @@ func normalizeCompletionPath(raw string) string {
 		return ""
 	}
 	normalizedSlashes := strings.ReplaceAll(trimmed, "\\", "/")
+	if strings.HasPrefix(normalizedSlashes, "/") || isWindowsAbsolutePath(normalizedSlashes) {
+		return ""
+	}
 	cleaned := path.Clean(normalizedSlashes)
-	if cleaned == "." {
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return ""
 	}
 	return cleaned
+}
+
+func isWindowsAbsolutePath(value string) bool {
+	return len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && value[2] == '/'
+}
+
+func resolveProjectSourcePath(projectRoot, raw string) (string, string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", "", fmt.Errorf("source path is required")
+	}
+
+	root := normalizeBootstrapProjectRoot(projectRoot)
+	normalizedSlashes := strings.ReplaceAll(trimmed, "\\", "/")
+	if strings.HasPrefix(normalizedSlashes, "/") || isWindowsAbsolutePath(normalizedSlashes) {
+		absolutePath := filepath.Clean(trimmed)
+		return path.Clean(normalizedSlashes), absolutePath, nil
+	}
+
+	relativePath := normalizeCompletionPath(trimmed)
+	if relativePath == "" {
+		return "", "", fmt.Errorf("source path must be repository-relative")
+	}
+	absolutePath := filepath.Clean(filepath.Join(root, filepath.FromSlash(relativePath)))
+	return relativePath, absolutePath, nil
 }
 
 func (s *Service) collectSyncPaths(ctx context.Context, mode, gitRange, projectRoot string) ([]syncPathRecord, error) {

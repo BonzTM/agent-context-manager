@@ -92,7 +92,7 @@ type GetContextPayload struct {
 
 type FetchPayload struct {
 	ProjectID        string            `json:"project_id"`
-	Keys             []string          `json:"keys"`
+	Keys             []string          `json:"keys,omitempty"`
 	ReceiptID        string            `json:"receipt_id,omitempty"`
 	ExpectedVersions map[string]string `json:"expected_versions,omitempty"`
 }

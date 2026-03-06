@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS acm_pointer_links (
 	from_key TEXT NOT NULL,
 	to_key TEXT NOT NULL,
 	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-	PRIMARY KEY (project_id, from_key, to_key)
+	PRIMARY KEY (project_id, from_key, to_key),
+	FOREIGN KEY (project_id, from_key) REFERENCES acm_pointers (project_id, pointer_key) ON DELETE CASCADE,
+	FOREIGN KEY (project_id, to_key) REFERENCES acm_pointers (project_id, pointer_key) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_acm_pointer_links_project_to_key
@@ -116,7 +118,11 @@ CREATE TABLE IF NOT EXISTS acm_memory_candidates (
 	confidence INTEGER NOT NULL CHECK (confidence BETWEEN 1 AND 5),
 	tags_json TEXT NOT NULL DEFAULT '[]',
 	related_pointer_keys_json TEXT NOT NULL DEFAULT '[]',
-	evidence_pointer_keys_json TEXT NOT NULL DEFAULT '[]',
+	evidence_pointer_keys_json TEXT NOT NULL CHECK (
+		json_valid(evidence_pointer_keys_json)
+		AND json_type(evidence_pointer_keys_json) = 'array'
+		AND json_array_length(evidence_pointer_keys_json) >= 1
+	),
 	dedupe_key TEXT NOT NULL,
 	status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'promoted', 'rejected')),
 	promoted_memory_id INTEGER NULL,
@@ -310,6 +316,129 @@ CREATE INDEX IF NOT EXISTS idx_acm_verification_results_batch_started
 	ON acm_verification_results (batch_run_id, started_at, result_id);
 CREATE INDEX IF NOT EXISTS idx_acm_verification_results_project_test_started
 	ON acm_verification_results (project_id, test_id, started_at DESC);
+`,
+	},
+	{
+		Name: "0008_acm_sqlite_parity.sql",
+		SQL: `
+CREATE TABLE IF NOT EXISTS acm_pointer_links_new (
+	project_id TEXT NOT NULL,
+	from_key TEXT NOT NULL,
+	to_key TEXT NOT NULL,
+	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	PRIMARY KEY (project_id, from_key, to_key),
+	FOREIGN KEY (project_id, from_key) REFERENCES acm_pointers (project_id, pointer_key) ON DELETE CASCADE,
+	FOREIGN KEY (project_id, to_key) REFERENCES acm_pointers (project_id, pointer_key) ON DELETE CASCADE
+);
+
+INSERT INTO acm_pointer_links_new (project_id, from_key, to_key, created_at)
+SELECT l.project_id, l.from_key, l.to_key, l.created_at
+FROM acm_pointer_links l
+WHERE EXISTS (
+	SELECT 1 FROM acm_pointers p
+	WHERE p.project_id = l.project_id AND p.pointer_key = l.from_key
+)
+AND EXISTS (
+	SELECT 1 FROM acm_pointers p
+	WHERE p.project_id = l.project_id AND p.pointer_key = l.to_key
+);
+
+DROP TABLE acm_pointer_links;
+ALTER TABLE acm_pointer_links_new RENAME TO acm_pointer_links;
+
+CREATE INDEX IF NOT EXISTS idx_acm_pointer_links_project_to_key
+	ON acm_pointer_links (project_id, to_key);
+
+CREATE TABLE IF NOT EXISTS acm_memory_candidates_new (
+	candidate_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id TEXT NOT NULL,
+	receipt_id TEXT NOT NULL,
+	category TEXT NOT NULL CHECK (category IN ('decision', 'gotcha', 'pattern', 'preference')),
+	subject TEXT NOT NULL,
+	content TEXT NOT NULL,
+	confidence INTEGER NOT NULL CHECK (confidence BETWEEN 1 AND 5),
+	tags_json TEXT NOT NULL DEFAULT '[]',
+	related_pointer_keys_json TEXT NOT NULL DEFAULT '[]',
+	evidence_pointer_keys_json TEXT NOT NULL CHECK (
+		json_valid(evidence_pointer_keys_json)
+		AND json_type(evidence_pointer_keys_json) = 'array'
+		AND json_array_length(evidence_pointer_keys_json) >= 1
+	),
+	dedupe_key TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'promoted', 'rejected')),
+	promoted_memory_id INTEGER NULL,
+	hard_passed INTEGER NOT NULL CHECK (hard_passed IN (0, 1)),
+	soft_passed INTEGER NOT NULL CHECK (soft_passed IN (0, 1)),
+	validation_errors_json TEXT NOT NULL DEFAULT '[]',
+	validation_warnings_json TEXT NOT NULL DEFAULT '[]',
+	auto_promote INTEGER NOT NULL DEFAULT 1 CHECK (auto_promote IN (0, 1)),
+	promotable INTEGER NOT NULL DEFAULT 0 CHECK (promotable IN (0, 1)),
+	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	FOREIGN KEY (promoted_memory_id) REFERENCES acm_memories (memory_id) ON DELETE SET NULL
+);
+
+INSERT INTO acm_memory_candidates_new (
+	candidate_id,
+	project_id,
+	receipt_id,
+	category,
+	subject,
+	content,
+	confidence,
+	tags_json,
+	related_pointer_keys_json,
+	evidence_pointer_keys_json,
+	dedupe_key,
+	status,
+	promoted_memory_id,
+	hard_passed,
+	soft_passed,
+	validation_errors_json,
+	validation_warnings_json,
+	auto_promote,
+	promotable,
+	created_at,
+	updated_at
+)
+SELECT
+	candidate_id,
+	project_id,
+	receipt_id,
+	category,
+	subject,
+	content,
+	confidence,
+	tags_json,
+	related_pointer_keys_json,
+	evidence_pointer_keys_json,
+	dedupe_key,
+	status,
+	promoted_memory_id,
+	hard_passed,
+	soft_passed,
+	validation_errors_json,
+	validation_warnings_json,
+	auto_promote,
+	promotable,
+	created_at,
+	updated_at
+FROM acm_memory_candidates
+WHERE json_valid(evidence_pointer_keys_json)
+  AND json_type(evidence_pointer_keys_json) = 'array'
+  AND json_array_length(evidence_pointer_keys_json) >= 1;
+
+DROP TABLE acm_memory_candidates;
+ALTER TABLE acm_memory_candidates_new RENAME TO acm_memory_candidates;
+
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_created
+	ON acm_memory_candidates (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_status_created
+	ON acm_memory_candidates (project_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_receipt_created
+	ON acm_memory_candidates (receipt_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_memory_candidates_project_dedupe
+	ON acm_memory_candidates (project_id, dedupe_key);
 `,
 	},
 }

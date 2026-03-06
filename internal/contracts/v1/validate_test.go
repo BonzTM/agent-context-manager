@@ -124,6 +124,28 @@ func TestDecodeAndValidateCommand_ReportCompletionRejectsInvalidScopeMode(t *tes
 	}
 }
 
+func TestDecodeAndValidateCommand_ReportCompletionRejectsEscapingPath(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"report_completion",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"files_changed":["src/../.."],
+			"outcome":"done",
+			"scope_mode":"warn"
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
 func TestDecodeAndValidateCommand_CoveragePayloadValidation(t *testing.T) {
 	validJSON := `{
 		"version":"acm.v1",

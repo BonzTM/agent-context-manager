@@ -123,6 +123,35 @@ func TestBuildFetchEnvelope_LoadsInlineJSON(t *testing.T) {
 	}
 }
 
+func TestBuildFetchEnvelope_ReceiptShorthandOmitsEmptyKeys(t *testing.T) {
+	env, err := buildConvenienceEnvelope("fetch", []string{
+		"--project", "myproject",
+		"--receipt-id", "req-87654321",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(env.Payload, &raw); err != nil {
+		t.Fatalf("failed to decode raw payload: %v", err)
+	}
+	if _, ok := raw["keys"]; ok {
+		t.Fatalf("expected keys to be omitted for receipt shorthand payload, got %v", raw["keys"])
+	}
+
+	var payload v1.FetchPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.ReceiptID != "req-87654321" {
+		t.Fatalf("unexpected receipt id: %s", payload.ReceiptID)
+	}
+	if len(payload.Keys) != 0 {
+		t.Fatalf("expected no keys, got %d", len(payload.Keys))
+	}
+}
+
 func TestBuildWorkEnvelope_LoadsItemsFile(t *testing.T) {
 	itemsPath := filepath.Join(t.TempDir(), "items.json")
 	if err := os.WriteFile(itemsPath, []byte(`[
@@ -263,6 +292,18 @@ func TestBuildWorkEnvelope_LoadsPlanAndTasksJSON(t *testing.T) {
 	}
 	if len(payload.Items) != 0 {
 		t.Fatalf("expected legacy items to be empty when tasks are provided, got %+v", payload.Items)
+	}
+}
+
+func TestBuildVerifyEnvelope_RequiresSelectionContext(t *testing.T) {
+	_, err := buildConvenienceEnvelope("verify", []string{
+		"--project", "myproject",
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected error for missing verify selection context")
+	}
+	if !strings.Contains(err.Error(), "verify requires --test-id or selection context") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

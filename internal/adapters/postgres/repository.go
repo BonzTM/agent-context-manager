@@ -1174,6 +1174,42 @@ RETURNING run_id
 	}, nil
 }
 
+func (r *Repository) UpsertReceiptScope(ctx context.Context, input core.ReceiptScope) error {
+	if r == nil || r.pool == nil {
+		return fmt.Errorf("postgres pool is required")
+	}
+
+	normalized, err := normalizeReceiptScope(input)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.pool.Exec(ctx, `
+INSERT INTO acm_receipts (
+	receipt_id,
+	project_id,
+	task_text,
+	phase,
+	resolved_tags,
+	pointer_keys,
+	memory_ids,
+	summary_json
+) VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::jsonb)
+ON CONFLICT (receipt_id) DO UPDATE
+SET
+	project_id = EXCLUDED.project_id,
+	task_text = EXCLUDED.task_text,
+	phase = EXCLUDED.phase,
+	resolved_tags = EXCLUDED.resolved_tags,
+	pointer_keys = EXCLUDED.pointer_keys,
+	memory_ids = EXCLUDED.memory_ids
+`, normalized.ReceiptID, normalized.ProjectID, normalized.TaskText, normalized.Phase, nonNilStringList(normalized.ResolvedTags), nonNilStringList(normalized.PointerKeys), nonNilInt64List(normalized.MemoryIDs))
+	if err != nil {
+		return fmt.Errorf("upsert receipt scope: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) SaveVerificationBatch(ctx context.Context, input core.VerificationBatch) error {
 	if r == nil || r.pool == nil {
 		return fmt.Errorf("postgres pool is required")
@@ -1954,6 +1990,33 @@ func normalizeRunReceiptSummary(input core.RunReceiptSummary) (normalizedRunSumm
 		FilesChanged:           normalizeStringList(input.FilesChanged),
 		DefinitionOfDoneIssues: normalizeStringList(input.DefinitionOfDoneIssues),
 		Outcome:                strings.TrimSpace(input.Outcome),
+	}, nil
+}
+
+func normalizeReceiptScope(input core.ReceiptScope) (normalizedRunSummary, error) {
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return normalizedRunSummary{}, fmt.Errorf("project_id is required")
+	}
+
+	receiptID := strings.TrimSpace(input.ReceiptID)
+	if receiptID == "" {
+		return normalizedRunSummary{}, fmt.Errorf("receipt_id is required")
+	}
+
+	phase := strings.TrimSpace(input.Phase)
+	if phase == "" {
+		phase = "execute"
+	}
+
+	return normalizedRunSummary{
+		ProjectID:    projectID,
+		ReceiptID:    receiptID,
+		TaskText:     strings.TrimSpace(input.TaskText),
+		Phase:        phase,
+		ResolvedTags: normalizeStringList(input.ResolvedTags),
+		PointerKeys:  normalizeStringList(input.PointerKeys),
+		MemoryIDs:    normalizeInt64List(input.MemoryIDs),
 	}, nil
 }
 

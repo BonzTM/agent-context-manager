@@ -376,6 +376,7 @@ type Repository interface {
 	FetchActiveMemories(context.Context, ActiveMemoryQuery) ([]ActiveMemory, error)
 	ListPointerInventory(context.Context, string) ([]PointerInventory, error)
 	UpsertPointerStubs(context.Context, string, []PointerStub) (int, error)
+	UpsertReceiptScope(context.Context, ReceiptScope) error
 	FetchReceiptScope(context.Context, ReceiptScopeQuery) (ReceiptScope, error)
 	LookupFetchState(context.Context, FetchLookupQuery) (FetchLookup, error)
 	LookupPointerByKey(context.Context, PointerLookupQuery) (CandidatePointer, error)

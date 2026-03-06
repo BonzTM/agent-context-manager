@@ -100,7 +100,7 @@ func TestInvokeWithDeps_MissingToolWritesStructuredError(t *testing.T) {
 		t.Fatalf("unexpected exit code: got %d want 2", code)
 	}
 
-	var env v1.ResultEnvelope
+	var env invokeWrapperEnvelope
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("unmarshal envelope: %v", err)
 	}
@@ -109,6 +109,9 @@ func TestInvokeWithDeps_MissingToolWritesStructuredError(t *testing.T) {
 	}
 	if env.Error == nil || env.Error.Code != "MISSING_TOOL" {
 		t.Fatalf("unexpected error payload: %+v", env.Error)
+	}
+	if env.Tool != "" {
+		t.Fatalf("expected empty tool, got %q", env.Tool)
 	}
 }
 
@@ -130,7 +133,7 @@ func TestInvokeWithDeps_InvalidFlagsWriteStructuredError(t *testing.T) {
 		t.Fatalf("unexpected exit code: got %d want 2", code)
 	}
 
-	var env v1.ResultEnvelope
+	var env invokeWrapperEnvelope
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("unmarshal envelope: %v", err)
 	}
@@ -139,6 +142,65 @@ func TestInvokeWithDeps_InvalidFlagsWriteStructuredError(t *testing.T) {
 	}
 	if env.Error == nil || env.Error.Code != "INVALID_FLAGS" {
 		t.Fatalf("unexpected error payload: %+v", env.Error)
+	}
+}
+
+func TestInvokeWithDeps_UnknownToolWritesStructuredError(t *testing.T) {
+	var out bytes.Buffer
+	code := invokeWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		[]string{"--tool", "bogus"},
+		strings.NewReader(`{}`),
+		&out,
+		fixedMCPNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			t.Fatal("service factory should not be called")
+			return nil, nil, nil
+		},
+	)
+	if code != 2 {
+		t.Fatalf("unexpected exit code: got %d want 2", code)
+	}
+
+	var env invokeWrapperEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if env.OK {
+		t.Fatal("expected ok=false")
+	}
+	if env.Tool != "bogus" {
+		t.Fatalf("unexpected tool: %q", env.Tool)
+	}
+	if env.Error == nil || env.Error.Code != "UNKNOWN_TOOL" {
+		t.Fatalf("unexpected error payload: %+v", env.Error)
+	}
+}
+
+func TestInvokeWithDeps_HelpWritesUsage(t *testing.T) {
+	var out bytes.Buffer
+	code := invokeWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		[]string{"--help"},
+		strings.NewReader(`{}`),
+		&out,
+		fixedMCPNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			t.Fatal("service factory should not be called")
+			return nil, nil, nil
+		},
+	)
+	if code != 0 {
+		t.Fatalf("unexpected exit code: got %d want 0", code)
+	}
+	text := out.String()
+	if !strings.Contains(text, "acm-mcp invoke - invoke one MCP tool with JSON input") {
+		t.Fatalf("unexpected help output: %q", text)
+	}
+	if !strings.Contains(text, "--tool <name>") {
+		t.Fatalf("unexpected help output: %q", text)
 	}
 }
 

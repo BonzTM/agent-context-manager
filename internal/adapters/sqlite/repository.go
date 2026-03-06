@@ -1648,6 +1648,64 @@ INSERT INTO acm_runs (
 	}, nil
 }
 
+func (r *Repository) UpsertReceiptScope(ctx context.Context, input core.ReceiptScope) error {
+	if r == nil || r.db == nil {
+		return fmt.Errorf("sqlite db is required")
+	}
+
+	normalized, err := normalizeReceiptScope(input)
+	if err != nil {
+		return err
+	}
+
+	resolvedTagsJSON, err := encodeStringList(normalized.ResolvedTags)
+	if err != nil {
+		return fmt.Errorf("encode resolved_tags: %w", err)
+	}
+	pointerKeysJSON, err := encodeStringList(normalized.PointerKeys)
+	if err != nil {
+		return fmt.Errorf("encode pointer_keys: %w", err)
+	}
+	memoryIDsJSON, err := encodeInt64List(normalized.MemoryIDs)
+	if err != nil {
+		return fmt.Errorf("encode memory_ids: %w", err)
+	}
+
+	_, err = r.db.ExecContext(ctx, `
+INSERT INTO acm_receipts (
+	receipt_id,
+	project_id,
+	task_text,
+	phase,
+	resolved_tags_json,
+	pointer_keys_json,
+	memory_ids_json,
+	summary_json,
+	created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, '{}', unixepoch())
+ON CONFLICT(receipt_id) DO UPDATE
+SET
+	project_id = excluded.project_id,
+	task_text = excluded.task_text,
+	phase = excluded.phase,
+	resolved_tags_json = excluded.resolved_tags_json,
+	pointer_keys_json = excluded.pointer_keys_json,
+	memory_ids_json = excluded.memory_ids_json
+`,
+		normalized.ReceiptID,
+		normalized.ProjectID,
+		normalized.TaskText,
+		normalized.Phase,
+		resolvedTagsJSON,
+		pointerKeysJSON,
+		memoryIDsJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert receipt scope: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) SaveVerificationBatch(ctx context.Context, input core.VerificationBatch) error {
 	if r == nil || r.db == nil {
 		return fmt.Errorf("sqlite db is required")
@@ -2168,10 +2226,6 @@ func textMatchRank(tokens []string, pointer core.CandidatePointer) int {
 		return 0
 	}
 	searchSpace := strings.ToLower(strings.Join([]string{
-		pointer.Key,
-		pointer.Path,
-		pointer.Anchor,
-		pointer.Kind,
 		pointer.Label,
 		pointer.Description,
 		strings.Join(pointer.Tags, " "),
@@ -2235,7 +2289,7 @@ func pointerKind(pointer core.CandidatePointer) string {
 	case "test", "tests":
 		return "test"
 	}
-	if strings.HasSuffix(pointer.Path, "_test.go") {
+	if strings.Contains(strings.ToLower(pointer.Path), "_test.") {
 		return "test"
 	}
 	return "code"
@@ -2403,6 +2457,33 @@ func normalizeRunReceiptSummary(input core.RunReceiptSummary) (normalizedRunSumm
 		FilesChanged:           normalizeStringList(input.FilesChanged),
 		DefinitionOfDoneIssues: normalizeStringList(input.DefinitionOfDoneIssues),
 		Outcome:                strings.TrimSpace(input.Outcome),
+	}, nil
+}
+
+func normalizeReceiptScope(input core.ReceiptScope) (normalizedRunSummary, error) {
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return normalizedRunSummary{}, fmt.Errorf("project_id is required")
+	}
+
+	receiptID := strings.TrimSpace(input.ReceiptID)
+	if receiptID == "" {
+		return normalizedRunSummary{}, fmt.Errorf("receipt_id is required")
+	}
+
+	phase := strings.TrimSpace(input.Phase)
+	if phase == "" {
+		phase = "execute"
+	}
+
+	return normalizedRunSummary{
+		ProjectID:    projectID,
+		ReceiptID:    receiptID,
+		TaskText:     strings.TrimSpace(input.TaskText),
+		Phase:        phase,
+		ResolvedTags: normalizeStringList(input.ResolvedTags),
+		PointerKeys:  normalizeStringList(input.PointerKeys),
+		MemoryIDs:    normalizeInt64List(input.MemoryIDs),
 	}, nil
 }
 

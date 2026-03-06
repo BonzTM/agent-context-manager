@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -151,18 +150,15 @@ func loadMergedCanonicalTagAliasMap(projectRoot, tagsFile string) (map[string]st
 }
 
 func discoverCanonicalTagsSource(projectRoot, tagsFile string) (canonicalTagsSource, error) {
-	root := normalizeBootstrapProjectRoot(projectRoot)
 	sourcePath := canonicalTagsDefaultFilePath
 	if trimmedTagsFile := strings.TrimSpace(tagsFile); trimmedTagsFile != "" {
 		sourcePath = trimmedTagsFile
 	}
 
-	sourcePath = normalizeCompletionPath(sourcePath)
-	if sourcePath == "" {
-		return canonicalTagsSource{}, nil
+	normalizedPath, absolutePath, err := resolveProjectSourcePath(projectRoot, sourcePath)
+	if err != nil {
+		return canonicalTagsSource{}, err
 	}
-
-	absolutePath := filepath.Clean(filepath.Join(root, filepath.FromSlash(sourcePath)))
 	stat, err := os.Stat(absolutePath)
 	exists := false
 	switch {
@@ -175,7 +171,7 @@ func discoverCanonicalTagsSource(projectRoot, tagsFile string) (canonicalTagsSou
 	}
 
 	return canonicalTagsSource{
-		SourcePath:   sourcePath,
+		SourcePath:   normalizedPath,
 		AbsolutePath: absolutePath,
 		Exists:       exists,
 	}, nil

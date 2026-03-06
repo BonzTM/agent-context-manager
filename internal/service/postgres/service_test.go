@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -57,6 +58,7 @@ type fakeRepository struct {
 	memoryCalls          []core.ActiveMemoryQuery
 	inventoryCalls       []string
 	scopeCalls           []core.ReceiptScopeQuery
+	receiptUpsertCalls   []core.ReceiptScope
 	proposeCalls         []core.ProposeMemoryPersistence
 	saveCalls            []core.RunReceiptSummary
 	syncCalls            []core.SyncApplyInput
@@ -74,6 +76,7 @@ type fakeRepository struct {
 
 	saveResult core.RunReceiptIDs
 	saveError  error
+	receiptUpsertError error
 }
 
 func (f *fakeRepository) FetchCandidatePointers(_ context.Context, input core.CandidatePointerQuery) ([]core.CandidatePointer, error) {
@@ -161,6 +164,19 @@ func (f *fakeRepository) FetchReceiptScope(_ context.Context, input core.Receipt
 	scope.MemoryIDs = append([]int64(nil), scope.MemoryIDs...)
 	scope.PointerPaths = append([]string(nil), scope.PointerPaths...)
 	return scope, nil
+}
+
+func (f *fakeRepository) UpsertReceiptScope(_ context.Context, input core.ReceiptScope) error {
+	f.receiptUpsertCalls = append(f.receiptUpsertCalls, core.ReceiptScope{
+		ProjectID:    strings.TrimSpace(input.ProjectID),
+		ReceiptID:    strings.TrimSpace(input.ReceiptID),
+		TaskText:     strings.TrimSpace(input.TaskText),
+		Phase:        strings.TrimSpace(input.Phase),
+		ResolvedTags: append([]string(nil), input.ResolvedTags...),
+		PointerKeys:  append([]string(nil), input.PointerKeys...),
+		MemoryIDs:    append([]int64(nil), input.MemoryIDs...),
+	})
+	return f.receiptUpsertError
 }
 
 func (f *fakeRepository) LookupFetchState(_ context.Context, input core.FetchLookupQuery) (core.FetchLookup, error) {
@@ -503,6 +519,21 @@ func TestGetContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 	}
 	if len(repo.memoryCalls) != 1 {
 		t.Fatalf("expected 1 memory query, got %d", len(repo.memoryCalls))
+	}
+	if len(repo.receiptUpsertCalls) != 1 {
+		t.Fatalf("expected 1 receipt scope upsert, got %d", len(repo.receiptUpsertCalls))
+	}
+	if got := repo.receiptUpsertCalls[0].ReceiptID; got != result.Receipt.Meta.ReceiptID {
+		t.Fatalf("unexpected persisted receipt_id: got %q want %q", got, result.Receipt.Meta.ReceiptID)
+	}
+	if got := repo.receiptUpsertCalls[0].ProjectID; got != payload.ProjectID {
+		t.Fatalf("unexpected persisted project_id: got %q want %q", got, payload.ProjectID)
+	}
+	if got := repo.receiptUpsertCalls[0].Phase; got != string(payload.Phase) {
+		t.Fatalf("unexpected persisted phase: got %q want %q", got, payload.Phase)
+	}
+	if got := repo.receiptUpsertCalls[0].TaskText; got != payload.TaskText {
+		t.Fatalf("unexpected persisted task_text: got %q want %q", got, payload.TaskText)
 	}
 
 	repo2 := &fakeRepository{
@@ -1366,8 +1397,15 @@ func TestReportCompletion_AcceptsInScopeAndPersistsSummary(t *testing.T) {
 	if len(repo.saveCalls) != 1 {
 		t.Fatalf("expected one save call, got %d", len(repo.saveCalls))
 	}
-	if repo.saveCalls[0].Status != "accepted" {
+	if repo.saveCalls[0].Status != "accepted_with_warnings" {
 		t.Fatalf("unexpected status persisted: %q", repo.saveCalls[0].Status)
+	}
+	wantIssues := []string{"required verification work item is missing: verify:tests"}
+	if !reflect.DeepEqual(result.DefinitionOfDoneIssues, wantIssues) {
+		t.Fatalf("unexpected DoD issues: got %v want %v", result.DefinitionOfDoneIssues, wantIssues)
+	}
+	if !reflect.DeepEqual(repo.saveCalls[0].DefinitionOfDoneIssues, wantIssues) {
+		t.Fatalf("unexpected persisted DoD issues: got %v want %v", repo.saveCalls[0].DefinitionOfDoneIssues, wantIssues)
 	}
 	if repo.saveCalls[0].TaskText != "implement completion path" || repo.saveCalls[0].Phase != "execute" {
 		t.Fatalf("expected scope metadata in persisted summary, got task=%q phase=%q", repo.saveCalls[0].TaskText, repo.saveCalls[0].Phase)
@@ -1412,7 +1450,7 @@ func TestReportCompletion_StrictModeRejectsOutOfScopeWithoutPersistence(t *testi
 	}
 }
 
-func TestReportCompletion_StrictModeRejectsIncompleteDefinitionOfDoneWithoutPersistence(t *testing.T) {
+func TestReportCompletion_StrictModeAcceptsCompletedVerifyTestsWithoutDiffReview(t *testing.T) {
 	repo := &fakeRepository{
 		scopeResults: []core.ReceiptScope{{
 			ProjectID:    "project.alpha",
@@ -1438,17 +1476,17 @@ func TestReportCompletion_StrictModeRejectsIncompleteDefinitionOfDoneWithoutPers
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if result.Accepted {
-		t.Fatalf("expected strict-mode DoD rejection: %+v", result)
+	if !result.Accepted {
+		t.Fatalf("expected strict-mode acceptance: %+v", result)
 	}
 	if len(result.Violations) != 0 {
 		t.Fatalf("expected no scope violations, got %+v", result.Violations)
 	}
-	if got, want := result.DefinitionOfDoneIssues, []string{"required verification work item is missing: verify:diff-review"}; !reflect.DeepEqual(got, want) {
+	if got, want := result.DefinitionOfDoneIssues, []string(nil); !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected DoD issues: got %v want %v", got, want)
 	}
-	if len(repo.saveCalls) != 0 {
-		t.Fatalf("did not expect save on strict DoD rejection, got %d", len(repo.saveCalls))
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one persisted run summary, got %d", len(repo.saveCalls))
 	}
 }
 
@@ -1484,7 +1522,6 @@ func TestReportCompletion_WarnModeAcceptsIncompleteDefinitionOfDoneAndPersistsWa
 	}
 	wantIssues := []string{
 		"required verification work item is not complete: verify:tests (status=in_progress)",
-		"required verification work item is missing: verify:diff-review",
 	}
 	if !reflect.DeepEqual(result.DefinitionOfDoneIssues, wantIssues) {
 		t.Fatalf("unexpected DoD issues: got %v want %v", result.DefinitionOfDoneIssues, wantIssues)
@@ -1500,7 +1537,7 @@ func TestReportCompletion_WarnModeAcceptsIncompleteDefinitionOfDoneAndPersistsWa
 	}
 }
 
-func TestReportCompletion_NoWorkItemsDoesNotWarnDefinitionOfDone(t *testing.T) {
+func TestReportCompletion_NoWorkItemsWarnModeFlagsMissingVerify(t *testing.T) {
 	repo := &fakeRepository{
 		scopeResults: []core.ReceiptScope{{
 			ProjectID:    "project.alpha",
@@ -1526,19 +1563,60 @@ func TestReportCompletion_NoWorkItemsDoesNotWarnDefinitionOfDone(t *testing.T) {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
 	if !result.Accepted {
-		t.Fatalf("expected acceptance when no work items exist: %+v", result)
+		t.Fatalf("expected acceptance in warn mode when no work items exist: %+v", result)
 	}
-	if len(result.DefinitionOfDoneIssues) != 0 {
-		t.Fatalf("expected no DoD issues without work items, got %v", result.DefinitionOfDoneIssues)
+	wantIssues := []string{
+		"required verification work item is missing: verify:tests",
+	}
+	if !reflect.DeepEqual(result.DefinitionOfDoneIssues, wantIssues) {
+		t.Fatalf("unexpected DoD issues without work items: got %v want %v", result.DefinitionOfDoneIssues, wantIssues)
 	}
 	if len(repo.saveCalls) != 1 {
 		t.Fatalf("expected one persisted run summary, got %d", len(repo.saveCalls))
 	}
-	if repo.saveCalls[0].Status != "accepted" {
+	if repo.saveCalls[0].Status != "accepted_with_warnings" {
 		t.Fatalf("unexpected persisted status when no work items exist: %q", repo.saveCalls[0].Status)
 	}
-	if len(repo.saveCalls[0].DefinitionOfDoneIssues) != 0 {
-		t.Fatalf("expected no persisted DoD issues without work items, got %v", repo.saveCalls[0].DefinitionOfDoneIssues)
+	if !reflect.DeepEqual(repo.saveCalls[0].DefinitionOfDoneIssues, wantIssues) {
+		t.Fatalf("unexpected persisted DoD issues without work items: got %v want %v", repo.saveCalls[0].DefinitionOfDoneIssues, wantIssues)
+	}
+}
+
+func TestReportCompletion_NoWorkItemsStrictRejectsMissingVerify(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			PointerPaths: []string{"internal/core/repository.go"},
+		}},
+		workListResults: [][]core.WorkItem{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"internal/core/repository.go"},
+		Outcome:      "completed",
+		ScopeMode:    v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Accepted {
+		t.Fatalf("expected strict-mode rejection without verify work: %+v", result)
+	}
+	wantIssues := []string{
+		"required verification work item is missing: verify:tests",
+	}
+	if !reflect.DeepEqual(result.DefinitionOfDoneIssues, wantIssues) {
+		t.Fatalf("unexpected DoD issues: got %v want %v", result.DefinitionOfDoneIssues, wantIssues)
+	}
+	if len(repo.saveCalls) != 0 {
+		t.Fatalf("expected no persisted run summary on strict rejection, got %d", len(repo.saveCalls))
 	}
 }
 
@@ -2203,7 +2281,15 @@ tests:
       pointer_keys_any: ["code:repo"]
     expected:
       exit_code: 0
-  - id: gamma-unscoped
+  - id: gamma-smoke
+    summary: Repo smoke test
+    command:
+      argv: ["echo", "noop"]
+      env:
+        ACM_VERIFY_TEST_MODE: smoke
+    select:
+      always_run: true
+  - id: delta-unscoped
     summary: Unscoped test should not auto-select
     command:
       argv: ["echo", "noop"]
@@ -2245,11 +2331,14 @@ tests:
 	if result.Status != v1.VerifyStatusDryRun {
 		t.Fatalf("unexpected status: got %q want %q", result.Status, v1.VerifyStatusDryRun)
 	}
-	if got, want := result.SelectedTestIDs, []string{"alpha-unit", "beta-pointer"}; !reflect.DeepEqual(got, want) {
+	if got, want := result.SelectedTestIDs, []string{"alpha-unit", "beta-pointer", "gamma-smoke"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected selected test ids: got %v want %v", got, want)
 	}
-	if len(result.Selected) != 2 || result.Selected[0].TestID != "alpha-unit" || result.Selected[1].TestID != "beta-pointer" {
+	if len(result.Selected) != 3 || result.Selected[0].TestID != "alpha-unit" || result.Selected[1].TestID != "beta-pointer" || result.Selected[2].TestID != "gamma-smoke" {
 		t.Fatalf("unexpected selected results: %+v", result.Selected)
+	}
+	if got, want := result.Selected[2].SelectionReasons, []string{"always_run=true"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected always_run selection reasons: got %v want %v", got, want)
 	}
 	if result.Passed {
 		t.Fatalf("expected passed=false for dry run, got %+v", result.Passed)
@@ -2293,10 +2382,18 @@ tests:
     command:
       argv: ["acm", "eval", "--project", "project.alpha", "--eval-suite-path", ".acm/eval.json"]
       timeout_sec: 60
+      env:
+        ACM_VERIFY_PROFILE: pointer
     select:
       pointer_keys_any: ["code:repo"]
     expected:
       exit_code: 0
+  - id: gamma-smoke
+    summary: Run smoke verification
+    command:
+      argv: ["echo", "noop"]
+    select:
+      always_run: true
 `
 	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), []byte(testsYAML), 0o644); err != nil {
 		t.Fatalf("write tests file: %v", err)
@@ -2331,6 +2428,9 @@ tests:
 				FinishedAt: base.Add(2 * time.Second),
 			}
 		case "beta-pointer":
+			if got := def.Env["ACM_VERIFY_PROFILE"]; got != "pointer" {
+				t.Fatalf("expected verify env for beta-pointer, got %q", got)
+			}
 			exitCode := 1
 			return verifyCommandRun{
 				ExitCode:   &exitCode,
@@ -2338,6 +2438,14 @@ tests:
 				StartedAt:  base.Add(3 * time.Second),
 				FinishedAt: base.Add(4 * time.Second),
 				Err:        errors.New("exit status 1"),
+			}
+		case "gamma-smoke":
+			exitCode := 0
+			return verifyCommandRun{
+				ExitCode:   &exitCode,
+				Stdout:     "smoke ok\n",
+				StartedAt:  base.Add(5 * time.Second),
+				FinishedAt: base.Add(6 * time.Second),
 			}
 		default:
 			t.Fatalf("unexpected test id: %s", def.ID)
@@ -2366,13 +2474,13 @@ tests:
 	if result.BatchRunID == "" {
 		t.Fatal("expected batch run id")
 	}
-	if got, want := result.SelectedTestIDs, []string{"alpha-unit", "beta-pointer"}; !reflect.DeepEqual(got, want) {
+	if got, want := result.SelectedTestIDs, []string{"alpha-unit", "beta-pointer", "gamma-smoke"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected selected test ids: got %v want %v", got, want)
 	}
-	if len(result.Results) != 2 {
+	if len(result.Results) != 3 {
 		t.Fatalf("unexpected result count: %d", len(result.Results))
 	}
-	if result.Results[0].Status != v1.VerifyTestStatusPassed || result.Results[1].Status != v1.VerifyTestStatusFailed {
+	if result.Results[0].Status != v1.VerifyTestStatusPassed || result.Results[1].Status != v1.VerifyTestStatusFailed || result.Results[2].Status != v1.VerifyTestStatusPassed {
 		t.Fatalf("unexpected verify results: %+v", result.Results)
 	}
 	if len(repo.verifySaveCalls) != 1 {
@@ -2383,10 +2491,10 @@ tests:
 	if saved.Status != "failed" || saved.TestsSourcePath != ".acm/acm-tests.yaml" {
 		t.Fatalf("unexpected persisted batch: %+v", saved)
 	}
-	if got, want := saved.SelectedTestIDs, []string{"alpha-unit", "beta-pointer"}; !reflect.DeepEqual(got, want) {
+	if got, want := saved.SelectedTestIDs, []string{"alpha-unit", "beta-pointer", "gamma-smoke"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected persisted selected test ids: got %v want %v", got, want)
 	}
-	if len(saved.Results) != 2 {
+	if len(saved.Results) != 3 {
 		t.Fatalf("unexpected persisted results: %+v", saved.Results)
 	}
 	if saved.Results[0].TimeoutSec != 45 {
@@ -2404,12 +2512,136 @@ tests:
 	if got := repo.workUpsertCalls[0].Items[0].Status; got != core.WorkItemStatusBlocked {
 		t.Fatalf("unexpected work item status: %q", got)
 	}
-	if got := repo.workUpsertCalls[0].Items[0].Outcome; !strings.Contains(got, "1/2 verification tests passed") {
+	if got := repo.workUpsertCalls[0].Items[0].Outcome; !strings.Contains(got, "2/3 verification tests passed") {
 		t.Fatalf("unexpected work outcome: %q", got)
 	}
-	if got := repo.workUpsertCalls[0].Items[0].Evidence; len(got) != 3 || got[0] != "verifyrun:"+result.BatchRunID {
+	if got := repo.workUpsertCalls[0].Items[0].Evidence; len(got) != 4 || got[0] != "verifyrun:"+result.BatchRunID {
 		t.Fatalf("unexpected work evidence: %v", got)
 	}
+}
+
+func TestVerify_WorkEvidenceIsCapped(t *testing.T) {
+	repo := &fakeRepository{
+		workUpsertResults: []int{1},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	results := make([]v1.VerifyTestResult, 0, 256)
+	for i := 0; i < 256; i++ {
+		results = append(results, v1.VerifyTestResult{TestID: fmt.Sprintf("test-%03d", i)})
+	}
+
+	apiErr := svc.updateVerifyWork(context.Background(), "project.alpha", verifySelectionContext{
+		ReceiptID: "receipt.abc123",
+		PlanKey:   "plan:receipt.abc123",
+	}, "verify-batch-1", results, true)
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(repo.workUpsertCalls) != 1 {
+		t.Fatalf("expected one work upsert call, got %d", len(repo.workUpsertCalls))
+	}
+	got := repo.workUpsertCalls[0].Items[0].Evidence
+	if len(got) != maxVerifyWorkEvidenceEntries {
+		t.Fatalf("unexpected evidence count: got %d want %d", len(got), maxVerifyWorkEvidenceEntries)
+	}
+	if got[0] != "verifyrun:verify-batch-1" {
+		t.Fatalf("unexpected first evidence entry: %q", got[0])
+	}
+}
+
+func TestVerify_RejectsAlwaysRunCombinedWithSelectors(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	testsYAML := `version: acm.tests.v1
+defaults:
+  cwd: .
+  timeout_sec: 45
+tests:
+  - id: invalid-default
+    summary: Invalid always run selector mix
+    command:
+      argv: ["echo", "noop"]
+    select:
+      always_run: true
+      phases: ["review"]
+`
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), []byte(testsYAML), 0o644); err != nil {
+		t.Fatalf("write tests file: %v", err)
+	}
+
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Verify(context.Background(), v1.VerifyPayload{
+		ProjectID: "project.alpha",
+		Phase:     v1.PhaseReview,
+	})
+	if apiErr == nil {
+		t.Fatal("expected API error")
+	}
+	if apiErr.Code != "INVALID_INPUT" {
+		t.Fatalf("unexpected error code: %s", apiErr.Code)
+	}
+}
+
+func TestResolveProjectSourcePath_PreservesAbsoluteOverrides(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "repo")
+	absolute := filepath.Join(t.TempDir(), "acm-tests.yaml")
+
+	sourcePath, absolutePath, err := resolveProjectSourcePath(projectRoot, absolute)
+	if err != nil {
+		t.Fatalf("resolveProjectSourcePath returned error: %v", err)
+	}
+	if sourcePath != filepath.ToSlash(filepath.Clean(absolute)) {
+		t.Fatalf("unexpected source path: got %q want %q", sourcePath, filepath.ToSlash(filepath.Clean(absolute)))
+	}
+	if absolutePath != filepath.Clean(absolute) {
+		t.Fatalf("unexpected absolute path: got %q want %q", absolutePath, filepath.Clean(absolute))
+	}
+}
+
+func TestRunVerifyCommand_AppliesCommandEnv(t *testing.T) {
+	root := t.TempDir()
+	def := verifyTestDefinition{
+		Argv:       []string{os.Args[0], "-test.run=TestRunVerifyCommandHelperProcess", "--"},
+		CWD:        ".",
+		TimeoutSec: 5,
+		Env: map[string]string{
+			"GO_WANT_VERIFY_HELPER_PROCESS": "1",
+			"ACM_VERIFY_ENV_CHECK":          "expected-value",
+		},
+	}
+
+	run := runVerifyCommand(context.Background(), root, def)
+	if run.Err != nil {
+		t.Fatalf("unexpected command error: %v\nstdout=%q\nstderr=%q", run.Err, run.Stdout, run.Stderr)
+	}
+	if run.ExitCode == nil || *run.ExitCode != 0 {
+		t.Fatalf("unexpected exit code: %+v", run.ExitCode)
+	}
+}
+
+func TestRunVerifyCommandHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_VERIFY_HELPER_PROCESS") != "1" {
+		return
+	}
+	if got, want := os.Getenv("ACM_VERIFY_ENV_CHECK"), "expected-value"; got != want {
+		fmt.Fprintf(os.Stderr, "unexpected env: got %q want %q\n", got, want)
+		os.Exit(3)
+	}
+	fmt.Fprintln(os.Stdout, "env ok")
+	os.Exit(0)
 }
 
 func TestEval_LoadSuiteErrorMapsInternalError(t *testing.T) {
