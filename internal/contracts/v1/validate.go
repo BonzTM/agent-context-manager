@@ -575,10 +575,11 @@ func validateHistorySearchPayload(p *HistorySearchPayload) error {
 	}
 	if p.Entity != "" &&
 		p.Entity != HistoryEntityAll &&
+		p.Entity != HistoryEntityMemory &&
 		p.Entity != HistoryEntityWork &&
 		p.Entity != HistoryEntityReceipt &&
 		p.Entity != HistoryEntityRun {
-		return fmt.Errorf("entity must be all|work|receipt|run")
+		return fmt.Errorf("entity must be all|memory|work|receipt|run")
 	}
 	if strings.TrimSpace(p.Query) != "" && len(strings.TrimSpace(p.Query)) > 4000 {
 		return fmt.Errorf("query must be 1..4000 chars when provided")

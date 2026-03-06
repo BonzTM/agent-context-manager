@@ -1123,6 +1123,99 @@ ORDER BY updated_at DESC, r.receipt_id ASC
 	return out, nil
 }
 
+func (r *Repository) ListMemoryHistory(ctx context.Context, input core.MemoryHistoryListQuery) ([]core.MemoryHistorySummary, error) {
+	if r == nil || r.pool == nil {
+		return nil, fmt.Errorf("postgres pool is required")
+	}
+
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("project_id is required")
+	}
+	limit := input.Limit
+	if !input.Unbounded && limit <= 0 {
+		limit = 20
+	}
+	if !input.Unbounded && limit > 100 {
+		limit = 100
+	}
+	searchPattern := workPlanListSearchPattern(input.Query)
+
+	var (
+		query strings.Builder
+		args  []any
+	)
+	query.WriteString(`
+SELECT
+	m.memory_id,
+	m.category,
+	m.subject,
+	m.content,
+	m.confidence,
+	m.updated_at
+FROM acm_memories m
+WHERE m.project_id = $1
+	AND m.active = TRUE
+`)
+	args = append(args, projectID)
+	argIndex := 2
+
+	if searchPattern != "" {
+		query.WriteString(fmt.Sprintf(`  AND (
+	LOWER(COALESCE(m.category, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(m.subject, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(m.content, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(array_to_string(m.tags, ' '), '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(array_to_string(m.related_pointer_keys, ' '), '')) LIKE $%d ESCAPE '\'
+)
+`, argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4))
+		for i := 0; i < 5; i++ {
+			args = append(args, searchPattern)
+		}
+		argIndex += 5
+	}
+
+	query.WriteString(`
+ORDER BY m.updated_at DESC, m.confidence DESC, m.memory_id ASC
+`)
+	if !input.Unbounded {
+		query.WriteString(fmt.Sprintf("LIMIT $%d\n", argIndex))
+		args = append(args, limit)
+	}
+
+	rows, err := r.pool.Query(ctx, query.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("query memory history: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]core.MemoryHistorySummary, 0)
+	for rows.Next() {
+		var row core.MemoryHistorySummary
+		if err := rows.Scan(
+			&row.MemoryID,
+			&row.Category,
+			&row.Subject,
+			&row.Content,
+			&row.Confidence,
+			&row.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan memory history: %w", err)
+		}
+		if row.MemoryID <= 0 {
+			continue
+		}
+		row.Category = strings.TrimSpace(row.Category)
+		row.Subject = strings.TrimSpace(row.Subject)
+		row.Content = strings.TrimSpace(row.Content)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate memory history: %w", err)
+	}
+	return out, nil
+}
+
 func (r *Repository) ListRunHistory(ctx context.Context, input core.RunHistoryListQuery) ([]core.RunHistorySummary, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("postgres pool is required")

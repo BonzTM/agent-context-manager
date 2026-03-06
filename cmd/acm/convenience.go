@@ -560,8 +560,8 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 		usageLine = "acm work search --project <id> (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
 		example = "acm work search --project myproject --query \"MCP parity\" --scope current"
 	case "history-search":
-		usageLine = "acm history search --project <id> [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
-		example = "acm history search --project myproject --entity all --query \"bootstrap\" --limit 25"
+		usageLine = "acm history search --project <id> [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
+		example = "acm history search --project myproject --entity memory --query \"bootstrap\" --limit 25"
 		defaultScope = v1.HistoryScopeAll
 		defaultEntity = v1.HistoryEntityAll
 		queryRequired = false
@@ -569,7 +569,7 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 
 	fs := newCommandFlagSet(subcommand, usageLine, example)
 	projectID, requestID := addProjectAndRequestFlags(fs)
-	entity := fs.String("entity", string(defaultEntity), "history entity: all|work|receipt|run")
+	entity := fs.String("entity", string(defaultEntity), "history entity: all|work|memory|receipt|run")
 	query := fs.String("query", "", "search text applied to plan and task summaries")
 	queryFile := fs.String("query-file", "", "file containing search text ('-' for stdin)")
 	scope := fs.String("scope", string(defaultScope), "history scope: current|deferred|completed|all")

@@ -207,6 +207,7 @@ type HistoryEntity string
 
 const (
 	HistoryEntityAll     HistoryEntity = "all"
+	HistoryEntityMemory  HistoryEntity = "memory"
 	HistoryEntityWork    HistoryEntity = "work"
 	HistoryEntityReceipt HistoryEntity = "receipt"
 	HistoryEntityRun     HistoryEntity = "run"

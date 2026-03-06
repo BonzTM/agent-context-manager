@@ -193,7 +193,7 @@ func TestDecodeAndValidateCommand_HistorySearchPayloadValidation(t *testing.T) {
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
-			"entity":"receipt",
+			"entity":"memory",
 			"query":"bootstrap",
 			"scope":"completed",
 			"kind":"story",
@@ -209,7 +209,7 @@ func TestDecodeAndValidateCommand_HistorySearchPayloadValidation(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.ProjectID != "my-cool-app" || p.Entity != HistoryEntityReceipt || p.Query != "bootstrap" || p.Scope != HistoryScopeCompleted || p.Kind != "story" || p.Limit != 10 {
+	if p.ProjectID != "my-cool-app" || p.Entity != HistoryEntityMemory || p.Query != "bootstrap" || p.Scope != HistoryScopeCompleted || p.Kind != "story" || p.Limit != 10 {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 	if p.Unbounded == nil || !*p.Unbounded {

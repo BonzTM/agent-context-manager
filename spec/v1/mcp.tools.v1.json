@@ -218,7 +218,7 @@
     {
       "name": "history_search",
       "title": "Search History",
-      "description": "List or search work plans, receipts, and runs without direct database access.",
+      "description": "List or search work plans, memories, receipts, and runs without direct database access.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/historySearchPayload"

@@ -18,7 +18,7 @@ Claude companion for a repo whose primary contract is `AGENTS.md`.
 6. Use `/acm-memory ...` for durable decisions and gotchas.
 7. Use `/acm-eval ...` only for retrieval-quality maintenance, not task completion.
 
-If you need historical plan discovery, use direct CLI `work search --scope all`. If you need receipts or runs too, use `history search --entity all` or MCP `history_search`, then `fetch` the returned `fetch_keys`; the default slash-command pack does not add a dedicated `/acm-history` command.
+If you need historical plan discovery, use direct CLI `work search --scope all`. If you need receipts, runs, or memories too, use `history search --entity all`, `history search --entity memory`, or MCP `history_search`, then `fetch` the returned `fetch_keys`; the default slash-command pack does not add a dedicated `/acm-history` command.
 
 ## Claude-Specific Notes
 

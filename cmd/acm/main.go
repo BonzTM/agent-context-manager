@@ -58,8 +58,8 @@ var workflowCommands = []helpCommand{
 		summary: "Search plan and task history without direct database access.",
 	},
 	{
-		usage:   "acm history search --project <id> [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
-		summary: "Search recent work, receipts, and run history without direct database access.",
+		usage:   "acm history search --project <id> [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
+		summary: "Search recent work, memory, receipt, and run history without direct database access.",
 	},
 	{
 		usage:   "acm report-completion --project <id> --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--files-changed-json <json>] [--scope-mode <mode>] [--tags-file <path>]",

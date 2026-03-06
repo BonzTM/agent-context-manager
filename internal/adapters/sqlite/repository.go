@@ -1452,6 +1452,97 @@ ORDER BY updated_at DESC, r.receipt_id ASC
 	return out, nil
 }
 
+func (r *Repository) ListMemoryHistory(ctx context.Context, input core.MemoryHistoryListQuery) ([]core.MemoryHistorySummary, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("sqlite db is required")
+	}
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("project_id is required")
+	}
+	limit := input.Limit
+	if !input.Unbounded && limit <= 0 {
+		limit = 20
+	}
+	if !input.Unbounded && limit > 100 {
+		limit = 100
+	}
+	searchPattern := workPlanListSearchPattern(input.Query)
+
+	var query strings.Builder
+	query.WriteString(`
+SELECT
+	memory_id,
+	category,
+	subject,
+	content,
+	confidence,
+	updated_at
+FROM acm_memories
+WHERE project_id = ?
+	AND active = 1
+`)
+	args := []any{projectID}
+
+	if searchPattern != "" {
+		query.WriteString(`  AND (
+	LOWER(COALESCE(category, '')) LIKE ? ESCAPE '\'
+	OR LOWER(COALESCE(subject, '')) LIKE ? ESCAPE '\'
+	OR LOWER(COALESCE(content, '')) LIKE ? ESCAPE '\'
+	OR LOWER(COALESCE(tags_json, '')) LIKE ? ESCAPE '\'
+	OR LOWER(COALESCE(related_pointer_keys_json, '')) LIKE ? ESCAPE '\'
+)
+`)
+		for i := 0; i < 5; i++ {
+			args = append(args, searchPattern)
+		}
+	}
+
+	query.WriteString(`
+ORDER BY updated_at DESC, confidence DESC, memory_id ASC
+`)
+	if !input.Unbounded {
+		query.WriteString("LIMIT ?\n")
+		args = append(args, limit)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("query memory history: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]core.MemoryHistorySummary, 0)
+	for rows.Next() {
+		var (
+			row       core.MemoryHistorySummary
+			updatedAt int64
+		)
+		if err := rows.Scan(
+			&row.MemoryID,
+			&row.Category,
+			&row.Subject,
+			&row.Content,
+			&row.Confidence,
+			&updatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan memory history: %w", err)
+		}
+		if row.MemoryID <= 0 {
+			continue
+		}
+		row.Category = strings.TrimSpace(row.Category)
+		row.Subject = strings.TrimSpace(row.Subject)
+		row.Content = strings.TrimSpace(row.Content)
+		row.UpdatedAt = unixTime(updatedAt)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate memory history: %w", err)
+	}
+	return out, nil
+}
+
 func (r *Repository) ListRunHistory(ctx context.Context, input core.RunHistoryListQuery) ([]core.RunHistorySummary, error) {
 	if r == nil || r.db == nil {
 		return nil, fmt.Errorf("sqlite db is required")

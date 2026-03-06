@@ -660,6 +660,7 @@
           "enum": [
             "all",
             "work",
+            "memory",
             "receipt",
             "run"
           ],

@@ -72,7 +72,7 @@ func ToolDefinitions() []ToolDef {
 		{
 			Name:         toolHistorySearch,
 			Title:        "Search History",
-			Description:  "List or search work plans, receipts, and runs without direct database access.",
+			Description:  "List or search work plans, memories, receipts, and runs without direct database access.",
 			InputSchema:  schemaRef(commandSchemaID, "historySearchPayload"),
 			OutputSchema: schemaRef(resultSchemaID, "historySearchResult"),
 		},

@@ -212,17 +212,18 @@ acm work --project myproject --receipt-id <receipt-id> --mode merge \
 
 ### work history
 
-Use the public history surface to rediscover active or archived plans, receipts, and runs without direct database access:
+Use the public history surface to rediscover active or archived plans, memories, receipts, and runs without direct database access:
 
 ```bash
 acm work list --project myproject --scope current
 acm work search --project myproject --query "signup validation"
 acm work search --project myproject --query "bootstrap" --scope completed
 acm history search --project myproject --entity all --limit 20
+acm history search --project myproject --entity memory --query "postgres indexing"
 acm history search --project myproject --entity receipt --query "signup validation"
 ```
 
-Results stay compact and include targeted `fetch_keys`, so agents can search first and then `fetch` the exact plan, receipt, or run payloads they need.
+Results stay compact and include targeted `fetch_keys`, so agents can search first and then `fetch` the exact plan, memory, receipt, or run payloads they need.
 
 ### verify
 
@@ -315,7 +316,7 @@ acm-mcp tools          # list all 13 available tools
 acm-mcp invoke --tool get_context --in payload.json
 ```
 
-The MCP adapter exposes the same 13 operations as the CLI — six agent-facing (`get_context`, `fetch`, `work`, `history_search`, `propose_memory`, `report_completion`) and seven maintenance (`sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`).
+The MCP adapter exposes the same 13 operations as the CLI — six agent-facing (`get_context`, `fetch`, `work`, `history_search`, `propose_memory`, `report_completion`) and seven maintenance (`sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`). Use `history_search` for compact `work`, `memory`, `receipt`, `run`, or `all` discovery.
 
 ## Step 7: Ongoing maintenance
 

@@ -371,6 +371,25 @@ func TestBuildHistorySearchEnvelope_ForGenericHistoryDefaultsToAllEntities(t *te
 	}
 }
 
+func TestBuildHistorySearchEnvelope_AllowsMemoryEntity(t *testing.T) {
+	env, err := buildConvenienceEnvelope("history-search", []string{
+		"--project", "myproject",
+		"--entity", "memory",
+		"--query", "bootstrap",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.HistorySearchPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.Entity != v1.HistoryEntityMemory || payload.Query != "bootstrap" {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+}
+
 func TestBuildVerifyEnvelope_RequiresSelectionContext(t *testing.T) {
 	_, err := buildConvenienceEnvelope("verify", []string{
 		"--project", "myproject",

@@ -362,6 +362,22 @@ type ReceiptHistorySummary struct {
 	UpdatedAt       time.Time
 }
 
+type MemoryHistoryListQuery struct {
+	ProjectID string
+	Query     string
+	Limit     int
+	Unbounded bool
+}
+
+type MemoryHistorySummary struct {
+	MemoryID    int64
+	Category    string
+	Subject     string
+	Content     string
+	Confidence  int
+	UpdatedAt   time.Time
+}
+
 type RunHistoryListQuery struct {
 	ProjectID string
 	Query     string
@@ -448,6 +464,7 @@ type WorkPlanRepository interface {
 }
 
 type HistoryRepository interface {
+	ListMemoryHistory(context.Context, MemoryHistoryListQuery) ([]MemoryHistorySummary, error)
 	ListReceiptHistory(context.Context, ReceiptHistoryListQuery) ([]ReceiptHistorySummary, error)
 	ListRunHistory(context.Context, RunHistoryListQuery) ([]RunHistorySummary, error)
 	LookupRunHistory(context.Context, RunHistoryLookupQuery) (RunHistorySummary, error)

@@ -893,6 +893,7 @@
           "enum": [
             "all",
             "work",
+            "memory",
             "receipt",
             "run"
           ]
@@ -1002,6 +1003,7 @@
           "enum": [
             "all",
             "work",
+            "memory",
             "receipt",
             "run"
           ]

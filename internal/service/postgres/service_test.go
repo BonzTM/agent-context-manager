@@ -51,6 +51,8 @@ type fakeRepository struct {
 	workPlanLookupErrors   []error
 	workPlanListResults    [][]core.WorkPlanSummary
 	workPlanListErrors     []error
+	memoryHistoryResults   [][]core.MemoryHistorySummary
+	memoryHistoryErrors    []error
 	receiptHistoryResults  [][]core.ReceiptHistorySummary
 	receiptHistoryErrors   []error
 	runHistoryResults      [][]core.RunHistorySummary
@@ -78,6 +80,7 @@ type fakeRepository struct {
 	workPlanUpsertCalls   []core.WorkPlanUpsertInput
 	workPlanLookupCalls   []core.WorkPlanLookupQuery
 	workPlanListCalls     []core.WorkPlanListQuery
+	memoryHistoryCalls    []core.MemoryHistoryListQuery
 	receiptHistoryCalls   []core.ReceiptHistoryListQuery
 	runHistoryCalls       []core.RunHistoryListQuery
 	runHistoryLookupCalls []core.RunHistoryLookupQuery
@@ -341,6 +344,18 @@ func (f *fakeRepository) ListReceiptHistory(_ context.Context, input core.Receip
 		return nil, nil
 	}
 	return append([]core.ReceiptHistorySummary(nil), f.receiptHistoryResults[idx]...), nil
+}
+
+func (f *fakeRepository) ListMemoryHistory(_ context.Context, input core.MemoryHistoryListQuery) ([]core.MemoryHistorySummary, error) {
+	f.memoryHistoryCalls = append(f.memoryHistoryCalls, input)
+	idx := len(f.memoryHistoryCalls) - 1
+	if idx < len(f.memoryHistoryErrors) && f.memoryHistoryErrors[idx] != nil {
+		return nil, f.memoryHistoryErrors[idx]
+	}
+	if idx >= len(f.memoryHistoryResults) {
+		return nil, nil
+	}
+	return append([]core.MemoryHistorySummary(nil), f.memoryHistoryResults[idx]...), nil
 }
 
 func (f *fakeRepository) ListRunHistory(_ context.Context, input core.RunHistoryListQuery) ([]core.RunHistorySummary, error) {
@@ -5197,8 +5212,63 @@ func TestHistorySearch_UnboundedUsesAllScopeWithoutLimitCap(t *testing.T) {
 	}
 }
 
-func TestHistorySearch_AllEntitiesReturnsReceiptsRunsAndWork(t *testing.T) {
+func TestHistorySearch_MemoryEntityReturnsCompactMemoryItems(t *testing.T) {
 	repo := &fakeRepository{
+		memoryHistoryResults: [][]core.MemoryHistorySummary{{
+			{
+				MemoryID:   17,
+				Category:   "implementation",
+				Subject:    "Prefer work search for archived plans",
+				Content:    "Fallback content",
+				Confidence: 4,
+				UpdatedAt:  time.Date(2026, 3, 6, 13, 0, 0, 0, time.UTC),
+			},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.HistorySearch(context.Background(), v1.HistorySearchPayload{
+		ProjectID: "project.alpha",
+		Entity:    v1.HistoryEntityMemory,
+		Query:     "archived plans",
+		Limit:     15,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Entity != v1.HistoryEntityMemory || result.Count != 1 || len(result.Items) != 1 {
+		t.Fatalf("unexpected history result: %+v", result)
+	}
+	item := result.Items[0]
+	if item.Key != "mem:17" || item.Entity != v1.HistoryEntityMemory || item.Kind != "implementation" {
+		t.Fatalf("unexpected memory history item: %+v", item)
+	}
+	if !reflect.DeepEqual(item.FetchKeys, []string{"mem:17"}) {
+		t.Fatalf("unexpected memory fetch keys: %+v", item.FetchKeys)
+	}
+	if len(repo.memoryHistoryCalls) != 1 {
+		t.Fatalf("expected one memory history query, got %d", len(repo.memoryHistoryCalls))
+	}
+	if got := repo.memoryHistoryCalls[0]; got.ProjectID != "project.alpha" || got.Query != "archived plans" || got.Limit != 15 || got.Unbounded {
+		t.Fatalf("unexpected memory history query: %+v", got)
+	}
+}
+
+func TestHistorySearch_AllEntitiesReturnsMemoriesReceiptsRunsAndWork(t *testing.T) {
+	repo := &fakeRepository{
+		memoryHistoryResults: [][]core.MemoryHistorySummary{{
+			{
+				MemoryID:   17,
+				Category:   "implementation",
+				Subject:    "Memory history entry",
+				Content:    "Keep work items compact",
+				Confidence: 5,
+				UpdatedAt:  time.Date(2026, 3, 6, 13, 0, 0, 0, time.UTC),
+			},
+		}},
 		workPlanListResults: [][]core.WorkPlanSummary{{
 			{
 				PlanKey:   "plan:receipt.work123",
@@ -5243,23 +5313,26 @@ func TestHistorySearch_AllEntitiesReturnsReceiptsRunsAndWork(t *testing.T) {
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if result.Entity != v1.HistoryEntityAll || result.Count != 3 || len(result.Items) != 3 {
+	if result.Entity != v1.HistoryEntityAll || result.Count != 4 || len(result.Items) != 4 {
 		t.Fatalf("unexpected history result: %+v", result)
 	}
-	if result.Items[0].Entity != v1.HistoryEntityRun || result.Items[0].Key != "run:33" {
-		t.Fatalf("expected newest run item first, got %+v", result.Items)
+	if result.Items[0].Entity != v1.HistoryEntityMemory || result.Items[0].Key != "mem:17" {
+		t.Fatalf("expected newest memory item first, got %+v", result.Items)
 	}
-	if result.Items[1].Entity != v1.HistoryEntityReceipt || result.Items[1].Key != "receipt:receipt.receipt123" {
-		t.Fatalf("expected receipt item second, got %+v", result.Items)
+	if result.Items[1].Entity != v1.HistoryEntityRun || result.Items[1].Key != "run:33" {
+		t.Fatalf("expected run item second, got %+v", result.Items)
 	}
-	if result.Items[2].Entity != v1.HistoryEntityWork || result.Items[2].Key != "plan:receipt.work123" {
-		t.Fatalf("expected work item third, got %+v", result.Items)
+	if result.Items[2].Entity != v1.HistoryEntityReceipt || result.Items[2].Key != "receipt:receipt.receipt123" {
+		t.Fatalf("expected receipt item third, got %+v", result.Items)
+	}
+	if result.Items[3].Entity != v1.HistoryEntityWork || result.Items[3].Key != "plan:receipt.work123" {
+		t.Fatalf("expected work item fourth, got %+v", result.Items)
 	}
 	if len(repo.workPlanListCalls) != 1 || repo.workPlanListCalls[0].Scope != string(v1.HistoryScopeAll) {
 		t.Fatalf("unexpected work history query: %+v", repo.workPlanListCalls)
 	}
-	if len(repo.receiptHistoryCalls) != 1 || len(repo.runHistoryCalls) != 1 {
-		t.Fatalf("expected one receipt/run history query, got receipts=%d runs=%d", len(repo.receiptHistoryCalls), len(repo.runHistoryCalls))
+	if len(repo.memoryHistoryCalls) != 1 || len(repo.receiptHistoryCalls) != 1 || len(repo.runHistoryCalls) != 1 {
+		t.Fatalf("expected one memory/receipt/run history query, got memories=%d receipts=%d runs=%d", len(repo.memoryHistoryCalls), len(repo.receiptHistoryCalls), len(repo.runHistoryCalls))
 	}
 }
 

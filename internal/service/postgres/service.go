@@ -406,11 +406,17 @@ func (s *Service) historyItems(ctx context.Context, projectID string, entity v1.
 	switch entity {
 	case v1.HistoryEntityWork:
 		return s.listWorkHistoryItems(ctx, projectID, scope, kind, query, limit, unbounded)
+	case v1.HistoryEntityMemory:
+		return s.listMemoryHistoryItems(ctx, projectID, query, limit, unbounded)
 	case v1.HistoryEntityReceipt:
 		return s.listReceiptHistoryItems(ctx, projectID, query, limit, unbounded)
 	case v1.HistoryEntityRun:
 		return s.listRunHistoryItems(ctx, projectID, query, limit, unbounded)
 	case v1.HistoryEntityAll:
+		memoryItems, apiErr := s.listMemoryHistoryItems(ctx, projectID, query, limit, unbounded)
+		if apiErr != nil {
+			return nil, apiErr
+		}
 		workItems, apiErr := s.listWorkHistoryItems(ctx, projectID, v1.HistoryScopeAll, kind, query, limit, unbounded)
 		if apiErr != nil {
 			return nil, apiErr
@@ -423,7 +429,8 @@ func (s *Service) historyItems(ctx context.Context, projectID string, entity v1.
 		if apiErr != nil {
 			return nil, apiErr
 		}
-		allItems := make([]v1.HistoryItem, 0, len(workItems)+len(receiptItems)+len(runItems))
+		allItems := make([]v1.HistoryItem, 0, len(memoryItems)+len(workItems)+len(receiptItems)+len(runItems))
+		allItems = append(allItems, memoryItems...)
 		allItems = append(allItems, workItems...)
 		allItems = append(allItems, receiptItems...)
 		allItems = append(allItems, runItems...)
@@ -442,6 +449,50 @@ func (s *Service) historyItems(ctx context.Context, projectID string, entity v1.
 	default:
 		return nil, core.NewError("INVALID_INPUT", "history entity is not supported", map[string]any{"entity": entity})
 	}
+}
+
+func (s *Service) listMemoryHistoryItems(ctx context.Context, projectID, query string, limit int, unbounded bool) ([]v1.HistoryItem, *core.APIError) {
+	historyRepo, ok := s.repo.(core.HistoryRepository)
+	if !ok {
+		return nil, core.NewError(
+			"NOT_IMPLEMENTED",
+			"memory history search requires history storage support",
+			map[string]any{"operation": "history_search", "entity": "memory"},
+		)
+	}
+
+	rows, err := historyRepo.ListMemoryHistory(ctx, core.MemoryHistoryListQuery{
+		ProjectID: projectID,
+		Query:     query,
+		Limit:     limit,
+		Unbounded: unbounded,
+	})
+	if err != nil {
+		return nil, internalError("list_memory_history", err)
+	}
+
+	items := make([]v1.HistoryItem, 0, len(rows))
+	for _, row := range rows {
+		if row.MemoryID <= 0 {
+			continue
+		}
+		summary := strings.TrimSpace(row.Subject)
+		if summary == "" {
+			summary = strings.TrimSpace(row.Content)
+		}
+		if summary == "" {
+			summary = fmt.Sprintf("Memory %d", row.MemoryID)
+		}
+		items = append(items, v1.HistoryItem{
+			Key:       fmt.Sprintf("mem:%d", row.MemoryID),
+			Entity:    v1.HistoryEntityMemory,
+			Summary:   summary,
+			Kind:      strings.TrimSpace(row.Category),
+			FetchKeys: []string{fmt.Sprintf("mem:%d", row.MemoryID)},
+			UpdatedAt: historyTimestamp(row.UpdatedAt),
+		})
+	}
+	return items, nil
 }
 
 func (s *Service) listWorkHistoryItems(ctx context.Context, projectID string, scope v1.HistoryScope, kind, query string, limit int, unbounded bool) ([]v1.HistoryItem, *core.APIError) {
@@ -1880,6 +1931,8 @@ func normalizeHistoryEntity(raw v1.HistoryEntity) v1.HistoryEntity {
 	switch strings.TrimSpace(string(raw)) {
 	case string(v1.HistoryEntityAll):
 		return v1.HistoryEntityAll
+	case string(v1.HistoryEntityMemory):
+		return v1.HistoryEntityMemory
 	case string(v1.HistoryEntityReceipt):
 		return v1.HistoryEntityReceipt
 	case string(v1.HistoryEntityRun):
