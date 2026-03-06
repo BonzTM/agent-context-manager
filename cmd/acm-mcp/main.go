@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/adapters/mcp"
+	"github.com/bonztm/agent-context-manager/internal/buildinfo"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
@@ -48,6 +49,9 @@ func main() {
 		os.Exit(0)
 	case "invoke":
 		os.Exit(invoke(ctx, logger, os.Args[2:]))
+	case "--version", "-v", "version":
+		printVersion(os.Stdout, "acm-mcp")
+		os.Exit(0)
 	case "--help", "-h", "help":
 		usage()
 		os.Exit(0)
@@ -207,21 +211,36 @@ func commandForTool(tool string) (v1.Command, bool) {
 }
 
 func usage() {
-	fmt.Println("acm-mcp - MCP adapter surface")
-	fmt.Println("")
-	fmt.Println("Usage:")
-	fmt.Println("  acm-mcp tools")
-	fmt.Println("  acm-mcp invoke --tool <name> --in <input.json|->")
-	fmt.Println("")
-	fmt.Println("MCP v1 tools:")
-	fmt.Println("  get_context, fetch, propose_memory, report_completion, work")
-	fmt.Println("  sync, health_check, health_fix, coverage, eval, verify, bootstrap")
-	fmt.Println("")
-	fmt.Println("Config Resolution:")
-	fmt.Println("  1. Process environment (`ACM_*`) wins.")
-	fmt.Println("  2. Repo-root `.env` is loaded when present.")
-	fmt.Println("  3. `ACM_PG_DSN` takes precedence over SQLite.")
-	fmt.Println("  4. Default SQLite path is `<repo-root>/.acm/context.db`.")
+	printUsage(os.Stdout)
+}
+
+func printUsage(w io.Writer) {
+	if w == nil {
+		w = os.Stdout
+	}
+	fmt.Fprintln(w, "acm-mcp - MCP adapter surface")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  acm-mcp tools")
+	fmt.Fprintln(w, "  acm-mcp invoke --tool <name> --in <input.json|->")
+	fmt.Fprintln(w, "  acm-mcp --version | -v")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "MCP v1 tools:")
+	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, work")
+	fmt.Fprintln(w, "  sync, health_check, health_fix, coverage, eval, verify, bootstrap")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Config Resolution:")
+	fmt.Fprintln(w, "  1. Process environment (`ACM_*`) wins.")
+	fmt.Fprintln(w, "  2. Repo-root `.env` is loaded when present.")
+	fmt.Fprintln(w, "  3. `ACM_PG_DSN` takes precedence over SQLite.")
+	fmt.Fprintln(w, "  4. Default SQLite path is `<repo-root>/.acm/context.db`.")
+}
+
+func printVersion(w io.Writer, binaryName string) {
+	if w == nil {
+		w = os.Stdout
+	}
+	fmt.Fprintln(w, buildinfo.Banner(binaryName))
 }
 
 func invokeUsage(w io.Writer) {

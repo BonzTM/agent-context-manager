@@ -204,6 +204,24 @@ func TestInvokeWithDeps_HelpWritesUsage(t *testing.T) {
 	}
 }
 
+func TestUsage_IncludesVersionFlag(t *testing.T) {
+	var out bytes.Buffer
+	printUsage(&out)
+	text := out.String()
+	if !strings.Contains(text, "acm-mcp --version | -v") {
+		t.Fatalf("expected version usage line, got %q", text)
+	}
+}
+
+func TestPrintVersionWritesBinaryBanner(t *testing.T) {
+	var out bytes.Buffer
+	printVersion(&out, "acm-mcp")
+	text := strings.TrimSpace(out.String())
+	if !strings.HasPrefix(text, "acm-mcp ") {
+		t.Fatalf("unexpected version output: %q", text)
+	}
+}
+
 func fixedMCPNow() time.Time {
 	return time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC)
 }

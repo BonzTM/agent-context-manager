@@ -28,10 +28,14 @@ jobs:
         run: go test ./...
 
       - name: Build acm
-        run: go build -o dist/acm ./cmd/acm
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          go build -ldflags "-X github.com/bonztm/agent-context-manager/internal/buildinfo.commitShort=${short_sha}" -o dist/acm ./cmd/acm
 
       - name: Build acm-mcp
-        run: go build -o dist/acm-mcp ./cmd/acm-mcp
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          go build -ldflags "-X github.com/bonztm/agent-context-manager/internal/buildinfo.commitShort=${short_sha}" -o dist/acm-mcp ./cmd/acm-mcp
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/adapters/cli"
+	"github.com/bonztm/agent-context-manager/internal/buildinfo"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/logging"
 	"github.com/bonztm/agent-context-manager/internal/runtime"
@@ -117,6 +118,9 @@ func main() {
 		"verify",
 		"bootstrap":
 		os.Exit(runConvenience(ctx, logger, os.Args[1], os.Args[2:]))
+	case "--version", "-v", "version":
+		printVersion(os.Stdout, "acm")
+		os.Exit(0)
 	case "--help", "-h", "help":
 		usage()
 		os.Exit(0)
@@ -223,6 +227,13 @@ func usage() {
 	printMainUsage(os.Stdout)
 }
 
+func printVersion(w io.Writer, binaryName string) {
+	if w == nil {
+		w = os.Stdout
+	}
+	fmt.Fprintln(w, buildinfo.Banner(binaryName))
+}
+
 func printMainUsage(w io.Writer) {
 	if w == nil {
 		w = os.Stdout
@@ -232,6 +243,7 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  acm <command> [flags]")
+	fmt.Fprintln(w, "  acm --version | -v")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Entry Points:")
 	printHelpCommands(w, entryPointCommands)
@@ -273,7 +285,7 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  - `ACM_LOG_SINK`: `stderr|stdout|discard`.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Managed Repo Files:")
-	fmt.Fprintln(w, "  - `.acm/context.db`: implicit repo-local SQLite database.")
+	fmt.Fprintln(w, "  - `.acm/context.db`, `.acm/context.db-shm`, `.acm/context.db-wal`: implicit repo-local SQLite database and sidecars.")
 	fmt.Fprintln(w, "  - `.acm/acm-rules.yaml` or `acm-rules.yaml`: canonical rules.")
 	fmt.Fprintln(w, "  - `.acm/acm-tags.yaml`: repo-local canonical tag overrides.")
 	fmt.Fprintln(w, "  - `.acm/acm-tests.yaml` or `acm-tests.yaml`: repo-local executable verification definitions.")
@@ -284,8 +296,9 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "First-Run Recovery:")
 	fmt.Fprintln(w, "  # zero-config local bootstrap")
 	fmt.Fprintln(w, "  acm bootstrap --project myproject --project-root .")
-	fmt.Fprintln(w, "  acm sync --project myproject --mode working_tree")
 	fmt.Fprintln(w, "  acm health --project myproject --include-details")
+	fmt.Fprintln(w, "  # after later edits, refresh changed files")
+	fmt.Fprintln(w, "  acm sync --project myproject --mode working_tree --insert-new-candidates")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "  # force explicit local SQLite")
 	fmt.Fprintln(w, "  export ACM_SQLITE_PATH=.acm/context.db")

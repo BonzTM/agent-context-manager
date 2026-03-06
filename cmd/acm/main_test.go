@@ -18,6 +18,7 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 		"Entry Points:",
 		"Agent Workflow Commands:",
 		"Maintenance Commands:",
+		"acm --version | -v",
 		"Shared Conventions:",
 		"High-Signal Requirements:",
 		"Config Resolution:",
@@ -35,6 +36,19 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 		if !strings.Contains(output, snippet) {
 			t.Fatalf("main usage is missing snippet %q\noutput:\n%s", snippet, output)
 		}
+	}
+}
+
+func TestPrintVersionWritesBinaryBanner(t *testing.T) {
+	var buf bytes.Buffer
+	printVersion(&buf, "acm")
+
+	output := strings.TrimSpace(buf.String())
+	if !strings.HasPrefix(output, "acm ") {
+		t.Fatalf("unexpected version output: %q", output)
+	}
+	if output == "acm" {
+		t.Fatalf("expected version suffix in output: %q", output)
 	}
 }
 
