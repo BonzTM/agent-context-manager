@@ -1,0 +1,61 @@
+version: acm.rules.v1
+rules:
+  - id: rule_start_with_context
+    summary: Start each task with get_context and fetch only what is needed.
+    content: Run get_context first, then fetch specific keys for the current step instead of broad retrieval.
+    enforcement: hard
+    tags: [context, workflow]
+
+  - id: rule_track_multistep_work
+    summary: Use work for multi-step, multi-file, or handoff-prone tasks.
+    content: Create or update a plan and tasks when work spans more than one material step. Include verify:tests for code, contract, onboarding, or behavior changes.
+    enforcement: hard
+    tags: [work, planning]
+
+  - id: rule_contract_schema_lockstep
+    summary: Keep v1 contracts and schema files in lockstep.
+    content: Any change to payloads, results, validation, or command semantics must update internal/contracts/v1, spec/v1 schemas, and the corresponding tests together.
+    enforcement: hard
+    tags: [contract, schema]
+
+  - id: rule_cli_mcp_parity
+    summary: Preserve CLI and MCP parity for command surfaces.
+    content: Command, flag, tool, help, or envelope behavior changes must be reflected across cmd/acm, cmd/acm-mcp, MCP tool definitions, and associated tests.
+    enforcement: hard
+    tags: [cli, mcp]
+
+  - id: rule_storage_parity
+    summary: Keep Postgres and SQLite behavior equivalent.
+    content: Retrieval, persistence, migration, and parity-sensitive behavior changes must update both adapters with matching semantics, migrations, and regression coverage unless the behavior is intentionally backend-specific and explicitly documented.
+    enforcement: hard
+    tags: [postgres, sqlite, parity]
+
+  - id: rule_onboarding_invariants
+    summary: Bootstrap must produce a usable first-run state.
+    content: From a clean repo, bootstrap should make get_context usable and health-check meaningful without manual recovery. Do not index ACM-managed runtime files or SQLite sidecars.
+    enforcement: hard
+    tags: [bootstrap, health, onboarding]
+
+  - id: rule_docs_and_examples_sync
+    summary: Keep docs, examples, and skill-pack assets aligned with real behavior.
+    content: User-facing install, help, command, or onboarding changes must update README, docs/getting-started, docs/examples, and skill-pack assets in the same change.
+    enforcement: hard
+    tags: [docs, skills]
+
+  - id: rule_idempotent_maintenance
+    summary: Maintenance commands should remain deterministic and idempotent.
+    content: Sync, bootstrap, coverage, and health-fix changes should preserve deterministic ordering, repeatable counters, and stable path filtering. Add tests for regression-sensitive path sets and summaries.
+    enforcement: soft
+    tags: [sync, health, reliability]
+
+  - id: rule_verify_before_completion
+    summary: Verify executable changes before report_completion.
+    content: For code, config, contract, onboarding, or behavior changes, ensure .acm/acm-tests.yaml coverage is appropriate, run verify with receipt or plan context, then report_completion.
+    enforcement: hard
+    tags: [verify, testing, completion]
+
+  - id: rule_capture_durable_decisions
+    summary: Persist stable architectural decisions as memory.
+    content: Record durable decisions and recurring pitfalls with propose_memory when they would reduce future rework.
+    enforcement: soft
+    tags: [memory, architecture]

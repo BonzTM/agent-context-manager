@@ -1,0 +1,35 @@
+version: acm.tests.v1
+defaults:
+  cwd: .
+  timeout_sec: 900
+tests:
+  - id: smoke
+    summary: Run critical CLI, runtime, and service tests on every verification pass
+    command:
+      argv: ["go", "test", "./cmd/acm", "./cmd/acm-mcp", "./internal/runtime", "./internal/service/postgres", "-count=1"]
+    select:
+      always_run: true
+    expected:
+      exit_code: 0
+
+  - id: cli-build
+    summary: Ensure both CLI entrypoints still build
+    command:
+      argv: ["go", "build", "./cmd/acm", "./cmd/acm-mcp"]
+    select:
+      phases: ["execute", "review"]
+      changed_paths_any: ["cmd/**", "internal/**", "go.mod", "go.sum"]
+    expected:
+      exit_code: 0
+
+  - id: full-go-suite
+    summary: Run the full repository Go test suite for product changes
+    command:
+      argv: ["go", "test", "./..."]
+      env:
+        GOFLAGS: "-count=1"
+    select:
+      phases: ["review"]
+      changed_paths_any: ["cmd/**", "internal/**", "spec/**", "skills/**", "scripts/**", "go.mod", "go.sum"]
+    expected:
+      exit_code: 0
