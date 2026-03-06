@@ -12,6 +12,7 @@ const (
 	CommandProposeMemory    Command = "propose_memory"
 	CommandReportCompletion Command = "report_completion"
 	CommandWork             Command = "work"
+	CommandHistorySearch    Command = "history_search"
 	CommandSync             Command = "sync"
 	CommandHealthCheck      Command = "health_check"
 	CommandHealthFix        Command = "health_fix"
@@ -84,6 +85,7 @@ type GetContextPayload struct {
 	TaskText     string         `json:"task_text"`
 	Phase        Phase          `json:"phase"`
 	TagsFile     string         `json:"tags_file,omitempty"`
+	Unbounded    *bool          `json:"unbounded,omitempty"`
 	ScopeMode    ScopeMode      `json:"scope_mode,omitempty"`
 	Caps         *RetrievalCaps `json:"caps,omitempty"`
 	AllowStale   bool           `json:"allow_stale,omitempty"`
@@ -190,6 +192,34 @@ type WorkPayload struct {
 	Plan      *WorkPlanPayload  `json:"plan,omitempty"`
 	Tasks     []WorkTaskPayload `json:"tasks,omitempty"`
 	Items     []WorkItemPayload `json:"items,omitempty"` // legacy alias for task updates
+}
+
+type HistoryScope string
+
+const (
+	HistoryScopeCurrent   HistoryScope = "current"
+	HistoryScopeDeferred  HistoryScope = "deferred"
+	HistoryScopeCompleted HistoryScope = "completed"
+	HistoryScopeAll       HistoryScope = "all"
+)
+
+type HistoryEntity string
+
+const (
+	HistoryEntityAll     HistoryEntity = "all"
+	HistoryEntityWork    HistoryEntity = "work"
+	HistoryEntityReceipt HistoryEntity = "receipt"
+	HistoryEntityRun     HistoryEntity = "run"
+)
+
+type HistorySearchPayload struct {
+	ProjectID string        `json:"project_id"`
+	Entity    HistoryEntity `json:"entity,omitempty"`
+	Query     string        `json:"query,omitempty"`
+	Scope     HistoryScope  `json:"scope,omitempty"`
+	Kind      string        `json:"kind,omitempty"`
+	Limit     int           `json:"limit,omitempty"`
+	Unbounded *bool         `json:"unbounded,omitempty"`
 }
 
 type SyncPayload struct {
@@ -391,6 +421,33 @@ type WorkResult struct {
 	PlanStatus string `json:"plan_status"`
 	Updated    int    `json:"updated"`
 	TaskCount  int    `json:"task_count,omitempty"`
+}
+
+type HistoryItem struct {
+	Key           string                 `json:"key"`
+	Entity        HistoryEntity          `json:"entity"`
+	Summary       string                 `json:"summary"`
+	Status        string                 `json:"status,omitempty"`
+	Scope         HistoryScope           `json:"scope,omitempty"`
+	PlanKey       string                 `json:"plan_key,omitempty"`
+	ReceiptID     string                 `json:"receipt_id,omitempty"`
+	RunID         int64                  `json:"run_id,omitempty"`
+	RequestID     string                 `json:"request_id,omitempty"`
+	Phase         Phase                  `json:"phase,omitempty"`
+	Kind          string                 `json:"kind,omitempty"`
+	ParentPlanKey string                 `json:"parent_plan_key,omitempty"`
+	TaskCounts    *ContextPlanTaskCounts `json:"task_counts,omitempty"`
+	FetchKeys     []string               `json:"fetch_keys,omitempty"`
+	UpdatedAt     string                 `json:"updated_at"`
+}
+
+type HistorySearchResult struct {
+	Entity HistoryEntity `json:"entity"`
+	Scope  HistoryScope  `json:"scope,omitempty"`
+	Query  string        `json:"query,omitempty"`
+	Limit  int           `json:"limit"`
+	Count  int           `json:"count"`
+	Items  []HistoryItem `json:"items"`
 }
 
 type SyncResult struct {

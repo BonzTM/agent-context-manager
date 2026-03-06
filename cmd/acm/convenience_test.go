@@ -295,6 +295,82 @@ func TestBuildWorkEnvelope_LoadsPlanAndTasksJSON(t *testing.T) {
 	}
 }
 
+func TestBuildHistorySearchEnvelope_ForWorkListDefaultsToCurrent(t *testing.T) {
+	env, err := buildConvenienceEnvelope("work-list", []string{
+		"--project", "myproject",
+		"--limit", "7",
+		"--unbounded",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandHistorySearch {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.HistorySearchPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.ProjectID != "myproject" || payload.Entity != v1.HistoryEntityWork || payload.Scope != v1.HistoryScopeCurrent || payload.Limit != 7 || payload.Query != "" {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if payload.Unbounded == nil || !*payload.Unbounded {
+		t.Fatalf("expected unbounded payload flag, got %+v", payload.Unbounded)
+	}
+}
+
+func TestBuildHistorySearchEnvelope_ForWorkSearchLoadsQueryFile(t *testing.T) {
+	queryPath := filepath.Join(t.TempDir(), "query.txt")
+	if err := os.WriteFile(queryPath, []byte("  bootstrap history  \n"), 0o644); err != nil {
+		t.Fatalf("write query fixture: %v", err)
+	}
+
+	env, err := buildConvenienceEnvelope("work-search", []string{
+		"--project", "myproject",
+		"--query-file", queryPath,
+		"--scope", "completed",
+		"--kind", "story",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.HistorySearchPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.ProjectID != "myproject" || payload.Entity != v1.HistoryEntityWork || payload.Query != "bootstrap history" || payload.Scope != v1.HistoryScopeCompleted || payload.Kind != "story" || payload.Limit != 20 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+}
+
+func TestBuildHistorySearchEnvelope_RequiresQueryForSearchCommands(t *testing.T) {
+	if _, err := buildConvenienceEnvelope("work-search", []string{
+		"--project", "myproject",
+	}, fixedNow); err == nil || !strings.Contains(err.Error(), "--query or --query-file is required") {
+		t.Fatalf("expected query requirement error, got %v", err)
+	}
+}
+
+func TestBuildHistorySearchEnvelope_ForGenericHistoryDefaultsToAllEntities(t *testing.T) {
+	env, err := buildConvenienceEnvelope("history-search", []string{
+		"--project", "myproject",
+		"--limit", "9",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.HistorySearchPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.ProjectID != "myproject" || payload.Entity != v1.HistoryEntityAll || payload.Scope != v1.HistoryScopeAll || payload.Limit != 9 || payload.Query != "" {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+}
+
 func TestBuildVerifyEnvelope_RequiresSelectionContext(t *testing.T) {
 	_, err := buildConvenienceEnvelope("verify", []string{
 		"--project", "myproject",
@@ -734,6 +810,10 @@ func (f *convenienceFakeService) ProposeMemory(_ context.Context, _ v1.ProposeMe
 
 func (f *convenienceFakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *core.APIError) {
 	return v1.WorkResult{}, nil
+}
+
+func (f *convenienceFakeService) HistorySearch(_ context.Context, _ v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
+	return v1.HistorySearchResult{}, nil
 }
 
 func (f *convenienceFakeService) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {

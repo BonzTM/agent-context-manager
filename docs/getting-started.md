@@ -118,6 +118,7 @@ Bootstrap also creates or extends `.env.example` with ACM runtime defaults:
 ```dotenv
 ACM_SQLITE_PATH=.acm/context.db
 ACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable
+ACM_UNBOUNDED=false
 ACM_LOG_LEVEL=info
 ACM_LOG_SINK=stderr
 ```
@@ -208,6 +209,20 @@ acm work --project myproject --receipt-id <receipt-id> --mode merge \
 ```
 
 `tasks` are the canonical payload for rich tracking. Legacy `items` are still accepted for compatibility. `verify:diff-review` remains available as an optional manual workflow task, but acm only enforces `verify:tests` as a built-in completion gate.
+
+### work history
+
+Use the public history surface to rediscover active or archived plans, receipts, and runs without direct database access:
+
+```bash
+acm work list --project myproject --scope current
+acm work search --project myproject --query "signup validation"
+acm work search --project myproject --query "bootstrap" --scope completed
+acm history search --project myproject --entity all --limit 20
+acm history search --project myproject --entity receipt --query "signup validation"
+```
+
+Results stay compact and include targeted `fetch_keys`, so agents can search first and then `fetch` the exact plan, receipt, or run payloads they need.
 
 ### verify
 
@@ -300,7 +315,7 @@ acm-mcp tools          # list all 12 available tools
 acm-mcp invoke --tool get_context --in payload.json
 ```
 
-The MCP adapter exposes the same 12 operations as the CLI — five agent-facing (`get_context`, `fetch`, `work`, `propose_memory`, `report_completion`) and seven maintenance (`sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`).
+The MCP adapter exposes the same 13 operations as the CLI — six agent-facing (`get_context`, `fetch`, `work`, `history_search`, `propose_memory`, `report_completion`) and seven maintenance (`sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`).
 
 ## Step 7: Ongoing maintenance
 

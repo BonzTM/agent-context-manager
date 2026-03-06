@@ -21,6 +21,8 @@ Start here, then customize once the project develops stronger local conventions.
 7. End every task with `report_completion`, including every changed file and a concise outcome.
 8. If you learn a reusable decision, gotcha, or preference, record it with `propose_memory`.
 
+If you need to resume after compaction or inspect archived work, use `work list` or `work search --scope all` for plan discovery. If you need receipts or runs too, use `history search --entity all`, then `fetch` the returned `fetch_keys`.
+
 ## Working Rules
 
 - Do not silently expand scope. Refresh context first if the task spills into adjacent systems.

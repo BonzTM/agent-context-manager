@@ -32,6 +32,10 @@ func (f fakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *
 	return v1.WorkResult{PlanKey: "plan.alpha", PlanStatus: "pending", Updated: 1}, nil
 }
 
+func (f fakeService) HistorySearch(_ context.Context, _ v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
+	return v1.HistorySearchResult{}, nil
+}
+
 func (f fakeService) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
 	return v1.ReportCompletionResult{}, nil
 }
@@ -210,7 +214,7 @@ func TestRun_DispatchesHealthCheckEvalAndBootstrap(t *testing.T) {
 	}
 }
 
-func TestDispatch_RoutesFetchAndWork(t *testing.T) {
+func TestDispatch_RoutesFetchWorkAndHistorySearch(t *testing.T) {
 	tests := []struct {
 		name    string
 		command v1.Command
@@ -225,6 +229,11 @@ func TestDispatch_RoutesFetchAndWork(t *testing.T) {
 			name:    "work",
 			command: commandWork,
 			payload: v1.WorkPayload{ProjectID: "my-cool-app", PlanKey: "plan.alpha", Items: []v1.WorkItemPayload{{Key: "x.go", Summary: "x", Status: v1.WorkItemStatusPending}}},
+		},
+		{
+			name:    "history_search",
+			command: v1.CommandHistorySearch,
+			payload: v1.HistorySearchPayload{ProjectID: "my-cool-app", Query: "bootstrap", Scope: v1.HistoryScopeAll},
 		},
 	}
 
@@ -242,6 +251,10 @@ func TestDispatch_RoutesFetchAndWork(t *testing.T) {
 			case commandWork:
 				if _, ok := result.(v1.WorkResult); !ok {
 					t.Fatalf("unexpected work result type: %T", result)
+				}
+			case v1.CommandHistorySearch:
+				if _, ok := result.(v1.HistorySearchResult); !ok {
+					t.Fatalf("unexpected history search result type: %T", result)
 				}
 			}
 		})

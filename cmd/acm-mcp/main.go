@@ -226,7 +226,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  acm-mcp --version | -v")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "MCP v1 tools:")
-	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, work")
+	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, work, history_search")
 	fmt.Fprintln(w, "  sync, health_check, health_fix, coverage, eval, verify, bootstrap")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Config Resolution:")
@@ -234,6 +234,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  2. Repo-root `.env` is loaded when present.")
 	fmt.Fprintln(w, "  3. `ACM_PG_DSN` takes precedence over SQLite.")
 	fmt.Fprintln(w, "  4. Default SQLite path is `<repo-root>/.acm/context.db`.")
+	fmt.Fprintln(w, "  5. `ACM_UNBOUNDED=true` removes built-in retrieval/list caps for supported tools.")
 }
 
 func printVersion(w io.Writer, binaryName string) {
@@ -254,6 +255,6 @@ func invokeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  --in <path>     JSON input file or '-' for stdin (default: -)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Tool names:")
-	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, work")
+	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, work, history_search")
 	fmt.Fprintln(w, "  sync, health_check, health_fix, coverage, eval, verify, bootstrap")
 }

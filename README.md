@@ -120,7 +120,7 @@ If you already have this repo checked out locally, the equivalent command is `./
 acm-mcp invoke --tool get_context --in payload.json
 ```
 
-Twelve tools exposed — the five agent-facing operations (`get_context`, `fetch`, `work`, `propose_memory`, `report_completion`) plus seven maintenance operations (`sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`).
+Thirteen tools exposed — six agent-facing operations (`get_context`, `fetch`, `work`, `history_search`, `propose_memory`, `report_completion`) plus seven maintenance operations (`sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`).
 
 ## CLI Reference
 
@@ -129,14 +129,19 @@ All commands support `--help` for full flag documentation.
 ### Agent-facing (called by agents via CLI, skills, or MCP)
 
 ```bash
-acm get-context    --project <id> (--task-text <text>|--task-file <path>) --phase <plan|execute|review> [--tags-file <path>]
+acm get-context    --project <id> (--task-text <text>|--task-file <path>) --phase <plan|execute|review> [--tags-file <path>] [--unbounded]
 acm fetch          --project <id> [--key <key>]... [--keys-file <path>|--keys-json <json>] [--expect <key=version>]... [--expected-versions-file <path>|--expected-versions-json <json>] [--receipt-id <id>]
 acm work           --project <id> [--plan-key <key>|--receipt-id <id>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>] [--items-file <path>|--items-json <json>]
+acm work list      --project <id> [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
+acm work search    --project <id> (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
+acm history search --project <id> [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
 acm propose-memory --project <id> --receipt-id <id> --category <cat> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> --evidence-key <key> [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [--auto-promote]
 acm report-completion --project <id> --receipt-id <id> [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] (--outcome <text>|--outcome-file <path>) [--scope-mode <strict|warn|auto_index>] [--tags-file <path>]
 ```
 
 Most list and text flags support inline values and `--*-file` alternatives (`-` for stdin). JSON list/object inputs also support `--*-json` for one-shot agent calls without temporary files.
+
+History discovery is intentionally compact: work search/list returns plan summaries with plan-level `fetch_keys`, while generic history search can also return `receipt:` and `run:` keys for structured follow-up `fetch`.
 
 ### Human-facing (setup and maintenance)
 
@@ -235,6 +240,7 @@ See [docs/examples/acm-rules.yaml](docs/examples/acm-rules.yaml) and [docs/examp
 ## Logging
 
 ```bash
+export ACM_UNBOUNDED=false  # true removes built-in retrieval/list caps for supported surfaces
 export ACM_LOG_LEVEL=debug   # debug|info|warn|error (default: info)
 export ACM_LOG_SINK=stderr   # stderr|stdout|discard (default: stderr)
 ```

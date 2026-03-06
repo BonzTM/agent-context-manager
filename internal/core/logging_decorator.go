@@ -59,6 +59,12 @@ func (s *loggingService) Work(ctx context.Context, payload v1.WorkPayload) (v1.W
 	})
 }
 
+func (s *loggingService) HistorySearch(ctx context.Context, payload v1.HistorySearchPayload) (v1.HistorySearchResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationHistorySearch, payload.ProjectID, func() (v1.HistorySearchResult, *APIError) {
+		return s.next.HistorySearch(ctx, payload)
+	})
+}
+
 func (s *loggingService) ReportCompletion(ctx context.Context, payload v1.ReportCompletionPayload) (v1.ReportCompletionResult, *APIError) {
 	return withOperation(ctx, s.now, s.logger, logging.OperationReportCompletion, payload.ProjectID, func() (v1.ReportCompletionResult, *APIError) {
 		return s.next.ReportCompletion(ctx, payload)

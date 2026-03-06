@@ -18,6 +18,8 @@ This folder provides Claude Code slash-command prompts that mirror the `acm-brok
 - `/acm-eval <eval-suite-path> [minimum-recall]`
   - runs retrieval evaluation against an explicit eval suite.
 
+For compact rediscovery of archived plans, receipts, and runs, use direct CLI `acm work search --scope all ...` for plan-only lookup or `acm history search --entity all ...` / MCP `history_search`, then `fetch` the returned `fetch_keys`. The default command pack does not add a dedicated `/acm-history` slash command.
+
 ## Install into a project
 
 ```bash

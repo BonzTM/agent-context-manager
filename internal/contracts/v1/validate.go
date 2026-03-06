@@ -100,6 +100,15 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
 		return p, nil
+	case CommandHistorySearch:
+		var p HistorySearchPayload
+		if err := decodeStrict(raw, &p); err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		if err := validateHistorySearchPayload(&p); err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		return p, nil
 	case CommandSync:
 		var p SyncPayload
 		if err := decodeStrict(raw, &p); err != nil {
@@ -183,6 +192,7 @@ func isValidCommand(command Command) bool {
 		CommandProposeMemory,
 		CommandReportCompletion,
 		CommandWork,
+		CommandHistorySearch,
 		CommandSync,
 		CommandHealthCheck,
 		CommandHealthFix,
@@ -555,6 +565,41 @@ func validateSyncPayload(p *SyncPayload) error {
 	}
 	if err := validateTagsFile(p.TagsFile); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateHistorySearchPayload(p *HistorySearchPayload) error {
+	if err := validateProjectID(p.ProjectID); err != nil {
+		return err
+	}
+	if p.Entity != "" &&
+		p.Entity != HistoryEntityAll &&
+		p.Entity != HistoryEntityWork &&
+		p.Entity != HistoryEntityReceipt &&
+		p.Entity != HistoryEntityRun {
+		return fmt.Errorf("entity must be all|work|receipt|run")
+	}
+	if strings.TrimSpace(p.Query) != "" && len(strings.TrimSpace(p.Query)) > 4000 {
+		return fmt.Errorf("query must be 1..4000 chars when provided")
+	}
+	if p.Scope != "" &&
+		p.Scope != HistoryScopeCurrent &&
+		p.Scope != HistoryScopeDeferred &&
+		p.Scope != HistoryScopeCompleted &&
+		p.Scope != HistoryScopeAll {
+		return fmt.Errorf("scope must be current|deferred|completed|all")
+	}
+	if strings.TrimSpace(p.Kind) != "" {
+		if len(strings.TrimSpace(p.Kind)) > 64 {
+			return fmt.Errorf("kind must be 1..64 chars when provided")
+		}
+		if !planKindRe.MatchString(strings.TrimSpace(p.Kind)) {
+			return fmt.Errorf("kind format is invalid")
+		}
+	}
+	if p.Limit != 0 && (p.Limit < 1 || p.Limit > 100) {
+		return fmt.Errorf("limit must be between 1 and 100")
 	}
 	return nil
 }

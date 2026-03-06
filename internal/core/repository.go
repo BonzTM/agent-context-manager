@@ -39,6 +39,7 @@ type CandidatePointerQuery struct {
 	Phase       string
 	Tags        []string
 	Limit       int
+	Unbounded   bool
 	StaleFilter StaleFilter
 }
 
@@ -61,6 +62,7 @@ type RelatedHopPointersQuery struct {
 	PointerKeys []string
 	MaxHops     int
 	Limit       int
+	Unbounded   bool
 	StaleFilter StaleFilter
 }
 
@@ -75,6 +77,7 @@ type ActiveMemoryQuery struct {
 	PointerKeys []string
 	Tags        []string
 	Limit       int
+	Unbounded   bool
 }
 
 type ActiveMemory struct {
@@ -318,10 +321,17 @@ type WorkPlanLookupQuery struct {
 
 type WorkPlanListQuery struct {
 	ProjectID string
+	Scope     string
+	Query     string
+	Kind      string
 	Limit     int
+	Unbounded bool
 }
 
 type WorkPlanSummary struct {
+	ReceiptID           string
+	Title               string
+	Objective           string
 	PlanKey             string
 	Summary             string
 	Status              string
@@ -334,6 +344,46 @@ type WorkPlanSummary struct {
 	TaskCountBlocked    int
 	TaskCountComplete   int
 	UpdatedAt           time.Time
+}
+
+type ReceiptHistoryListQuery struct {
+	ProjectID string
+	Query     string
+	Limit     int
+	Unbounded bool
+}
+
+type ReceiptHistorySummary struct {
+	ReceiptID       string
+	TaskText        string
+	Phase           string
+	LatestRequestID string
+	LatestStatus    string
+	UpdatedAt       time.Time
+}
+
+type RunHistoryListQuery struct {
+	ProjectID string
+	Query     string
+	Limit     int
+	Unbounded bool
+}
+
+type RunHistoryLookupQuery struct {
+	ProjectID string
+	RunID     int64
+}
+
+type RunHistorySummary struct {
+	RunID        int64
+	ReceiptID    string
+	RequestID    string
+	TaskText     string
+	Phase        string
+	Status       string
+	FilesChanged []string
+	Outcome      string
+	UpdatedAt    time.Time
 }
 
 type VerificationBatch struct {
@@ -395,6 +445,12 @@ type WorkPlanRepository interface {
 	UpsertWorkPlan(context.Context, WorkPlanUpsertInput) (WorkPlanUpsertResult, error)
 	LookupWorkPlan(context.Context, WorkPlanLookupQuery) (WorkPlan, error)
 	ListWorkPlans(context.Context, WorkPlanListQuery) ([]WorkPlanSummary, error)
+}
+
+type HistoryRepository interface {
+	ListReceiptHistory(context.Context, ReceiptHistoryListQuery) ([]ReceiptHistorySummary, error)
+	ListRunHistory(context.Context, RunHistoryListQuery) ([]RunHistorySummary, error)
+	LookupRunHistory(context.Context, RunHistoryLookupQuery) (RunHistorySummary, error)
 }
 
 // VerificationRepository is an optional extension for durable executable verification storage.

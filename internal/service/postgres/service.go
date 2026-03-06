@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
@@ -25,6 +26,7 @@ import (
 )
 
 const RetrievalVersion = "postgres.get_context.v1"
+const unboundedEnvVar = "ACM_UNBOUNDED"
 
 const (
 	syncModeChanged         = "changed"
@@ -44,7 +46,6 @@ const (
 	defaultBootstrapRespectGit   = true
 	defaultBootstrapLLMAssist    = true
 	maxBootstrapWalkErrorSamples = 25
-	maxContextPlanTaskFetchKeys  = 6
 	maxFetchKeyLength            = 512
 )
 
@@ -140,6 +141,16 @@ func (s *Service) Fetch(ctx context.Context, payload v1.FetchPayload) (v1.FetchR
 			}
 		} else if receiptID, ok := parsePlanFetchKey(key); ok {
 			item, found, err = s.fetchPlanItem(ctx, projectID, key, receiptID)
+			if err != nil {
+				return v1.FetchResult{}, fetchInternalError(fetchOperationFromError(err), err)
+			}
+		} else if receiptID, ok := parseReceiptFetchKey(key); ok {
+			item, found, err = s.fetchReceiptItem(ctx, projectID, key, receiptID)
+			if err != nil {
+				return v1.FetchResult{}, fetchInternalError(fetchOperationFromError(err), err)
+			}
+		} else if runID, ok := parseRunFetchKey(key); ok {
+			item, found, err = s.fetchRunItem(ctx, projectID, key, runID)
 			if err != nil {
 				return v1.FetchResult{}, fetchInternalError(fetchOperationFromError(err), err)
 			}
@@ -362,6 +373,243 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 		PlanStatus: planStatus,
 		Updated:    updatedCount,
 	}, nil
+}
+
+func (s *Service) HistorySearch(ctx context.Context, payload v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
+	if s == nil || s.repo == nil {
+		return v1.HistorySearchResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
+	}
+	entity := normalizeHistoryEntity(payload.Entity)
+	scope := normalizeHistoryScope(payload.Scope)
+	unbounded := effectiveUnbounded(payload.Unbounded)
+	limit := normalizeHistorySearchLimit(payload.Limit, unbounded)
+	query := strings.TrimSpace(payload.Query)
+	items, apiErr := s.historyItems(ctx, strings.TrimSpace(payload.ProjectID), entity, scope, strings.TrimSpace(payload.Kind), query, limit, unbounded)
+	if apiErr != nil {
+		return v1.HistorySearchResult{}, apiErr
+	}
+
+	result := v1.HistorySearchResult{
+		Entity: entity,
+		Query:  query,
+		Limit:  limit,
+		Count:  len(items),
+		Items:  items,
+	}
+	if entity == v1.HistoryEntityWork {
+		result.Scope = scope
+	}
+	return result, nil
+}
+
+func (s *Service) historyItems(ctx context.Context, projectID string, entity v1.HistoryEntity, scope v1.HistoryScope, kind, query string, limit int, unbounded bool) ([]v1.HistoryItem, *core.APIError) {
+	switch entity {
+	case v1.HistoryEntityWork:
+		return s.listWorkHistoryItems(ctx, projectID, scope, kind, query, limit, unbounded)
+	case v1.HistoryEntityReceipt:
+		return s.listReceiptHistoryItems(ctx, projectID, query, limit, unbounded)
+	case v1.HistoryEntityRun:
+		return s.listRunHistoryItems(ctx, projectID, query, limit, unbounded)
+	case v1.HistoryEntityAll:
+		workItems, apiErr := s.listWorkHistoryItems(ctx, projectID, v1.HistoryScopeAll, kind, query, limit, unbounded)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		receiptItems, apiErr := s.listReceiptHistoryItems(ctx, projectID, query, limit, unbounded)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		runItems, apiErr := s.listRunHistoryItems(ctx, projectID, query, limit, unbounded)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		allItems := make([]v1.HistoryItem, 0, len(workItems)+len(receiptItems)+len(runItems))
+		allItems = append(allItems, workItems...)
+		allItems = append(allItems, receiptItems...)
+		allItems = append(allItems, runItems...)
+		sort.SliceStable(allItems, func(i, j int) bool {
+			ti := historyItemSortTime(allItems[i])
+			tj := historyItemSortTime(allItems[j])
+			if !ti.Equal(tj) {
+				return ti.After(tj)
+			}
+			return allItems[i].Key < allItems[j].Key
+		})
+		if !unbounded && limit > 0 && len(allItems) > limit {
+			allItems = allItems[:limit]
+		}
+		return allItems, nil
+	default:
+		return nil, core.NewError("INVALID_INPUT", "history entity is not supported", map[string]any{"entity": entity})
+	}
+}
+
+func (s *Service) listWorkHistoryItems(ctx context.Context, projectID string, scope v1.HistoryScope, kind, query string, limit int, unbounded bool) ([]v1.HistoryItem, *core.APIError) {
+	planRepo, ok := s.repo.(core.WorkPlanRepository)
+	if !ok {
+		return nil, core.NewError(
+			"NOT_IMPLEMENTED",
+			"work history search requires plan storage support",
+			map[string]any{"operation": "history_search", "entity": "work"},
+		)
+	}
+
+	rows, err := planRepo.ListWorkPlans(ctx, core.WorkPlanListQuery{
+		ProjectID: projectID,
+		Scope:     string(scope),
+		Query:     query,
+		Kind:      kind,
+		Limit:     limit,
+		Unbounded: unbounded,
+	})
+	if err != nil {
+		return nil, internalError("list_work_plans", err)
+	}
+
+	items := make([]v1.HistoryItem, 0, len(rows))
+	for _, row := range rows {
+		planKey := strings.TrimSpace(row.PlanKey)
+		if planKey == "" {
+			continue
+		}
+		status := normalizePlanStatus(row.Status)
+		summary := strings.TrimSpace(row.Summary)
+		if summary == "" {
+			summary = fmt.Sprintf("Plan %s is %s", planKey, status)
+		}
+		items = append(items, v1.HistoryItem{
+			Key:           planKey,
+			Entity:        v1.HistoryEntityWork,
+			Summary:       summary,
+			Status:        status,
+			Scope:         historyScopeFromPlanStatus(status),
+			PlanKey:       planKey,
+			ReceiptID:     strings.TrimSpace(row.ReceiptID),
+			Kind:          strings.TrimSpace(row.Kind),
+			ParentPlanKey: strings.TrimSpace(row.ParentPlanKey),
+			TaskCounts: &v1.ContextPlanTaskCounts{
+				Total:      maxZero(row.TaskCountTotal),
+				Pending:    maxZero(row.TaskCountPending),
+				InProgress: maxZero(row.TaskCountInProgress),
+				Blocked:    maxZero(row.TaskCountBlocked),
+				Complete:   maxZero(row.TaskCountComplete),
+			},
+			FetchKeys: []string{planKey},
+			UpdatedAt: historyTimestamp(row.UpdatedAt),
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) listReceiptHistoryItems(ctx context.Context, projectID, query string, limit int, unbounded bool) ([]v1.HistoryItem, *core.APIError) {
+	historyRepo, ok := s.repo.(core.HistoryRepository)
+	if !ok {
+		return nil, core.NewError(
+			"NOT_IMPLEMENTED",
+			"receipt history search requires history storage support",
+			map[string]any{"operation": "history_search", "entity": "receipt"},
+		)
+	}
+
+	rows, err := historyRepo.ListReceiptHistory(ctx, core.ReceiptHistoryListQuery{
+		ProjectID: projectID,
+		Query:     query,
+		Limit:     limit,
+		Unbounded: unbounded,
+	})
+	if err != nil {
+		return nil, internalError("list_receipt_history", err)
+	}
+
+	items := make([]v1.HistoryItem, 0, len(rows))
+	for _, row := range rows {
+		receiptID := strings.TrimSpace(row.ReceiptID)
+		if receiptID == "" {
+			continue
+		}
+		summary := strings.TrimSpace(row.TaskText)
+		if summary == "" {
+			summary = fmt.Sprintf("Receipt %s", receiptID)
+		}
+		items = append(items, v1.HistoryItem{
+			Key:       receiptFetchKey(receiptID),
+			Entity:    v1.HistoryEntityReceipt,
+			Summary:   summary,
+			Status:    strings.TrimSpace(row.LatestStatus),
+			ReceiptID: receiptID,
+			RequestID: strings.TrimSpace(row.LatestRequestID),
+			Phase:     v1.Phase(strings.TrimSpace(row.Phase)),
+			FetchKeys: []string{receiptFetchKey(receiptID)},
+			UpdatedAt: historyTimestamp(row.UpdatedAt),
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) listRunHistoryItems(ctx context.Context, projectID, query string, limit int, unbounded bool) ([]v1.HistoryItem, *core.APIError) {
+	historyRepo, ok := s.repo.(core.HistoryRepository)
+	if !ok {
+		return nil, core.NewError(
+			"NOT_IMPLEMENTED",
+			"run history search requires history storage support",
+			map[string]any{"operation": "history_search", "entity": "run"},
+		)
+	}
+
+	rows, err := historyRepo.ListRunHistory(ctx, core.RunHistoryListQuery{
+		ProjectID: projectID,
+		Query:     query,
+		Limit:     limit,
+		Unbounded: unbounded,
+	})
+	if err != nil {
+		return nil, internalError("list_run_history", err)
+	}
+
+	items := make([]v1.HistoryItem, 0, len(rows))
+	for _, row := range rows {
+		if row.RunID <= 0 {
+			continue
+		}
+		summary := strings.TrimSpace(row.Outcome)
+		if summary == "" {
+			summary = strings.TrimSpace(row.TaskText)
+		}
+		if summary == "" {
+			summary = fmt.Sprintf("Run %d", row.RunID)
+		}
+		items = append(items, v1.HistoryItem{
+			Key:       runFetchKey(row.RunID),
+			Entity:    v1.HistoryEntityRun,
+			Summary:   summary,
+			Status:    strings.TrimSpace(row.Status),
+			ReceiptID: strings.TrimSpace(row.ReceiptID),
+			RunID:     row.RunID,
+			RequestID: strings.TrimSpace(row.RequestID),
+			Phase:     v1.Phase(strings.TrimSpace(row.Phase)),
+			FetchKeys: []string{runFetchKey(row.RunID)},
+			UpdatedAt: historyTimestamp(row.UpdatedAt),
+		})
+	}
+	return items, nil
+}
+
+func historyTimestamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func historyItemSortTime(item v1.HistoryItem) time.Time {
+	if strings.TrimSpace(item.UpdatedAt) == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339, item.UpdatedAt)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
 }
 
 func (s *Service) ProposeMemory(ctx context.Context, payload v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *core.APIError) {
@@ -810,6 +1058,30 @@ func parsePlanFetchKey(raw string) (string, bool) {
 	return receiptID, true
 }
 
+func parseReceiptFetchKey(raw string) (string, bool) {
+	key := strings.TrimSpace(raw)
+	if !strings.HasPrefix(key, "receipt:") {
+		return "", false
+	}
+	receiptID := strings.TrimSpace(key[len("receipt:"):])
+	if !requestIDPattern.MatchString(receiptID) {
+		return "", false
+	}
+	return receiptID, true
+}
+
+func receiptFetchKey(receiptID string) string {
+	normalizedReceiptID := strings.TrimSpace(receiptID)
+	if normalizedReceiptID == "" {
+		return ""
+	}
+	fetchKey := "receipt:" + normalizedReceiptID
+	if len(fetchKey) > maxFetchKeyLength {
+		return ""
+	}
+	return fetchKey
+}
+
 type taskFetchRef struct {
 	PlanKey   string
 	ReceiptID string
@@ -852,6 +1124,33 @@ func taskFetchKey(planKey, taskKey string) string {
 		return ""
 	}
 	fetchKey := "task:" + normalizedPlanKey + "#" + normalizedTaskKey
+	if len(fetchKey) > maxFetchKeyLength {
+		return ""
+	}
+	return fetchKey
+}
+
+func parseRunFetchKey(raw string) (int64, bool) {
+	key := strings.TrimSpace(raw)
+	if !strings.HasPrefix(key, "run:") {
+		return 0, false
+	}
+	runIDText := strings.TrimSpace(key[len("run:"):])
+	if runIDText == "" {
+		return 0, false
+	}
+	runID, err := strconv.ParseInt(runIDText, 10, 64)
+	if err != nil || runID <= 0 {
+		return 0, false
+	}
+	return runID, true
+}
+
+func runFetchKey(runID int64) string {
+	if runID <= 0 {
+		return ""
+	}
+	fetchKey := fmt.Sprintf("run:%d", runID)
 	if len(fetchKey) > maxFetchKeyLength {
 		return ""
 	}
@@ -937,6 +1236,122 @@ func (s *Service) fetchPlanItem(ctx context.Context, projectID, key, receiptID s
 		Summary: fmt.Sprintf("Plan %s is %s", strings.TrimSpace(lookup.ReceiptID), planStatus),
 		Status:  planStatus,
 		Version: version,
+	}, true, nil
+}
+
+func (s *Service) fetchReceiptItem(ctx context.Context, projectID, key, receiptID string) (v1.FetchItem, bool, error) {
+	normalizedReceiptID := strings.TrimSpace(receiptID)
+	if normalizedReceiptID == "" {
+		return v1.FetchItem{}, false, nil
+	}
+
+	var (
+		scope       core.ReceiptScope
+		lookup      core.FetchLookup
+		scopeFound  bool
+		lookupFound bool
+	)
+
+	scope, err := s.repo.FetchReceiptScope(ctx, core.ReceiptScopeQuery{
+		ProjectID: projectID,
+		ReceiptID: normalizedReceiptID,
+	})
+	if err == nil {
+		scopeFound = true
+	} else if !errors.Is(err, core.ErrReceiptScopeNotFound) {
+		return v1.FetchItem{}, false, wrapFetchOperationError("fetch_receipt_scope", err)
+	}
+
+	lookup, err = s.repo.LookupFetchState(ctx, core.FetchLookupQuery{
+		ProjectID: projectID,
+		ReceiptID: normalizedReceiptID,
+	})
+	if err == nil {
+		lookupFound = true
+	} else if !errors.Is(err, core.ErrFetchLookupNotFound) {
+		return v1.FetchItem{}, false, wrapFetchOperationError("lookup_fetch_state", err)
+	}
+
+	if !scopeFound && !lookupFound {
+		return v1.FetchItem{}, false, nil
+	}
+
+	contentJSON, err := json.Marshal(receiptForFetch(normalizedReceiptID, scope, scopeFound, lookup, lookupFound))
+	if err != nil {
+		return v1.FetchItem{}, false, err
+	}
+
+	summary := strings.TrimSpace(scope.TaskText)
+	if summary == "" {
+		summary = fmt.Sprintf("Receipt %s", normalizedReceiptID)
+	}
+	status := ""
+	versionUpdatedAt := ""
+	if lookupFound {
+		status = strings.TrimSpace(lookup.RunStatus)
+		versionUpdatedAt = lookup.UpdatedAt.UTC().String()
+	}
+	if versionUpdatedAt == "" && scopeFound {
+		versionUpdatedAt = strings.Join(scope.PointerKeys, ",")
+	}
+
+	return v1.FetchItem{
+		Key:     key,
+		Type:    "receipt",
+		Summary: summary,
+		Content: string(contentJSON),
+		Status:  status,
+		Version: indexEntryVersion(normalizedReceiptID, summary, status, versionUpdatedAt, string(contentJSON)),
+	}, true, nil
+}
+
+func (s *Service) fetchRunItem(ctx context.Context, projectID, key string, runID int64) (v1.FetchItem, bool, error) {
+	if runID <= 0 {
+		return v1.FetchItem{}, false, nil
+	}
+
+	historyRepo, ok := s.repo.(core.HistoryRepository)
+	if !ok {
+		return v1.FetchItem{}, false, nil
+	}
+
+	row, err := historyRepo.LookupRunHistory(ctx, core.RunHistoryLookupQuery{
+		ProjectID: projectID,
+		RunID:     runID,
+	})
+	if err != nil {
+		if errors.Is(err, core.ErrFetchLookupNotFound) {
+			return v1.FetchItem{}, false, nil
+		}
+		return v1.FetchItem{}, false, wrapFetchOperationError("lookup_run_history", err)
+	}
+
+	contentJSON, err := json.Marshal(runForFetch(row))
+	if err != nil {
+		return v1.FetchItem{}, false, err
+	}
+
+	summary := strings.TrimSpace(row.Outcome)
+	if summary == "" {
+		summary = strings.TrimSpace(row.TaskText)
+	}
+	if summary == "" {
+		summary = fmt.Sprintf("Run %d", row.RunID)
+	}
+
+	return v1.FetchItem{
+		Key:     key,
+		Type:    "run",
+		Summary: summary,
+		Content: string(contentJSON),
+		Status:  strings.TrimSpace(row.Status),
+		Version: indexEntryVersion(
+			fmt.Sprintf("%d", row.RunID),
+			strings.TrimSpace(row.RequestID),
+			strings.TrimSpace(row.Status),
+			row.UpdatedAt.UTC().String(),
+			string(contentJSON),
+		),
 	}, true, nil
 }
 
@@ -1264,6 +1679,88 @@ func workTaskForFetch(planKey string, task core.WorkItem) map[string]any {
 	return entry
 }
 
+func receiptForFetch(receiptID string, scope core.ReceiptScope, scopeFound bool, lookup core.FetchLookup, lookupFound bool) map[string]any {
+	content := map[string]any{
+		"receipt_id": strings.TrimSpace(receiptID),
+	}
+	if scopeFound {
+		if strings.TrimSpace(scope.TaskText) != "" {
+			content["task_text"] = strings.TrimSpace(scope.TaskText)
+		}
+		if strings.TrimSpace(scope.Phase) != "" {
+			content["phase"] = strings.TrimSpace(scope.Phase)
+		}
+		if len(scope.ResolvedTags) > 0 {
+			content["resolved_tags"] = normalizeValues(scope.ResolvedTags)
+		}
+		if len(scope.PointerKeys) > 0 {
+			content["pointer_keys"] = normalizeValues(scope.PointerKeys)
+		}
+		if len(scope.MemoryIDs) > 0 {
+			memoryKeys := make([]string, 0, len(scope.MemoryIDs))
+			for _, memoryID := range scope.MemoryIDs {
+				if memoryID <= 0 {
+					continue
+				}
+				memoryKeys = append(memoryKeys, fmt.Sprintf("mem:%d", memoryID))
+			}
+			if len(memoryKeys) > 0 {
+				content["memory_keys"] = memoryKeys
+			}
+		}
+		if len(scope.PointerPaths) > 0 {
+			content["pointer_paths"] = normalizeValues(scope.PointerPaths)
+		}
+	}
+	if lookupFound {
+		latestRun := map[string]any{
+			"run_id":      lookup.RunID,
+			"status":      strings.TrimSpace(lookup.RunStatus),
+			"plan_status": normalizePlanStatus(lookup.PlanStatus),
+		}
+		if len(lookup.WorkItems) > 0 {
+			tasks := make([]map[string]any, 0, len(lookup.WorkItems))
+			for _, task := range normalizeWorkItems(lookup.WorkItems) {
+				tasks = append(tasks, workTaskForFetch("plan:"+strings.TrimSpace(receiptID), task))
+			}
+			if len(tasks) > 0 {
+				latestRun["tasks"] = tasks
+			}
+		}
+		content["latest_run"] = latestRun
+	}
+	return content
+}
+
+func runForFetch(run core.RunHistorySummary) map[string]any {
+	content := map[string]any{
+		"run_id": run.RunID,
+		"status": strings.TrimSpace(run.Status),
+	}
+	if strings.TrimSpace(run.ReceiptID) != "" {
+		content["receipt_id"] = strings.TrimSpace(run.ReceiptID)
+	}
+	if strings.TrimSpace(run.RequestID) != "" {
+		content["request_id"] = strings.TrimSpace(run.RequestID)
+	}
+	if strings.TrimSpace(run.TaskText) != "" {
+		content["task_text"] = strings.TrimSpace(run.TaskText)
+	}
+	if strings.TrimSpace(run.Phase) != "" {
+		content["phase"] = strings.TrimSpace(run.Phase)
+	}
+	if len(run.FilesChanged) > 0 {
+		content["files_changed"] = normalizeValues(run.FilesChanged)
+	}
+	if strings.TrimSpace(run.Outcome) != "" {
+		content["outcome"] = strings.TrimSpace(run.Outcome)
+	}
+	if !run.UpdatedAt.IsZero() {
+		content["updated_at"] = run.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	return content
+}
+
 func workItemsFromPaths(paths []string) []core.WorkItem {
 	normalizedPaths := normalizeCompletionPaths(paths)
 	if len(normalizedPaths) == 0 {
@@ -1361,6 +1858,68 @@ func normalizePlanStatus(raw string) string {
 		return core.PlanStatusComplete
 	default:
 		return core.PlanStatusPending
+	}
+}
+
+func normalizeHistoryScope(raw v1.HistoryScope) v1.HistoryScope {
+	switch strings.TrimSpace(string(raw)) {
+	case string(v1.HistoryScopeCurrent):
+		return v1.HistoryScopeCurrent
+	case string(v1.HistoryScopeDeferred):
+		return v1.HistoryScopeDeferred
+	case string(v1.HistoryScopeCompleted):
+		return v1.HistoryScopeCompleted
+	case string(v1.HistoryScopeAll):
+		return v1.HistoryScopeAll
+	default:
+		return v1.HistoryScopeAll
+	}
+}
+
+func normalizeHistoryEntity(raw v1.HistoryEntity) v1.HistoryEntity {
+	switch strings.TrimSpace(string(raw)) {
+	case string(v1.HistoryEntityAll):
+		return v1.HistoryEntityAll
+	case string(v1.HistoryEntityReceipt):
+		return v1.HistoryEntityReceipt
+	case string(v1.HistoryEntityRun):
+		return v1.HistoryEntityRun
+	case string(v1.HistoryEntityWork):
+		return v1.HistoryEntityWork
+	default:
+		return v1.HistoryEntityWork
+	}
+}
+
+func historyScopeFromPlanStatus(status string) v1.HistoryScope {
+	switch normalizePlanStatus(status) {
+	case core.PlanStatusBlocked:
+		return v1.HistoryScopeDeferred
+	case core.PlanStatusComplete, core.PlanStatusCompleted:
+		return v1.HistoryScopeCompleted
+	default:
+		return v1.HistoryScopeCurrent
+	}
+}
+
+func effectiveUnbounded(explicit *bool) bool {
+	if explicit != nil {
+		return *explicit
+	}
+	return workspace.LookupEnvBool("", unboundedEnvVar, nil)
+}
+
+func normalizeHistorySearchLimit(limit int, unbounded bool) int {
+	if unbounded {
+		return 0
+	}
+	switch {
+	case limit <= 0:
+		return 20
+	case limit > 100:
+		return 100
+	default:
+		return limit
 	}
 }
 
@@ -2514,6 +3073,7 @@ func ensureBootstrapEnvExample(projectRoot string) error {
 		"# Copy this file to .env to override local defaults.",
 		"ACM_SQLITE_PATH=.acm/context.db",
 		"ACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable",
+		"ACM_UNBOUNDED=false",
 		"ACM_LOG_LEVEL=info",
 		"ACM_LOG_SINK=stderr",
 	}

@@ -124,6 +124,8 @@ func dispatch(ctx context.Context, svc core.Service, command v1.Command, payload
 		return svc.ProposeMemory(ctx, payload.(v1.ProposeMemoryPayload))
 	case commandWork:
 		return svc.Work(ctx, payload.(v1.WorkPayload))
+	case v1.CommandHistorySearch:
+		return svc.HistorySearch(ctx, payload.(v1.HistorySearchPayload))
 	case v1.CommandReportCompletion:
 		return svc.ReportCompletion(ctx, payload.(v1.ReportCompletionPayload))
 	case v1.CommandSync:
@@ -162,6 +164,8 @@ func projectIDFromPayload(payload any) string {
 	case v1.ReportCompletionPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case v1.WorkPayload:
+		return strings.TrimSpace(p.ProjectID)
+	case v1.HistorySearchPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case v1.SyncPayload:
 		return strings.TrimSpace(p.ProjectID)

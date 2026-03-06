@@ -29,6 +29,10 @@ func (f decoratorFakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.Work
 	return v1.WorkResult{}, f.errorFor(logging.OperationWork)
 }
 
+func (f decoratorFakeService) HistorySearch(_ context.Context, _ v1.HistorySearchPayload) (v1.HistorySearchResult, *APIError) {
+	return v1.HistorySearchResult{}, f.errorFor(logging.OperationHistorySearch)
+}
+
 func (f decoratorFakeService) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *APIError) {
 	return v1.ReportCompletionResult{}, f.errorFor(logging.OperationReportCompletion)
 }
@@ -193,6 +197,17 @@ func decoratorOperationCases() []decoratorOperationCase {
 					Items: []v1.WorkItemPayload{
 						{Key: "docs/runtime.md", Summary: "x", Status: v1.WorkItemStatusPending},
 					},
+				})
+				return apiErr
+			},
+		},
+		{
+			operation: logging.OperationHistorySearch,
+			call: func(ctx context.Context, svc Service) *APIError {
+				_, apiErr := svc.HistorySearch(ctx, v1.HistorySearchPayload{
+					ProjectID: "project.alpha",
+					Query:     "bootstrap",
+					Scope:     v1.HistoryScopeAll,
 				})
 				return apiErr
 			},

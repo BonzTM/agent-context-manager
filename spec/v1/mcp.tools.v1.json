@@ -17,8 +17,8 @@
       "items": {
         "$ref": "#/$defs/toolContract"
       },
-      "minItems": 12,
-      "maxItems": 12
+      "minItems": 13,
+      "maxItems": 13
     }
   },
   "$defs": {
@@ -41,6 +41,7 @@
             "propose_memory",
             "report_completion",
             "work",
+            "history_search",
             "sync",
             "health_check",
             "health_fix",
@@ -139,6 +140,12 @@
     },
     "bootstrapOutput": {
       "$ref": "cli.result.schema.json#/$defs/bootstrapResult"
+    },
+    "historySearchInput": {
+      "$ref": "cli.command.schema.json#/$defs/historySearchPayload"
+    },
+    "historySearchOutput": {
+      "$ref": "cli.result.schema.json#/$defs/historySearchResult"
     }
   },
   "version": "acm.v1",
@@ -206,6 +213,19 @@
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/workResult"
+      }
+    },
+    {
+      "name": "history_search",
+      "title": "Search History",
+      "description": "List or search work plans, receipts, and runs without direct database access.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/historySearchPayload"
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/historySearchResult"
       }
     },
     {

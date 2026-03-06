@@ -20,6 +20,7 @@
         "get_context",
         "propose_memory",
         "report_completion",
+        "history_search",
         "sync",
         "health_check",
         "health_fix",
@@ -110,6 +111,10 @@
         },
         "tags_file": {
           "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "unbounded": {
+          "type": "boolean",
+          "default": false
         },
         "caps": {
           "$ref": "#/$defs/retrievalCaps"
@@ -639,6 +644,56 @@
           }
         }
       ]
+    },
+    "historySearchPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "entity": {
+          "type": "string",
+          "enum": [
+            "all",
+            "work",
+            "receipt",
+            "run"
+          ],
+          "default": "work"
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "current",
+            "deferred",
+            "completed",
+            "all"
+          ],
+          "default": "all"
+        },
+        "kind": {
+          "$ref": "shared.schema.json#/$defs/planKind"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        },
+        "unbounded": {
+          "type": "boolean",
+          "default": false
+        }
+      }
     }
   },
   "allOf": [

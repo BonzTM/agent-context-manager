@@ -5,6 +5,7 @@ const (
 	OperationFetch            = "fetch"
 	OperationProposeMemory    = "propose_memory"
 	OperationWork             = "work"
+	OperationHistorySearch    = "history_search"
 	OperationReportCompletion = "report_completion"
 	OperationSync             = "sync"
 	OperationHealthCheck      = "health_check"

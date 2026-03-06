@@ -15,7 +15,7 @@ This directory defines the v1 wire contract for the context broker.
 
 ## MCP Contract
 
-The MCP adapter exposes twelve tools — all CLI operations are available via MCP:
+The MCP adapter exposes thirteen tools — all CLI operations are available via MCP:
 
 Agent-facing:
 
@@ -24,25 +24,27 @@ Agent-facing:
 3. `propose_memory`
 4. `report_completion`
 5. `work`
+6. `history_search`
 
 Maintenance:
 
-6. `sync`
-7. `health_check`
-8. `health_fix`
-9. `coverage`
-10. `eval`
-11. `verify`
-12. `bootstrap`
+7. `sync`
+8. `health_check`
+9. `health_fix`
+10. `coverage`
+11. `eval`
+12. `verify`
+13. `bootstrap`
 
 Tool input/output shapes are referenced from CLI payload/result defs to guarantee parity.
 
 The MCP flow is index-first:
 
-- `get_context` returns an index-first receipt with scoped rules, suggestions, memories, and active plans (queried from the database, not just the current receipt).
+- `get_context` returns an index-first receipt with scoped rules, suggestions, memories, and current plans.
 - Each rule entry now includes `rule_id`, a deterministic stable identifier derived from the existing rule `key` semantics (no additional input required).
 - `fetch` resolves receipt/plan-scoped artifacts by key, or via `receipt_id` shorthand when keys are omitted.
 - `work` creates/updates structured plans with tasks (max 256 per request). Supports `receipt_id` without `plan_key` (derives `plan_key` as `plan:<receipt_id>`). `mode` controls merge vs replace semantics.
+- `history_search` lists or searches compact work, receipt, and run history and returns targeted `fetch_keys` for selective follow-up retrieval.
 - For work updates, `verify:tests` is the built-in executable verification key. `verify:diff-review` is optional workflow metadata.
 - `eval` is the public retrieval-evaluation command/tool name. `verify` selects repo-defined executable checks from `.acm/acm-tests.yaml` or `acm-tests.yaml`, with `tests_file` as the explicit override.
 - `propose_memory` and `report_completion` remain receipt-scoped write operations.

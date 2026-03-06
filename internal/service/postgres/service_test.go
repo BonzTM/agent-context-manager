@@ -20,59 +20,68 @@ import (
 )
 
 type fakeRepository struct {
-	candidateResults     [][]core.CandidatePointer
-	candidateErrors      []error
-	hopResults           [][]core.HopPointer
-	memoryResults        [][]core.ActiveMemory
-	memoryErrors         []error
-	inventoryResults     []core.PointerInventory
-	inventoryErrors      []error
-	scopeResults         []core.ReceiptScope
-	scopeErrors          []error
-	proposeResults       []core.ProposeMemoryPersistenceResult
-	proposeErrors        []error
-	syncResults          []core.SyncApplyResult
-	syncErrors           []error
-	upsertStubResults    []int
-	upsertStubErrors     []error
-	fetchLookupResults   []core.FetchLookup
-	fetchLookupErrors    []error
-	pointerLookupResults []core.CandidatePointer
-	pointerLookupErrors  []error
-	memoryLookupResults  []core.ActiveMemory
-	memoryLookupErrors   []error
-	workUpsertResults    []int
-	workUpsertErrors     []error
-	workListResults      [][]core.WorkItem
-	workListErrors       []error
-	workPlanUpsertResult []core.WorkPlanUpsertResult
-	workPlanUpsertErrors []error
-	workPlanLookupResult []core.WorkPlan
-	workPlanLookupErrors []error
-	workPlanListResults  [][]core.WorkPlanSummary
-	workPlanListErrors   []error
-	verifySaveErrors     []error
+	candidateResults       [][]core.CandidatePointer
+	candidateErrors        []error
+	hopResults             [][]core.HopPointer
+	memoryResults          [][]core.ActiveMemory
+	memoryErrors           []error
+	inventoryResults       []core.PointerInventory
+	inventoryErrors        []error
+	scopeResults           []core.ReceiptScope
+	scopeErrors            []error
+	proposeResults         []core.ProposeMemoryPersistenceResult
+	proposeErrors          []error
+	syncResults            []core.SyncApplyResult
+	syncErrors             []error
+	upsertStubResults      []int
+	upsertStubErrors       []error
+	fetchLookupResults     []core.FetchLookup
+	fetchLookupErrors      []error
+	pointerLookupResults   []core.CandidatePointer
+	pointerLookupErrors    []error
+	memoryLookupResults    []core.ActiveMemory
+	memoryLookupErrors     []error
+	workUpsertResults      []int
+	workUpsertErrors       []error
+	workListResults        [][]core.WorkItem
+	workListErrors         []error
+	workPlanUpsertResult   []core.WorkPlanUpsertResult
+	workPlanUpsertErrors   []error
+	workPlanLookupResult   []core.WorkPlan
+	workPlanLookupErrors   []error
+	workPlanListResults    [][]core.WorkPlanSummary
+	workPlanListErrors     []error
+	receiptHistoryResults  [][]core.ReceiptHistorySummary
+	receiptHistoryErrors   []error
+	runHistoryResults      [][]core.RunHistorySummary
+	runHistoryErrors       []error
+	runHistoryLookup       []core.RunHistorySummary
+	runHistoryLookupErrors []error
+	verifySaveErrors       []error
 
-	candidateCalls       []core.CandidatePointerQuery
-	hopCalls             []core.RelatedHopPointersQuery
-	memoryCalls          []core.ActiveMemoryQuery
-	inventoryCalls       []string
-	scopeCalls           []core.ReceiptScopeQuery
-	receiptUpsertCalls   []core.ReceiptScope
-	proposeCalls         []core.ProposeMemoryPersistence
-	saveCalls            []core.RunReceiptSummary
-	syncCalls            []core.SyncApplyInput
-	upsertStubProjectIDs []string
-	upsertStubCalls      [][]core.PointerStub
-	fetchLookupCalls     []core.FetchLookupQuery
-	pointerLookupCalls   []core.PointerLookupQuery
-	memoryLookupCalls    []core.MemoryLookupQuery
-	workUpsertCalls      []core.WorkItemsUpsertInput
-	workListCalls        []core.FetchLookupQuery
-	workPlanUpsertCalls  []core.WorkPlanUpsertInput
-	workPlanLookupCalls  []core.WorkPlanLookupQuery
-	workPlanListCalls    []core.WorkPlanListQuery
-	verifySaveCalls      []core.VerificationBatch
+	candidateCalls        []core.CandidatePointerQuery
+	hopCalls              []core.RelatedHopPointersQuery
+	memoryCalls           []core.ActiveMemoryQuery
+	inventoryCalls        []string
+	scopeCalls            []core.ReceiptScopeQuery
+	receiptUpsertCalls    []core.ReceiptScope
+	proposeCalls          []core.ProposeMemoryPersistence
+	saveCalls             []core.RunReceiptSummary
+	syncCalls             []core.SyncApplyInput
+	upsertStubProjectIDs  []string
+	upsertStubCalls       [][]core.PointerStub
+	fetchLookupCalls      []core.FetchLookupQuery
+	pointerLookupCalls    []core.PointerLookupQuery
+	memoryLookupCalls     []core.MemoryLookupQuery
+	workUpsertCalls       []core.WorkItemsUpsertInput
+	workListCalls         []core.FetchLookupQuery
+	workPlanUpsertCalls   []core.WorkPlanUpsertInput
+	workPlanLookupCalls   []core.WorkPlanLookupQuery
+	workPlanListCalls     []core.WorkPlanListQuery
+	receiptHistoryCalls   []core.ReceiptHistoryListQuery
+	runHistoryCalls       []core.RunHistoryListQuery
+	runHistoryLookupCalls []core.RunHistoryLookupQuery
+	verifySaveCalls       []core.VerificationBatch
 
 	saveResult         core.RunReceiptIDs
 	saveError          error
@@ -320,6 +329,42 @@ func (f *fakeRepository) ListWorkPlans(_ context.Context, input core.WorkPlanLis
 		return nil, nil
 	}
 	return append([]core.WorkPlanSummary(nil), f.workPlanListResults[idx]...), nil
+}
+
+func (f *fakeRepository) ListReceiptHistory(_ context.Context, input core.ReceiptHistoryListQuery) ([]core.ReceiptHistorySummary, error) {
+	f.receiptHistoryCalls = append(f.receiptHistoryCalls, input)
+	idx := len(f.receiptHistoryCalls) - 1
+	if idx < len(f.receiptHistoryErrors) && f.receiptHistoryErrors[idx] != nil {
+		return nil, f.receiptHistoryErrors[idx]
+	}
+	if idx >= len(f.receiptHistoryResults) {
+		return nil, nil
+	}
+	return append([]core.ReceiptHistorySummary(nil), f.receiptHistoryResults[idx]...), nil
+}
+
+func (f *fakeRepository) ListRunHistory(_ context.Context, input core.RunHistoryListQuery) ([]core.RunHistorySummary, error) {
+	f.runHistoryCalls = append(f.runHistoryCalls, input)
+	idx := len(f.runHistoryCalls) - 1
+	if idx < len(f.runHistoryErrors) && f.runHistoryErrors[idx] != nil {
+		return nil, f.runHistoryErrors[idx]
+	}
+	if idx >= len(f.runHistoryResults) {
+		return nil, nil
+	}
+	return append([]core.RunHistorySummary(nil), f.runHistoryResults[idx]...), nil
+}
+
+func (f *fakeRepository) LookupRunHistory(_ context.Context, input core.RunHistoryLookupQuery) (core.RunHistorySummary, error) {
+	f.runHistoryLookupCalls = append(f.runHistoryLookupCalls, input)
+	idx := len(f.runHistoryLookupCalls) - 1
+	if idx < len(f.runHistoryLookupErrors) && f.runHistoryLookupErrors[idx] != nil {
+		return core.RunHistorySummary{}, f.runHistoryLookupErrors[idx]
+	}
+	if idx >= len(f.runHistoryLookup) {
+		return core.RunHistorySummary{}, core.ErrFetchLookupNotFound
+	}
+	return f.runHistoryLookup[idx], nil
 }
 
 func (f *fakeRepository) PersistProposedMemory(_ context.Context, input core.ProposeMemoryPersistence) (core.ProposeMemoryPersistenceResult, error) {
@@ -604,6 +649,87 @@ func TestGetContext_FiltersManagedProjectPointersFromRetrieval(t *testing.T) {
 	wantPersistedKeys := []string{"rule:startup", "code:service", "test:get-context"}
 	if got := repo.receiptUpsertCalls[0].PointerKeys; !reflect.DeepEqual(got, wantPersistedKeys) {
 		t.Fatalf("unexpected persisted pointer keys: got %v want %v", got, wantPersistedKeys)
+	}
+}
+
+func TestGetContext_AllowsCanonicalRulesFromManagedPaths(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			candidate("rule:hard", ".acm/acm-rules.yaml", true, []string{"governance", "enforcement-hard"}),
+			candidate("rule:root", "acm-rules.yaml", true, []string{"governance", "enforcement-soft"}),
+			candidate("managed:tests", ".acm/acm-tests.yaml", false, []string{"config"}),
+			candidate("managed:tags", ".acm/acm-tags.yaml", false, []string{"config"}),
+			candidate("code:service", "internal/service/postgres/get_context.go", false, []string{"backend"}),
+		}},
+		hopResults: [][]core.HopPointer{{
+			hop("code:service", 1, candidate("rule:hop", ".acm/acm-rules.yaml", true, []string{"governance", "enforcement-hard"})),
+			hop("code:service", 1, candidate("managed:dbwal", ".acm/context.db-wal", false, []string{"config"})),
+		}},
+		memoryResults: [][]core.ActiveMemory{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.GetContext(context.Background(), v1.GetContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "enforce repo hard rules",
+		Phase:     v1.PhaseExecute,
+		Caps: &v1.RetrievalCaps{
+			MinPointerCount: 1,
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "ok" || result.Receipt == nil {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	if got, want := receiptIndexKeys(receiptIndexEntries(result.Receipt, "rules")), []string{"rule:hard", "rule:hop", "rule:root"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected rule keys: got %v want %v", got, want)
+	}
+	if got, want := receiptIndexKeys(receiptIndexEntries(result.Receipt, "suggestions")), []string{"code:service"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected suggestion keys: got %v want %v", got, want)
+	}
+	if result.Diagnostics == nil || result.Diagnostics.InitialPointerCount != 4 {
+		t.Fatalf("unexpected diagnostics: %+v", result.Diagnostics)
+	}
+}
+
+func TestGetContext_MaxRulePointersZeroMeansUncapped(t *testing.T) {
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			candidate("rule:alpha", ".acm/acm-rules.yaml", true, []string{"governance"}),
+			candidate("rule:beta", ".acm/acm-rules.yaml", true, []string{"governance"}),
+			candidate("code:service", "internal/service/postgres/get_context.go", false, []string{"backend"}),
+		}},
+		memoryResults: [][]core.ActiveMemory{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.GetContext(context.Background(), v1.GetContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "validate uncapped rule defaults",
+		Phase:     v1.PhaseExecute,
+		Caps: &v1.RetrievalCaps{
+			MaxRulePointers: 0,
+			MinPointerCount: 1,
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "ok" || result.Receipt == nil {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	if got, want := receiptIndexKeys(receiptIndexEntries(result.Receipt, "rules")), []string{"rule:alpha", "rule:beta"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected rule keys for max_rule_pointers=0: got %v want %v", got, want)
 	}
 }
 
@@ -3059,7 +3185,7 @@ func TestBootstrap_SeedsCanonicalScaffoldFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read scaffolded env example: %v", err)
 	}
-	wantEnvExample := "# ACM runtime configuration\n# Copy this file to .env to override local defaults.\nACM_SQLITE_PATH=.acm/context.db\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
+	wantEnvExample := "# ACM runtime configuration\n# Copy this file to .env to override local defaults.\nACM_SQLITE_PATH=.acm/context.db\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_UNBOUNDED=false\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
 	if string(envExampleRaw) != wantEnvExample {
 		t.Fatalf("unexpected scaffolded env example contents: %q", string(envExampleRaw))
 	}
@@ -3294,7 +3420,7 @@ func TestBootstrap_DoesNotOverwriteExistingCanonicalScaffoldFiles(t *testing.T) 
 	if err != nil {
 		t.Fatalf("read env example: %v", err)
 	}
-	wantEnvExample := "ACM_SQLITE_PATH=.acm/existing.db\n\n# ACM runtime configuration\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
+	wantEnvExample := "ACM_SQLITE_PATH=.acm/existing.db\n\n# ACM runtime configuration\nACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable\nACM_UNBOUNDED=false\nACM_LOG_LEVEL=info\nACM_LOG_SINK=stderr\n"
 	if string(envExampleRaw) != wantEnvExample {
 		t.Fatalf("unexpected env example contents: got %q want %q", string(envExampleRaw), wantEnvExample)
 	}
@@ -4046,6 +4172,63 @@ func TestFetch_PlanKeyFallsBackToLegacyLookupWhenPlanRowMissing(t *testing.T) {
 	}
 }
 
+func TestFetch_ReceiptAndRunKeysReturnStructuredHistoryContent(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:    "project.alpha",
+			ReceiptID:    "receipt.abc123",
+			TaskText:     "Trace onboarding history",
+			Phase:        string(v1.PhaseExecute),
+			ResolvedTags: []string{"backend"},
+			PointerKeys:  []string{"code:pointer"},
+			MemoryIDs:    []int64{42},
+		}},
+		fetchLookupResults: []core.FetchLookup{{
+			ProjectID:  "project.alpha",
+			ReceiptID:  "receipt.abc123",
+			RunID:      17,
+			RunStatus:  "accepted",
+			PlanStatus: core.PlanStatusInProgress,
+			WorkItems: []core.WorkItem{
+				{ItemKey: "verify:tests", Status: core.WorkItemStatusComplete},
+			},
+			UpdatedAt: time.Date(2026, 3, 6, 18, 4, 5, 0, time.UTC),
+		}},
+		runHistoryLookup: []core.RunHistorySummary{{
+			RunID:        17,
+			ReceiptID:    "receipt.abc123",
+			RequestID:    "req-12345678",
+			TaskText:     "Trace onboarding history",
+			Phase:        string(v1.PhaseExecute),
+			Status:       "accepted",
+			FilesChanged: []string{"internal/service/postgres/service.go"},
+			Outcome:      "Captured receipt and run history",
+			UpdatedAt:    time.Date(2026, 3, 6, 18, 4, 5, 0, time.UTC),
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{"receipt:receipt.abc123", "run:17"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("expected two fetch items, got %+v", result)
+	}
+	if result.Items[0].Type != "receipt" || !strings.Contains(result.Items[0].Content, "\"receipt_id\":\"receipt.abc123\"") || !strings.Contains(result.Items[0].Content, "\"memory_keys\":[\"mem:42\"]") {
+		t.Fatalf("unexpected receipt fetch item: %+v", result.Items[0])
+	}
+	if result.Items[1].Type != "run" || !strings.Contains(result.Items[1].Content, "\"run_id\":17") || !strings.Contains(result.Items[1].Content, "\"files_changed\":[\"internal/service/postgres/service.go\"]") {
+		t.Fatalf("unexpected run fetch item: %+v", result.Items[1])
+	}
+}
+
 func TestFetchPayloadKeysWithReceipt_DerivesPlanKeyWhenKeysOmitted(t *testing.T) {
 	keys := fetchPayloadKeysWithReceipt(nil, " receipt.abc123 ")
 	if !reflect.DeepEqual(keys, []string{"plan:receipt.abc123"}) {
@@ -4102,6 +4285,27 @@ func TestTaskFetchKey_SkipsOverlongCompositeKeys(t *testing.T) {
 	taskKey := strings.Repeat("t", 600)
 	if got := taskFetchKey(planKey, taskKey); got != "" {
 		t.Fatalf("expected overlong task fetch key to be dropped, got %q", got)
+	}
+}
+
+func TestReceiptAndRunFetchKeys(t *testing.T) {
+	if got := receiptFetchKey(" receipt.abc123 "); got != "receipt:receipt.abc123" {
+		t.Fatalf("unexpected receipt fetch key: %q", got)
+	}
+	if receiptID, ok := parseReceiptFetchKey("receipt:receipt.abc123"); !ok || receiptID != "receipt.abc123" {
+		t.Fatalf("unexpected parsed receipt key: %q %v", receiptID, ok)
+	}
+	if _, ok := parseReceiptFetchKey("receipt:short"); ok {
+		t.Fatal("expected invalid receipt fetch key to be rejected")
+	}
+	if got := runFetchKey(17); got != "run:17" {
+		t.Fatalf("unexpected run fetch key: %q", got)
+	}
+	if runID, ok := parseRunFetchKey("run:17"); !ok || runID != 17 {
+		t.Fatalf("unexpected parsed run key: %d %v", runID, ok)
+	}
+	if _, ok := parseRunFetchKey("run:not-a-number"); ok {
+		t.Fatal("expected invalid run fetch key to be rejected")
 	}
 }
 
@@ -4829,7 +5033,7 @@ func TestMakeContextPlans_UsesStoredPlanSummariesWhenAvailable(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	plans := svc.makeContextPlans(context.Background(), "project.alpha", "receipt.abc123")
+	plans := svc.makeContextPlans(context.Background(), "project.alpha", "receipt.abc123", false)
 	if len(plans) != 1 {
 		t.Fatalf("expected one persisted context plan, got %+v", plans)
 	}
@@ -4839,11 +5043,7 @@ func TestMakeContextPlans_UsesStoredPlanSummariesWhenAvailable(t *testing.T) {
 	if plans[0].TaskCounts.Total != 3 || plans[0].TaskCounts.Blocked != 1 || plans[0].TaskCounts.InProgress != 1 {
 		t.Fatalf("unexpected task counts: %+v", plans[0].TaskCounts)
 	}
-	if !reflect.DeepEqual(plans[0].FetchKeys, []string{
-		"plan:receipt.abc123",
-		"task:plan:receipt.abc123#task.blocked",
-		"task:plan:receipt.abc123#task.active",
-	}) {
+	if !reflect.DeepEqual(plans[0].FetchKeys, []string{"plan:receipt.abc123"}) {
 		t.Fatalf("unexpected plan fetch keys: %+v", plans[0].FetchKeys)
 	}
 	if len(repo.workPlanLookupCalls) != 0 {
@@ -4851,15 +5051,14 @@ func TestMakeContextPlans_UsesStoredPlanSummariesWhenAvailable(t *testing.T) {
 	}
 }
 
-func TestMakeContextPlans_SkipsOverlongTaskFetchKeys(t *testing.T) {
-	longTaskKey := strings.Repeat("t", 600)
+func TestMakeContextPlans_UsesPlanOnlyFetchKeys(t *testing.T) {
 	repo := &fakeRepository{
 		workPlanListResults: [][]core.WorkPlanSummary{{
 			{
 				PlanKey:        "plan:receipt.abc123",
 				Summary:        "Import Optimization",
 				Status:         core.PlanStatusInProgress,
-				ActiveTaskKeys: []string{longTaskKey, "task.short"},
+				ActiveTaskKeys: []string{strings.Repeat("t", 600), "task.short"},
 			},
 		}},
 	}
@@ -4868,15 +5067,202 @@ func TestMakeContextPlans_SkipsOverlongTaskFetchKeys(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	plans := svc.makeContextPlans(context.Background(), "project.alpha", "receipt.abc123")
+	plans := svc.makeContextPlans(context.Background(), "project.alpha", "receipt.abc123", false)
 	if len(plans) != 1 {
 		t.Fatalf("expected one persisted context plan, got %+v", plans)
 	}
-	if !reflect.DeepEqual(plans[0].FetchKeys, []string{
-		"plan:receipt.abc123",
-		"task:plan:receipt.abc123#task.short",
-	}) {
+	if !reflect.DeepEqual(plans[0].FetchKeys, []string{"plan:receipt.abc123"}) {
 		t.Fatalf("unexpected filtered plan fetch keys: %+v", plans[0].FetchKeys)
+	}
+	if len(repo.workPlanListCalls) != 1 || repo.workPlanListCalls[0].Scope != string(v1.HistoryScopeCurrent) {
+		t.Fatalf("expected current-scope work plan lookup, got %+v", repo.workPlanListCalls)
+	}
+}
+
+func TestHistorySearch_MapsPlanSummariesAndDefaults(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanListResults: [][]core.WorkPlanSummary{{
+			{
+				PlanKey:             "plan:receipt.active123",
+				ReceiptID:           "receipt.active123",
+				Title:               "Bootstrap follow-up",
+				Objective:           "Verify first-run onboarding and history search",
+				Summary:             "Bootstrap follow-up (2 tasks)",
+				Status:              core.PlanStatusInProgress,
+				Kind:                "story",
+				ParentPlanKey:       "plan:receipt.parent123",
+				ActiveTaskKeys:      []string{"task.verify", "task.docs"},
+				TaskCountTotal:      2,
+				TaskCountPending:    0,
+				TaskCountInProgress: 1,
+				TaskCountBlocked:    0,
+				TaskCountComplete:   1,
+				UpdatedAt:           time.Date(2026, 3, 6, 15, 4, 5, 0, time.UTC),
+			},
+			{
+				PlanKey:             "plan:receipt.done123",
+				ReceiptID:           "receipt.done123",
+				Title:               "Released v1",
+				Objective:           "Ship the initial history surface",
+				Summary:             "Released v1 (3 tasks)",
+				Status:              core.PlanStatusCompleted,
+				Kind:                "feature",
+				TaskCountTotal:      3,
+				TaskCountPending:    0,
+				TaskCountInProgress: 0,
+				TaskCountBlocked:    0,
+				TaskCountComplete:   3,
+				UpdatedAt:           time.Date(2026, 3, 6, 16, 5, 6, 0, time.UTC),
+			},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.HistorySearch(context.Background(), v1.HistorySearchPayload{
+		ProjectID: "project.alpha",
+		Query:     " bootstrap ",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(repo.workPlanListCalls) != 1 {
+		t.Fatalf("expected one work plan list call, got %d", len(repo.workPlanListCalls))
+	}
+	if got := repo.workPlanListCalls[0]; got.ProjectID != "project.alpha" || got.Query != "bootstrap" || got.Scope != string(v1.HistoryScopeAll) || got.Limit != 20 || got.Unbounded {
+		t.Fatalf("unexpected work plan list query: %+v", got)
+	}
+	if result.Entity != v1.HistoryEntityWork || result.Scope != v1.HistoryScopeAll || result.Query != "bootstrap" || result.Limit != 20 || result.Count != 2 {
+		t.Fatalf("unexpected history result metadata: %+v", result)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("expected two items, got %+v", result.Items)
+	}
+	if result.Items[0].Entity != v1.HistoryEntityWork || result.Items[0].Scope != v1.HistoryScopeCurrent || !reflect.DeepEqual(result.Items[0].FetchKeys, []string{"plan:receipt.active123"}) {
+		t.Fatalf("unexpected active plan summary: %+v", result.Items[0])
+	}
+	if result.Items[1].Entity != v1.HistoryEntityWork || result.Items[1].Scope != v1.HistoryScopeCompleted || !reflect.DeepEqual(result.Items[1].FetchKeys, []string{"plan:receipt.done123"}) {
+		t.Fatalf("unexpected completed plan summary: %+v", result.Items[1])
+	}
+}
+
+func TestHistorySearch_UsesExplicitScopeKindAndLimit(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanListResults: [][]core.WorkPlanSummary{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.HistorySearch(context.Background(), v1.HistorySearchPayload{
+		ProjectID: "project.alpha",
+		Scope:     v1.HistoryScopeDeferred,
+		Kind:      "story",
+		Limit:     7,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if got := repo.workPlanListCalls[0]; got.Scope != string(v1.HistoryScopeDeferred) || got.Kind != "story" || got.Limit != 7 || got.Unbounded {
+		t.Fatalf("unexpected explicit history query: %+v", got)
+	}
+	if result.Entity != v1.HistoryEntityWork || result.Scope != v1.HistoryScopeDeferred || result.Limit != 7 || result.Count != 0 || len(result.Items) != 0 {
+		t.Fatalf("unexpected history result: %+v", result)
+	}
+}
+
+func TestHistorySearch_UnboundedUsesAllScopeWithoutLimitCap(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanListResults: [][]core.WorkPlanSummary{{}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	value := true
+	result, apiErr := svc.HistorySearch(context.Background(), v1.HistorySearchPayload{
+		ProjectID: "project.alpha",
+		Query:     "bootstrap",
+		Unbounded: &value,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if got := repo.workPlanListCalls[0]; !got.Unbounded || got.Limit != 0 || got.Scope != string(v1.HistoryScopeAll) {
+		t.Fatalf("unexpected unbounded history query: %+v", got)
+	}
+	if result.Limit != 0 {
+		t.Fatalf("expected unbounded history result limit 0, got %+v", result)
+	}
+}
+
+func TestHistorySearch_AllEntitiesReturnsReceiptsRunsAndWork(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanListResults: [][]core.WorkPlanSummary{{
+			{
+				PlanKey:   "plan:receipt.work123",
+				ReceiptID: "receipt.work123",
+				Summary:   "Current plan",
+				Status:    core.PlanStatusInProgress,
+				UpdatedAt: time.Date(2026, 3, 6, 10, 0, 0, 0, time.UTC),
+			},
+		}},
+		receiptHistoryResults: [][]core.ReceiptHistorySummary{{
+			{
+				ReceiptID:       "receipt.receipt123",
+				TaskText:        "Receipt history entry",
+				Phase:           string(v1.PhaseReview),
+				LatestRequestID: "req-12345678",
+				LatestStatus:    "accepted",
+				UpdatedAt:       time.Date(2026, 3, 6, 11, 0, 0, 0, time.UTC),
+			},
+		}},
+		runHistoryResults: [][]core.RunHistorySummary{{
+			{
+				RunID:     33,
+				ReceiptID: "receipt.run123",
+				RequestID: "req-87654321",
+				TaskText:  "Run history entry",
+				Phase:     string(v1.PhaseExecute),
+				Status:    "accepted",
+				Outcome:   "Run completed",
+				UpdatedAt: time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC),
+			},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.HistorySearch(context.Background(), v1.HistorySearchPayload{
+		ProjectID: "project.alpha",
+		Entity:    v1.HistoryEntityAll,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Entity != v1.HistoryEntityAll || result.Count != 3 || len(result.Items) != 3 {
+		t.Fatalf("unexpected history result: %+v", result)
+	}
+	if result.Items[0].Entity != v1.HistoryEntityRun || result.Items[0].Key != "run:33" {
+		t.Fatalf("expected newest run item first, got %+v", result.Items)
+	}
+	if result.Items[1].Entity != v1.HistoryEntityReceipt || result.Items[1].Key != "receipt:receipt.receipt123" {
+		t.Fatalf("expected receipt item second, got %+v", result.Items)
+	}
+	if result.Items[2].Entity != v1.HistoryEntityWork || result.Items[2].Key != "plan:receipt.work123" {
+		t.Fatalf("expected work item third, got %+v", result.Items)
+	}
+	if len(repo.workPlanListCalls) != 1 || repo.workPlanListCalls[0].Scope != string(v1.HistoryScopeAll) {
+		t.Fatalf("unexpected work history query: %+v", repo.workPlanListCalls)
+	}
+	if len(repo.receiptHistoryCalls) != 1 || len(repo.runHistoryCalls) != 1 {
+		t.Fatalf("expected one receipt/run history query, got receipts=%d runs=%d", len(repo.receiptHistoryCalls), len(repo.runHistoryCalls))
 	}
 }
 

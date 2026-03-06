@@ -13,6 +13,7 @@ These examples assume installed `acm` and `acm-mcp` binaries are available on `P
 7. Run `verify` before `report_completion` when code changes.
 8. Run `report_completion`.
 9. Run `propose_memory` when the result should persist.
+10. When resuming or auditing prior work, use `history_search` or the CLI `work list`, `work search`, or `history search --entity all` surface, then `fetch` the returned `fetch_keys`.
 
 ## CLI `get_context` request
 

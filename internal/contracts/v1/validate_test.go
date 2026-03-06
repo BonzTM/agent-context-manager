@@ -186,6 +186,56 @@ func TestDecodeAndValidateCommand_CoveragePayloadValidation(t *testing.T) {
 	}
 }
 
+func TestDecodeAndValidateCommand_HistorySearchPayloadValidation(t *testing.T) {
+	validJSON := `{
+		"version":"acm.v1",
+		"command":"history_search",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"entity":"receipt",
+			"query":"bootstrap",
+			"scope":"completed",
+			"kind":"story",
+			"limit":10,
+			"unbounded":true
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(validJSON))
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(HistorySearchPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.ProjectID != "my-cool-app" || p.Entity != HistoryEntityReceipt || p.Query != "bootstrap" || p.Scope != HistoryScopeCompleted || p.Kind != "story" || p.Limit != 10 {
+		t.Fatalf("unexpected payload: %+v", p)
+	}
+	if p.Unbounded == nil || !*p.Unbounded {
+		t.Fatalf("expected unbounded=true, got %+v", p.Unbounded)
+	}
+
+	invalidJSON := `{
+		"version":"acm.v1",
+		"command":"history_search",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"entity":"prompt",
+			"scope":"stale",
+			"limit":101
+		}
+	}`
+	_, _, errp = DecodeAndValidateCommand([]byte(invalidJSON))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
 func TestDecodeAndValidateCommand_FetchSuccess(t *testing.T) {
 	json := `{
 		"version":"acm.v1",

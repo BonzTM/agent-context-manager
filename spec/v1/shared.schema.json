@@ -687,29 +687,25 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/contextRule"
-          },
-          "maxItems": 256
+          }
         },
         "suggestions": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/contextSuggestion"
-          },
-          "maxItems": 256
+          }
         },
         "memories": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/contextMemory"
-          },
-          "maxItems": 128
+          }
         },
         "plans": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/contextPlan"
-          },
-          "maxItems": 128
+          }
         },
         "_meta": {
           "$ref": "#/$defs/contextReceiptMeta"

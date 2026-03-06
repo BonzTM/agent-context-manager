@@ -15,7 +15,7 @@ import (
 
 const (
 	defaultMaxNonRulePointers = 8
-	defaultMaxRulePointers    = 0
+	defaultMaxRulePointers    = 0 // 0 means uncapped
 	defaultMaxHops            = 1
 	defaultMaxHopExpansion    = 5
 	defaultMaxMemories        = 6
@@ -68,11 +68,15 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 		return v1.GetContextResult{}, internalError("load_canonical_tags", err)
 	}
 
+	unbounded := effectiveUnbounded(payload.Unbounded)
 	caps := normalizeCaps(payload.Caps)
+	if unbounded {
+		caps = applyUnboundedCaps(caps)
+	}
 	fallbackMode := normalizeFallbackMode(payload.FallbackMode)
 	diagnostics := &v1.GetContextDiagnostics{FallbackMode: fallbackMode}
 
-	selected, err := s.selectPointers(ctx, payload, caps, false, tagNormalizer)
+	selected, err := s.selectPointers(ctx, payload, caps, unbounded, false, tagNormalizer)
 	if err != nil {
 		return v1.GetContextResult{}, internalError("fetch_candidate_pointers", err)
 	}
@@ -80,7 +84,7 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 
 	if len(selected.Pointers) < caps.MinPointerCount && fallbackMode == fallbackWidenOnce {
 		diagnostics.FallbackUsed = true
-		selected, err = s.selectPointers(ctx, payload, caps, true, tagNormalizer)
+		selected, err = s.selectPointers(ctx, payload, caps, unbounded, true, tagNormalizer)
 		if err != nil {
 			return v1.GetContextResult{}, internalError("fetch_candidate_pointers_fallback", err)
 		}
@@ -93,7 +97,7 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 		}, nil
 	}
 
-	activeMemories, err := s.fetchMemories(ctx, payload.ProjectID, selected.PointerKeys, selected.PointerTags, caps.MaxMemories)
+	activeMemories, err := s.fetchMemories(ctx, payload.ProjectID, selected.PointerKeys, selected.PointerTags, caps.MaxMemories, unbounded)
 	if err != nil {
 		return v1.GetContextResult{}, internalError("fetch_active_memories", err)
 	}
@@ -106,7 +110,7 @@ func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) 
 	budget := estimateBudget(caps.WordBudgetLimit, payload.TaskText, resolvedTags, rules, suggestions, memories)
 
 	receiptID := deterministicReceiptID(payload, resolvedTags, rules, suggestions, memories, budget)
-	plans := s.makeContextPlans(ctx, payload.ProjectID, receiptID)
+	plans := s.makeContextPlans(ctx, payload.ProjectID, receiptID, unbounded)
 
 	receipt := v1.ContextReceipt{
 		Rules:       rules,
@@ -160,7 +164,7 @@ func activeMemoryIDs(memories []core.ActiveMemory) []int64 {
 	return ids
 }
 
-func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPayload, caps effectiveCaps, fallback bool, tagNormalizer canonicalTagNormalizer) (pointerSelection, error) {
+func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPayload, caps effectiveCaps, unbounded bool, fallback bool, tagNormalizer canonicalTagNormalizer) (pointerSelection, error) {
 	taskText := strings.TrimSpace(payload.TaskText)
 	queryTags := tagNormalizer.canonicalTagsFromTaskText(taskText)
 	allowStale := payload.AllowStale
@@ -175,6 +179,7 @@ func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPaylo
 		Phase:     strings.TrimSpace(string(payload.Phase)),
 		Tags:      queryTags,
 		Limit:     candidateFetchLimit,
+		Unbounded: unbounded,
 		StaleFilter: core.StaleFilter{
 			AllowStale: allowStale,
 		},
@@ -185,10 +190,10 @@ func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPaylo
 	candidates = filterManagedCandidatePointers(candidates)
 
 	rules, nonRules := splitCandidatePointers(candidates)
-	if caps.MaxRulePointers > 0 && len(rules) > caps.MaxRulePointers {
+	if !unbounded && caps.MaxRulePointers > 0 && len(rules) > caps.MaxRulePointers {
 		rules = rules[:caps.MaxRulePointers]
 	}
-	if len(nonRules) > caps.MaxNonRulePointers {
+	if !unbounded && len(nonRules) > caps.MaxNonRulePointers {
 		nonRules = nonRules[:caps.MaxNonRulePointers]
 	}
 
@@ -212,6 +217,7 @@ func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPaylo
 			PointerKeys: nonRuleKeys,
 			MaxHops:     caps.MaxHops,
 			Limit:       caps.MaxHopExpansion,
+			Unbounded:   unbounded,
 			StaleFilter: core.StaleFilter{
 				AllowStale: allowStale,
 			},
@@ -225,7 +231,7 @@ func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPaylo
 			if hop.HopCount < 1 || hop.HopCount > caps.MaxHops {
 				continue
 			}
-			if isManagedProjectPath(hop.Pointer.Path) {
+			if shouldFilterManagedRetrievalPointer(hop.Pointer) {
 				continue
 			}
 			why := []string{fmt.Sprintf("related %d-hop expansion", hop.HopCount)}
@@ -236,7 +242,7 @@ func (s *Service) selectPointers(ctx context.Context, payload v1.GetContextPaylo
 			if addUniquePointer(&selection.Pointers, seen, hop.Pointer, why) {
 				expanded++
 			}
-			if expanded >= caps.MaxHopExpansion {
+			if !unbounded && expanded >= caps.MaxHopExpansion {
 				break
 			}
 		}
@@ -262,7 +268,7 @@ func filterManagedCandidatePointers(candidates []core.CandidatePointer) []core.C
 
 	filtered := make([]core.CandidatePointer, 0, len(candidates))
 	for _, candidate := range candidates {
-		if isManagedProjectPath(candidate.Path) {
+		if shouldFilterManagedRetrievalPointer(candidate) {
 			continue
 		}
 		filtered = append(filtered, candidate)
@@ -270,8 +276,27 @@ func filterManagedCandidatePointers(candidates []core.CandidatePointer) []core.C
 	return filtered
 }
 
-func (s *Service) fetchMemories(ctx context.Context, projectID string, pointerKeys, tags []string, maxMemories int) ([]core.ActiveMemory, error) {
-	if maxMemories <= 0 {
+func shouldFilterManagedRetrievalPointer(candidate core.CandidatePointer) bool {
+	if !isManagedProjectPath(candidate.Path) {
+		return false
+	}
+	if candidate.IsRule && isCanonicalRulesetSourcePath(candidate.Path) {
+		return false
+	}
+	return true
+}
+
+func isCanonicalRulesetSourcePath(raw string) bool {
+	switch normalizeCompletionPath(raw) {
+	case canonicalRulesetPrimarySourcePath, canonicalRulesetSecondarySourcePath:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) fetchMemories(ctx context.Context, projectID string, pointerKeys, tags []string, maxMemories int, unbounded bool) ([]core.ActiveMemory, error) {
+	if maxMemories <= 0 && !unbounded {
 		return nil, nil
 	}
 
@@ -280,11 +305,12 @@ func (s *Service) fetchMemories(ctx context.Context, projectID string, pointerKe
 		PointerKeys: pointerKeys,
 		Tags:        tags,
 		Limit:       maxMemories,
+		Unbounded:   unbounded,
 	})
 	if err != nil {
 		return nil, err
 	}
-	if len(memories) > maxMemories {
+	if !unbounded && len(memories) > maxMemories {
 		memories = memories[:maxMemories]
 	}
 	return memories, nil
@@ -327,6 +353,15 @@ func normalizeCaps(caps *v1.RetrievalCaps) effectiveCaps {
 	}
 
 	return out
+}
+
+func applyUnboundedCaps(caps effectiveCaps) effectiveCaps {
+	caps.MaxRulePointers = 0
+	caps.MaxNonRulePointers = schemaMaxNonRulePointers
+	caps.MaxHops = schemaMaxHops
+	caps.MaxHopExpansion = schemaMaxHopExpansion
+	caps.MaxMemories = schemaMaxMemories
+	return caps
 }
 
 func normalizeFallbackMode(mode string) string {
@@ -459,12 +494,14 @@ func makeContextMemories(memories []core.ActiveMemory) []v1.ContextMemory {
 	return out
 }
 
-func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID string) []v1.ContextPlan {
+func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID string, unbounded bool) []v1.ContextPlan {
 	if s != nil && s.repo != nil {
 		if planRepo, ok := s.repo.(core.WorkPlanRepository); ok {
 			planRows, err := planRepo.ListWorkPlans(ctx, core.WorkPlanListQuery{
 				ProjectID: strings.TrimSpace(projectID),
+				Scope:     string(v1.HistoryScopeCurrent),
 				Limit:     8,
+				Unbounded: unbounded,
 			})
 			if err == nil && len(planRows) > 0 {
 				plans := make([]v1.ContextPlan, 0, len(planRows))
@@ -485,13 +522,12 @@ func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID str
 						Blocked:    maxZero(row.TaskCountBlocked),
 						Complete:   maxZero(row.TaskCountComplete),
 					}
-					fetchKeys := contextPlanFetchKeys(planKey, row.ActiveTaskKeys)
 					plans = append(plans, v1.ContextPlan{
 						Key:        planKey,
 						Summary:    summary,
 						Status:     v1.WorkItemStatus(status),
 						TaskCounts: taskCounts,
-						FetchKeys:  fetchKeys,
+						FetchKeys:  contextPlanFetchKeys(planKey),
 					})
 				}
 				if len(plans) > 0 {
@@ -511,7 +547,7 @@ func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID str
 		Summary:    fmt.Sprintf("Plan %s is %s", receiptID, status),
 		Status:     status,
 		TaskCounts: v1.ContextPlanTaskCounts{},
-		FetchKeys:  []string{"plan:" + receiptID},
+		FetchKeys:  contextPlanFetchKeys("plan:" + receiptID),
 	}}
 }
 
@@ -522,25 +558,12 @@ func maxZero(value int) int {
 	return value
 }
 
-func contextPlanFetchKeys(planKey string, activeTaskKeys []string) []string {
+func contextPlanFetchKeys(planKey string) []string {
 	normalizedPlanKey := strings.TrimSpace(planKey)
 	if normalizedPlanKey == "" {
 		return nil
 	}
-
-	keys := []string{normalizedPlanKey}
-	for _, rawTaskKey := range activeTaskKeys {
-		fetchKey := taskFetchKey(normalizedPlanKey, rawTaskKey)
-		if strings.TrimSpace(fetchKey) == "" {
-			continue
-		}
-		keys = append(keys, fetchKey)
-		if len(keys) >= maxContextPlanTaskFetchKeys+1 {
-			break
-		}
-	}
-
-	return keys
+	return []string{normalizedPlanKey}
 }
 
 func resolveTags(pointerTags []string, memories []core.ActiveMemory, tagNormalizer canonicalTagNormalizer) []string {

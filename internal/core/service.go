@@ -11,6 +11,7 @@ type Service interface {
 	Fetch(context.Context, v1.FetchPayload) (v1.FetchResult, *APIError)
 	ProposeMemory(context.Context, v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *APIError)
 	Work(context.Context, v1.WorkPayload) (v1.WorkResult, *APIError)
+	HistorySearch(context.Context, v1.HistorySearchPayload) (v1.HistorySearchResult, *APIError)
 	ReportCompletion(context.Context, v1.ReportCompletionPayload) (v1.ReportCompletionResult, *APIError)
 	Sync(context.Context, v1.SyncPayload) (v1.SyncResult, *APIError)
 	HealthCheck(context.Context, v1.HealthCheckPayload) (v1.HealthCheckResult, *APIError)

@@ -104,6 +104,8 @@ func buildConvenienceEnvelope(subcommand string, args []string, now func() time.
 		return buildProposeMemoryEnvelope(args, now)
 	case "work":
 		return buildWorkEnvelope(args, now)
+	case "work-list", "work-search", "history-search":
+		return buildHistorySearchEnvelope(subcommand, args, now)
 	case "report-completion":
 		return buildReportCompletionEnvelope(args, now)
 	case "sync":
@@ -139,6 +141,7 @@ func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnv
 	scopeMode := fs.String("scope-mode", "", "scope mode: strict|warn|auto_index")
 	allowStale := fs.Bool("allow-stale", false, "allow stale pointers")
 	fallbackMode := fs.String("fallback-mode", "", "fallback mode: widen_once|none")
+	unbounded := optionalBoolFlag{}
 	maxNonRulePointers := fs.Int("max-non-rule-pointers", -1, "caps.max_non_rule_pointers")
 	maxRulePointers := fs.Int("max-rule-pointers", -1, "caps.max_rule_pointers")
 	maxHops := fs.Int("max-hops", -1, "caps.max_hops")
@@ -146,6 +149,7 @@ func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnv
 	maxMemories := fs.Int("max-memories", -1, "caps.max_memories")
 	minPointerCount := fs.Int("min-pointer-count", -1, "caps.min_pointer_count")
 	wordBudgetLimit := fs.Int("word-budget-limit", -1, "caps.word_budget_limit")
+	fs.Var(&unbounded, "unbounded", "remove built-in retrieval caps (optional bool)")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
@@ -184,6 +188,10 @@ func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnv
 	}
 	if trimmedFallbackMode := strings.TrimSpace(*fallbackMode); trimmedFallbackMode != "" {
 		payload.FallbackMode = trimmedFallbackMode
+	}
+	if unbounded.set {
+		value := unbounded.value
+		payload.Unbounded = &value
 	}
 	caps := v1.RetrievalCaps{}
 	capsSet := false
@@ -533,6 +541,81 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 	}
 
 	return buildEnvelope(v1.CommandWork, *requestID, payload, now)
+}
+
+func buildHistorySearchEnvelope(subcommand string, args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	usageLine := "acm work search --project <id> (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
+	example := "acm work search --project myproject --query \"bootstrap\" --scope all --limit 10"
+	defaultScope := v1.HistoryScopeCurrent
+	defaultEntity := v1.HistoryEntityWork
+	queryRequired := true
+
+	switch subcommand {
+	case "work-list":
+		usageLine = "acm work list --project <id> [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
+		example = "acm work list --project myproject --scope current --limit 20"
+		defaultScope = v1.HistoryScopeCurrent
+		queryRequired = false
+	case "work-search":
+		usageLine = "acm work search --project <id> (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
+		example = "acm work search --project myproject --query \"MCP parity\" --scope current"
+	case "history-search":
+		usageLine = "acm history search --project <id> [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
+		example = "acm history search --project myproject --entity all --query \"bootstrap\" --limit 25"
+		defaultScope = v1.HistoryScopeAll
+		defaultEntity = v1.HistoryEntityAll
+		queryRequired = false
+	}
+
+	fs := newCommandFlagSet(subcommand, usageLine, example)
+	projectID, requestID := addProjectAndRequestFlags(fs)
+	entity := fs.String("entity", string(defaultEntity), "history entity: all|work|receipt|run")
+	query := fs.String("query", "", "search text applied to plan and task summaries")
+	queryFile := fs.String("query-file", "", "file containing search text ('-' for stdin)")
+	scope := fs.String("scope", string(defaultScope), "history scope: current|deferred|completed|all")
+	kind := fs.String("kind", "", "optional plan kind filter")
+	limit := fs.Int("limit", 20, "maximum number of plans to return (1-100)")
+	unbounded := optionalBoolFlag{}
+	fs.Var(&unbounded, "unbounded", "remove built-in history result caps (optional bool)")
+	if err := parseCommandFlags(fs, args); err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	if err := requireFlag("project", *projectID); err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+
+	trimmedQuery := strings.TrimSpace(*query)
+	trimmedQueryFile := strings.TrimSpace(*queryFile)
+	if trimmedQuery != "" && trimmedQueryFile != "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --query or --query-file")
+	}
+	if trimmedQuery == "" && trimmedQueryFile != "" {
+		blob, err := readTextFile(trimmedQueryFile)
+		if err != nil {
+			return v1.CommandEnvelope{}, fmt.Errorf("read --query-file %s: %w", trimmedQueryFile, err)
+		}
+		trimmedQuery = strings.TrimSpace(blob)
+	}
+	if queryRequired && trimmedQuery == "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("--query or --query-file is required")
+	}
+
+	payload := v1.HistorySearchPayload{
+		ProjectID: strings.TrimSpace(*projectID),
+		Entity:    v1.HistoryEntity(strings.TrimSpace(*entity)),
+		Query:     trimmedQuery,
+		Scope:     v1.HistoryScope(strings.TrimSpace(*scope)),
+		Kind:      strings.TrimSpace(*kind),
+	}
+	if *limit > 0 {
+		payload.Limit = *limit
+	}
+	if unbounded.set {
+		value := unbounded.value
+		payload.Unbounded = &value
+	}
+
+	return buildEnvelope(v1.CommandHistorySearch, *requestID, payload, now)
 }
 
 func buildReportCompletionEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {

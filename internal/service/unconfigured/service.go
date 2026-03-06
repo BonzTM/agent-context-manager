@@ -29,6 +29,10 @@ func (s *Service) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *cor
 	return v1.WorkResult{}, notImplemented("work")
 }
 
+func (s *Service) HistorySearch(_ context.Context, _ v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
+	return v1.HistorySearchResult{}, notImplemented("history_search")
+}
+
 func (s *Service) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
 	return v1.ReportCompletionResult{}, notImplemented("report_completion")
 }

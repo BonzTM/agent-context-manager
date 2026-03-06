@@ -24,6 +24,7 @@ type Repository struct {
 
 var _ core.Repository = (*Repository)(nil)
 var _ core.WorkPlanRepository = (*Repository)(nil)
+var _ core.HistoryRepository = (*Repository)(nil)
 var _ core.VerificationRepository = (*Repository)(nil)
 
 func New(ctx context.Context, cfg Config) (*Repository, error) {
@@ -828,17 +829,26 @@ func (r *Repository) ListWorkPlans(ctx context.Context, input core.WorkPlanListQ
 		return nil, fmt.Errorf("project_id is required")
 	}
 	limit := input.Limit
-	if limit <= 0 {
+	if !input.Unbounded && limit <= 0 {
 		limit = 8
 	}
-	if limit > 100 {
+	if !input.Unbounded && limit > 100 {
 		limit = 100
 	}
 
-	rows, err := r.pool.Query(ctx, `
+	scope := normalizeWorkPlanListScope(input.Scope)
+	searchPattern := workPlanListSearchPattern(input.Query)
+
+	var (
+		query strings.Builder
+		args  []any
+	)
+	query.WriteString(`
 SELECT
 	p.plan_key,
+	p.receipt_id,
 	p.title,
+	p.objective,
 	p.status,
 	p.kind,
 	p.parent_plan_key,
@@ -853,11 +863,63 @@ LEFT JOIN acm_work_plan_tasks t
 	ON t.project_id = p.project_id
 	AND t.plan_key = p.plan_key
 WHERE p.project_id = $1
-	AND p.status <> 'completed'
-GROUP BY p.plan_key, p.title, p.status, p.kind, p.parent_plan_key, p.updated_at
+`)
+	args = append(args, projectID)
+	argIndex := 2
+
+	switch scope {
+	case workPlanListScopeCurrent:
+		query.WriteString("  AND p.status IN ('pending', 'in_progress')\n")
+	case workPlanListScopeDeferred:
+		query.WriteString("  AND p.status = 'blocked'\n")
+	case workPlanListScopeCompleted:
+		query.WriteString("  AND p.status = 'completed'\n")
+	}
+
+	if trimmedKind := strings.TrimSpace(input.Kind); trimmedKind != "" {
+		query.WriteString(fmt.Sprintf("  AND p.kind = $%d\n", argIndex))
+		args = append(args, trimmedKind)
+		argIndex++
+	}
+
+	if searchPattern != "" {
+		query.WriteString(fmt.Sprintf(`  AND (
+	LOWER(p.plan_key) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(p.receipt_id, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(p.title, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(p.objective, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(p.kind, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(p.parent_plan_key, '')) LIKE $%d ESCAPE '\'
+	OR EXISTS (
+		SELECT 1
+		FROM acm_work_plan_tasks wt
+		WHERE wt.project_id = p.project_id
+			AND wt.plan_key = p.plan_key
+			AND (
+				LOWER(wt.task_key) LIKE $%d ESCAPE '\'
+				OR LOWER(COALESCE(wt.summary, '')) LIKE $%d ESCAPE '\'
+				OR LOWER(COALESCE(wt.outcome, '')) LIKE $%d ESCAPE '\'
+				OR LOWER(COALESCE(wt.blocked_reason, '')) LIKE $%d ESCAPE '\'
+			)
+	)
+)
+`, argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4, argIndex+5, argIndex+6, argIndex+7, argIndex+8, argIndex+9))
+		for i := 0; i < 10; i++ {
+			args = append(args, searchPattern)
+		}
+		argIndex += 10
+	}
+
+	query.WriteString(`
+GROUP BY p.plan_key, p.receipt_id, p.title, p.objective, p.status, p.kind, p.parent_plan_key, p.updated_at
 ORDER BY p.updated_at DESC, p.plan_key ASC
-LIMIT $2
-`, projectID, limit)
+`)
+	if !input.Unbounded {
+		query.WriteString(fmt.Sprintf("LIMIT $%d\n", argIndex))
+		args = append(args, limit)
+	}
+
+	rows, err := r.pool.Query(ctx, query.String(), args...)
 	if err != nil {
 		return nil, fmt.Errorf("query work plans: %w", err)
 	}
@@ -867,7 +929,9 @@ LIMIT $2
 	for rows.Next() {
 		var (
 			planKey             string
+			receiptID           string
 			title               string
+			objective           string
 			status              string
 			kind                string
 			parentPlanKey       string
@@ -880,7 +944,9 @@ LIMIT $2
 		)
 		if err := rows.Scan(
 			&planKey,
+			&receiptID,
 			&title,
+			&objective,
 			&status,
 			&kind,
 			&parentPlanKey,
@@ -900,12 +966,18 @@ LIMIT $2
 		normalizedStatus := normalizeWorkItemStatus(status)
 		summary := strings.TrimSpace(title)
 		if summary == "" {
+			summary = strings.TrimSpace(objective)
+		}
+		if summary == "" {
 			summary = fmt.Sprintf("Plan %s is %s", planKey, normalizedStatus)
 		}
 		if taskCountTotal > 0 {
 			summary = fmt.Sprintf("%s (%d tasks)", summary, taskCountTotal)
 		}
 		out = append(out, core.WorkPlanSummary{
+			ReceiptID:           strings.TrimSpace(receiptID),
+			Title:               strings.TrimSpace(title),
+			Objective:           strings.TrimSpace(objective),
 			PlanKey:             planKey,
 			Summary:             summary,
 			Status:              normalizedStatus,
@@ -936,6 +1008,284 @@ LIMIT $2
 	}
 
 	return out, nil
+}
+
+func (r *Repository) ListReceiptHistory(ctx context.Context, input core.ReceiptHistoryListQuery) ([]core.ReceiptHistorySummary, error) {
+	if r == nil || r.pool == nil {
+		return nil, fmt.Errorf("postgres pool is required")
+	}
+
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("project_id is required")
+	}
+	limit := input.Limit
+	if !input.Unbounded && limit <= 0 {
+		limit = 20
+	}
+	if !input.Unbounded && limit > 100 {
+		limit = 100
+	}
+	searchPattern := workPlanListSearchPattern(input.Query)
+
+	var (
+		query strings.Builder
+		args  []any
+	)
+	query.WriteString(`
+SELECT
+	r.receipt_id,
+	r.task_text,
+	r.phase,
+	COALESCE(run.request_id, '') AS latest_request_id,
+	COALESCE(run.status, '') AS latest_status,
+	COALESCE(run.created_at, r.created_at) AS updated_at
+FROM acm_receipts r
+LEFT JOIN LATERAL (
+	SELECT run_id, request_id, status, created_at
+	FROM acm_runs
+	WHERE project_id = r.project_id
+		AND receipt_id = r.receipt_id
+	ORDER BY created_at DESC, run_id DESC
+	LIMIT 1
+) run ON TRUE
+WHERE r.project_id = $1
+`)
+	args = append(args, projectID)
+	argIndex := 2
+
+	if searchPattern != "" {
+		query.WriteString(fmt.Sprintf(`  AND (
+	LOWER(r.receipt_id) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(r.task_text, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(r.phase, '')) LIKE $%d ESCAPE '\'
+	OR EXISTS (
+		SELECT 1
+		FROM acm_runs rr
+		WHERE rr.project_id = r.project_id
+			AND rr.receipt_id = r.receipt_id
+			AND (
+				LOWER(COALESCE(rr.request_id, '')) LIKE $%d ESCAPE '\'
+				OR LOWER(COALESCE(rr.status, '')) LIKE $%d ESCAPE '\'
+				OR LOWER(COALESCE(rr.outcome, '')) LIKE $%d ESCAPE '\'
+				OR LOWER(COALESCE(array_to_string(rr.files_changed, ' '), '')) LIKE $%d ESCAPE '\'
+				OR LOWER(COALESCE(rr.summary_json::text, '')) LIKE $%d ESCAPE '\'
+			)
+	)
+)
+`, argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4, argIndex+5, argIndex+6, argIndex+7))
+		for i := 0; i < 8; i++ {
+			args = append(args, searchPattern)
+		}
+		argIndex += 8
+	}
+
+	query.WriteString(`
+ORDER BY updated_at DESC, r.receipt_id ASC
+`)
+	if !input.Unbounded {
+		query.WriteString(fmt.Sprintf("LIMIT $%d\n", argIndex))
+		args = append(args, limit)
+	}
+
+	rows, err := r.pool.Query(ctx, query.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("query receipt history: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]core.ReceiptHistorySummary, 0)
+	for rows.Next() {
+		var row core.ReceiptHistorySummary
+		if err := rows.Scan(
+			&row.ReceiptID,
+			&row.TaskText,
+			&row.Phase,
+			&row.LatestRequestID,
+			&row.LatestStatus,
+			&row.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan receipt history: %w", err)
+		}
+		row.ReceiptID = strings.TrimSpace(row.ReceiptID)
+		if row.ReceiptID == "" {
+			continue
+		}
+		row.TaskText = strings.TrimSpace(row.TaskText)
+		row.Phase = strings.TrimSpace(row.Phase)
+		row.LatestRequestID = strings.TrimSpace(row.LatestRequestID)
+		row.LatestStatus = strings.TrimSpace(row.LatestStatus)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate receipt history: %w", err)
+	}
+	return out, nil
+}
+
+func (r *Repository) ListRunHistory(ctx context.Context, input core.RunHistoryListQuery) ([]core.RunHistorySummary, error) {
+	if r == nil || r.pool == nil {
+		return nil, fmt.Errorf("postgres pool is required")
+	}
+
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("project_id is required")
+	}
+	limit := input.Limit
+	if !input.Unbounded && limit <= 0 {
+		limit = 20
+	}
+	if !input.Unbounded && limit > 100 {
+		limit = 100
+	}
+	searchPattern := workPlanListSearchPattern(input.Query)
+
+	var (
+		query strings.Builder
+		args  []any
+	)
+	query.WriteString(`
+SELECT
+	run.run_id,
+	run.receipt_id,
+	run.request_id,
+	COALESCE(r.task_text, '') AS task_text,
+	COALESCE(r.phase, '') AS phase,
+	run.status,
+	run.files_changed,
+	run.outcome,
+	run.created_at
+FROM acm_runs run
+LEFT JOIN acm_receipts r
+	ON r.project_id = run.project_id
+	AND r.receipt_id = run.receipt_id
+WHERE run.project_id = $1
+`)
+	args = append(args, projectID)
+	argIndex := 2
+
+	if searchPattern != "" {
+		query.WriteString(fmt.Sprintf(`  AND (
+	LOWER(COALESCE(run.request_id, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(run.status, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(run.outcome, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(array_to_string(run.files_changed, ' '), '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(run.summary_json::text, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(r.task_text, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(r.phase, '')) LIKE $%d ESCAPE '\'
+	OR LOWER(COALESCE(run.receipt_id, '')) LIKE $%d ESCAPE '\'
+)
+`, argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4, argIndex+5, argIndex+6, argIndex+7))
+		for i := 0; i < 8; i++ {
+			args = append(args, searchPattern)
+		}
+		argIndex += 8
+	}
+
+	query.WriteString(`
+ORDER BY run.created_at DESC, run.run_id DESC
+`)
+	if !input.Unbounded {
+		query.WriteString(fmt.Sprintf("LIMIT $%d\n", argIndex))
+		args = append(args, limit)
+	}
+
+	rows, err := r.pool.Query(ctx, query.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("query run history: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]core.RunHistorySummary, 0)
+	for rows.Next() {
+		var row core.RunHistorySummary
+		if err := rows.Scan(
+			&row.RunID,
+			&row.ReceiptID,
+			&row.RequestID,
+			&row.TaskText,
+			&row.Phase,
+			&row.Status,
+			&row.FilesChanged,
+			&row.Outcome,
+			&row.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan run history: %w", err)
+		}
+		row.ReceiptID = strings.TrimSpace(row.ReceiptID)
+		row.RequestID = strings.TrimSpace(row.RequestID)
+		row.TaskText = strings.TrimSpace(row.TaskText)
+		row.Phase = strings.TrimSpace(row.Phase)
+		row.Status = strings.TrimSpace(row.Status)
+		row.Outcome = strings.TrimSpace(row.Outcome)
+		row.FilesChanged = normalizeStringList(row.FilesChanged)
+		if row.RunID <= 0 {
+			continue
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate run history: %w", err)
+	}
+	return out, nil
+}
+
+func (r *Repository) LookupRunHistory(ctx context.Context, input core.RunHistoryLookupQuery) (core.RunHistorySummary, error) {
+	if r == nil || r.pool == nil {
+		return core.RunHistorySummary{}, fmt.Errorf("postgres pool is required")
+	}
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return core.RunHistorySummary{}, fmt.Errorf("project_id is required")
+	}
+	if input.RunID <= 0 {
+		return core.RunHistorySummary{}, fmt.Errorf("run_id must be positive")
+	}
+
+	var row core.RunHistorySummary
+	err := r.pool.QueryRow(ctx, `
+SELECT
+	run.run_id,
+	run.receipt_id,
+	run.request_id,
+	COALESCE(r.task_text, '') AS task_text,
+	COALESCE(r.phase, '') AS phase,
+	run.status,
+	run.files_changed,
+	run.outcome,
+	run.created_at
+FROM acm_runs run
+LEFT JOIN acm_receipts r
+	ON r.project_id = run.project_id
+	AND r.receipt_id = run.receipt_id
+WHERE run.project_id = $1
+	AND run.run_id = $2
+`, projectID, input.RunID).Scan(
+		&row.RunID,
+		&row.ReceiptID,
+		&row.RequestID,
+		&row.TaskText,
+		&row.Phase,
+		&row.Status,
+		&row.FilesChanged,
+		&row.Outcome,
+		&row.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return core.RunHistorySummary{}, core.ErrFetchLookupNotFound
+		}
+		return core.RunHistorySummary{}, fmt.Errorf("query run history lookup: %w", err)
+	}
+	row.ReceiptID = strings.TrimSpace(row.ReceiptID)
+	row.RequestID = strings.TrimSpace(row.RequestID)
+	row.TaskText = strings.TrimSpace(row.TaskText)
+	row.Phase = strings.TrimSpace(row.Phase)
+	row.Status = strings.TrimSpace(row.Status)
+	row.Outcome = strings.TrimSpace(row.Outcome)
+	row.FilesChanged = normalizeStringList(row.FilesChanged)
+	return row, nil
 }
 
 func listActiveWorkPlanTaskKeys(ctx context.Context, q pgxRowsQuerier, projectID string, planKeys []string) (map[string][]string, error) {
@@ -1454,6 +1804,35 @@ func normalizeWorkPlanMode(raw core.WorkPlanMode) core.WorkPlanMode {
 	default:
 		return core.WorkPlanModeMerge
 	}
+}
+
+const (
+	workPlanListScopeCurrent   = "current"
+	workPlanListScopeDeferred  = "deferred"
+	workPlanListScopeCompleted = "completed"
+	workPlanListScopeAll       = "all"
+)
+
+func normalizeWorkPlanListScope(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case workPlanListScopeCurrent:
+		return workPlanListScopeCurrent
+	case workPlanListScopeDeferred:
+		return workPlanListScopeDeferred
+	case workPlanListScopeCompleted:
+		return workPlanListScopeCompleted
+	default:
+		return workPlanListScopeAll
+	}
+}
+
+func workPlanListSearchPattern(raw string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	if trimmed == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return "%" + replacer.Replace(trimmed) + "%"
 }
 
 func normalizeWorkPlanStages(raw core.WorkPlanStages) core.WorkPlanStages {

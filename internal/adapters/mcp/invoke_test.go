@@ -32,6 +32,10 @@ func (f fakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *
 	return v1.WorkResult{PlanKey: "plan:receipt-1234", PlanStatus: "pending", Updated: 1}, nil
 }
 
+func (f fakeService) HistorySearch(_ context.Context, _ v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
+	return v1.HistorySearchResult{}, nil
+}
+
 func (f fakeService) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
 	return v1.ReportCompletionResult{Accepted: true}, nil
 }
@@ -121,6 +125,17 @@ func TestInvoke_RemainingTools(t *testing.T) {
 		payload []byte
 		assert  func(t *testing.T, result any)
 	}{
+		{
+			name:    "history_search",
+			tool:    toolHistorySearch,
+			payload: []byte(`{"project_id":"my-cool-app","query":"bootstrap","scope":"all"}`),
+			assert: func(t *testing.T, result any) {
+				t.Helper()
+				if _, ok := result.(v1.HistorySearchResult); !ok {
+					t.Fatalf("unexpected history_search result type: %T", result)
+				}
+			},
+		},
 		{
 			name:    "sync",
 			tool:    toolSync,
@@ -213,8 +228,8 @@ func TestInvoke_RemainingTools(t *testing.T) {
 
 func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 	defs := ToolDefinitions()
-	if len(defs) != 12 {
-		t.Fatalf("unexpected tool count: got %d want 12", len(defs))
+	if len(defs) != 13 {
+		t.Fatalf("unexpected tool count: got %d want 13", len(defs))
 	}
 
 	expectedInputRefs := map[string]string{
@@ -223,6 +238,7 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"propose_memory":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/proposeMemoryPayload",
 		"report_completion": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reportCompletionPayload",
 		"work":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/workPayload",
+		"history_search":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/historySearchPayload",
 		"sync":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/syncPayload",
 		"health_check":      "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/healthCheckPayload",
 		"health_fix":        "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/healthFixPayload",
@@ -237,6 +253,7 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"propose_memory":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/proposeMemoryResult",
 		"report_completion": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reportCompletionResult",
 		"work":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/workResult",
+		"history_search":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/historySearchResult",
 		"sync":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/syncResult",
 		"health_check":      "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthCheckResult",
 		"health_fix":        "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthFixResult",

@@ -202,6 +202,9 @@ func TestInvokeWithDeps_HelpWritesUsage(t *testing.T) {
 	if !strings.Contains(text, "--tool <name>") {
 		t.Fatalf("unexpected help output: %q", text)
 	}
+	if !strings.Contains(text, "history_search") {
+		t.Fatalf("expected history_search in help output: %q", text)
+	}
 }
 
 func TestUsage_IncludesVersionFlag(t *testing.T) {
@@ -246,6 +249,10 @@ func (mcpMainFakeService) ReportCompletion(_ context.Context, _ v1.ReportComplet
 
 func (mcpMainFakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *core.APIError) {
 	return v1.WorkResult{}, nil
+}
+
+func (mcpMainFakeService) HistorySearch(_ context.Context, _ v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
+	return v1.HistorySearchResult{}, nil
 }
 
 func (mcpMainFakeService) Sync(_ context.Context, _ v1.SyncPayload) (v1.SyncResult, *core.APIError) {

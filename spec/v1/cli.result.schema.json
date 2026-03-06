@@ -21,6 +21,7 @@
         "get_context",
         "propose_memory",
         "report_completion",
+        "history_search",
         "sync",
         "health_check",
         "health_fix",
@@ -871,6 +872,167 @@
         "task_count": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "historyItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "entity",
+        "summary",
+        "updated_at"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "shared.schema.json#/$defs/contractKey"
+        },
+        "entity": {
+          "type": "string",
+          "enum": [
+            "all",
+            "work",
+            "receipt",
+            "run"
+          ]
+        },
+        "receipt_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^.*\\S.*$"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "current",
+            "deferred",
+            "completed",
+            "all"
+          ]
+        },
+        "plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
+        },
+        "run_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "request_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        },
+        "kind": {
+          "$ref": "shared.schema.json#/$defs/planKind"
+        },
+        "parent_plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
+        },
+        "task_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total",
+            "pending",
+            "in_progress",
+            "blocked",
+            "complete"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "pending": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "in_progress": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "blocked": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "complete": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "fetch_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/contractKey"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "updated_at": {
+          "$ref": "shared.schema.json#/$defs/timestamp"
+        }
+      }
+    },
+    "historySearchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity",
+        "limit",
+        "count",
+        "items"
+      ],
+      "properties": {
+        "entity": {
+          "type": "string",
+          "enum": [
+            "all",
+            "work",
+            "receipt",
+            "run"
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "current",
+            "deferred",
+            "completed",
+            "all"
+          ]
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/historyItem"
+          }
         }
       }
     }

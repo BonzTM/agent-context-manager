@@ -105,11 +105,14 @@ WHERE p.project_id = `)
 		sb.WriteString(strings.Join(predicates, " AND "))
 	}
 
-	limitArg := args.add(limit)
 	sb.WriteString(`
 ORDER BY p.is_rule DESC, score DESC, p.pointer_key ASC
-LIMIT `)
-	sb.WriteString(limitArg)
+`)
+	if !input.Unbounded {
+		limitArg := args.add(limit)
+		sb.WriteString("LIMIT ")
+		sb.WriteString(limitArg)
+	}
 
 	return sb.String(), args.values, nil
 }
@@ -167,8 +170,6 @@ func buildRelatedHopPointersQuery(input core.RelatedHopPointersQuery) (string, [
 	if len(filters) == 0 {
 		filters = append(filters, "TRUE")
 	}
-
-	limitArg := args.add(limit)
 
 	var sb strings.Builder
 	sb.WriteString(`
@@ -236,8 +237,12 @@ WHERE `)
 	sb.WriteString(strings.Join(filters, " AND "))
 	sb.WriteString(`
 ORDER BY d.hop_count ASC, d.origin_key ASC, p.pointer_key ASC
-LIMIT `)
-	sb.WriteString(limitArg)
+`)
+	if !input.Unbounded {
+		limitArg := args.add(limit)
+		sb.WriteString("LIMIT ")
+		sb.WriteString(limitArg)
+	}
 
 	return sb.String(), args.values, nil
 }
@@ -269,8 +274,6 @@ func buildActiveMemoriesQuery(input core.ActiveMemoryQuery) (string, []any, erro
 		filters = append(filters, "("+strings.Join(matchers, " OR ")+")")
 	}
 
-	limitArg := args.add(limit)
-
 	var sb strings.Builder
 	sb.WriteString(`
 SELECT
@@ -289,8 +292,12 @@ WHERE m.project_id = `)
 	sb.WriteString(strings.Join(filters, " AND "))
 	sb.WriteString(`
 ORDER BY m.confidence DESC, m.updated_at DESC, m.memory_id ASC
-LIMIT `)
-	sb.WriteString(limitArg)
+`)
+	if !input.Unbounded {
+		limitArg := args.add(limit)
+		sb.WriteString("LIMIT ")
+		sb.WriteString(limitArg)
+	}
 
 	return sb.String(), args.values, nil
 }

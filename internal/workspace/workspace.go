@@ -123,6 +123,41 @@ func ParseDotEnv(raw []byte) map[string]string {
 	return parsed
 }
 
+func LookupEnvValue(startDir, key string, lookupEnv func(string) (string, bool)) string {
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return ""
+	}
+	if lookupEnv == nil {
+		lookupEnv = os.LookupEnv
+	}
+	if value, ok := lookupEnv(trimmedKey); ok {
+		return strings.TrimSpace(value)
+	}
+
+	root := DetectRoot(startDir)
+	if strings.TrimSpace(root.Path) == "" {
+		return ""
+	}
+	values, err := ParseDotEnvFile(filepath.Join(root.Path, DotEnvFileName))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(values[trimmedKey])
+}
+
+func LookupEnvBool(startDir, key string, lookupEnv func(string) (string, bool)) bool {
+	value := LookupEnvValue(startDir, key, lookupEnv)
+	if value == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false
+	}
+	return parsed
+}
+
 func parseDotEnvAssignment(line string) (string, string, bool) {
 	index := strings.IndexRune(line, '=')
 	if index <= 0 {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/adapters/cli"
@@ -33,7 +34,7 @@ var entryPointCommands = []helpCommand{
 
 var workflowCommands = []helpCommand{
 	{
-		usage:   "acm get-context --project <id> [--task-text <text>|--task-file <path>] [--tags-file <path>] [flags]",
+		usage:   "acm get-context --project <id> [--task-text <text>|--task-file <path>] [--tags-file <path>] [--unbounded[=true|false]] [flags]",
 		summary: "Resolve a scoped receipt with rules, pointers, memories, and active work.",
 	},
 	{
@@ -47,6 +48,18 @@ var workflowCommands = []helpCommand{
 	{
 		usage:   "acm work --project <id> [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>] [--items-file <path>|--items-json <json>]",
 		summary: "Create or update structured plans and tasks that survive compaction.",
+	},
+	{
+		usage:   "acm work list --project <id> [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
+		summary: "List compact plan summaries for current, deferred, completed, or all work.",
+	},
+	{
+		usage:   "acm work search --project <id> (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
+		summary: "Search plan and task history without direct database access.",
+	},
+	{
+		usage:   "acm history search --project <id> [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
+		summary: "Search recent work, receipts, and run history without direct database access.",
 	},
 	{
 		usage:   "acm report-completion --project <id> --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--files-changed-json <json>] [--scope-mode <mode>] [--tags-file <path>]",
@@ -104,10 +117,22 @@ func main() {
 		os.Exit(run(ctx, logger, os.Args[2:]))
 	case "validate":
 		os.Exit(validate(ctx, logger, os.Args[2:]))
+	case "work":
+		if nested, ok := nestedConvenienceSubcommand(os.Args[1], os.Args[2:]); ok {
+			os.Exit(runConvenience(ctx, logger, nested, os.Args[3:]))
+		}
+		os.Exit(runConvenience(ctx, logger, os.Args[1], os.Args[2:]))
+	case "history":
+		if nested, ok := nestedConvenienceSubcommand(os.Args[1], os.Args[2:]); ok {
+			os.Exit(runConvenience(ctx, logger, nested, os.Args[3:]))
+		}
+		logger.Error(ctx, logging.EventACMRun, "stage", "parse", "subcommand", "history", "ok", false, "error_code", "UNKNOWN_SUBCOMMAND")
+		fmt.Fprintln(os.Stderr, "history requires a nested subcommand such as `search`")
+		usage()
+		os.Exit(2)
 	case "get-context",
 		"fetch",
 		"propose-memory",
-		"work",
 		"report-completion",
 		"sync",
 		"health",
@@ -130,6 +155,30 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+}
+
+func nestedConvenienceSubcommand(command string, args []string) (string, bool) {
+	if len(args) == 0 {
+		return "", false
+	}
+	if strings.HasPrefix(args[0], "-") {
+		return "", false
+	}
+	switch command {
+	case "work":
+		switch args[0] {
+		case "list":
+			return "work-list", true
+		case "search":
+			return "work-search", true
+		}
+	case "history":
+		switch args[0] {
+		case "search":
+			return "history-search", true
+		}
+	}
+	return "", false
 }
 
 func run(ctx context.Context, logger logging.Logger, args []string) int {
@@ -281,6 +330,7 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "Environment Variables:")
 	fmt.Fprintln(w, "  - `ACM_PG_DSN`: Postgres DSN. If set, Postgres is the active backend.")
 	fmt.Fprintln(w, "  - `ACM_SQLITE_PATH`: Optional explicit SQLite path. Relative paths resolve from the detected project root.")
+	fmt.Fprintln(w, "  - `ACM_UNBOUNDED`: `true|false`. When true, retrieval/list surfaces stop applying built-in result caps.")
 	fmt.Fprintln(w, "  - `ACM_LOG_LEVEL`: `debug|info|warn|error`.")
 	fmt.Fprintln(w, "  - `ACM_LOG_SINK`: `stderr|stdout|discard`.")
 	fmt.Fprintln(w)

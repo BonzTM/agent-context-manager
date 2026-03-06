@@ -12,15 +12,16 @@ import (
 )
 
 const (
-	toolFetch       = "fetch"
-	toolWork        = "work"
-	toolSync        = "sync"
-	toolHealthCheck = "health_check"
-	toolHealthFix   = "health_fix"
-	toolCoverage    = "coverage"
-	toolEval        = "eval"
-	toolVerify      = "verify"
-	toolBootstrap   = "bootstrap"
+	toolFetch         = "fetch"
+	toolWork          = "work"
+	toolHistorySearch = "history_search"
+	toolSync          = "sync"
+	toolHealthCheck   = "health_check"
+	toolHealthFix     = "health_fix"
+	toolCoverage      = "coverage"
+	toolEval          = "eval"
+	toolVerify        = "verify"
+	toolBootstrap     = "bootstrap"
 )
 
 type ToolDef struct {
@@ -67,6 +68,13 @@ func ToolDefinitions() []ToolDef {
 			Description:  "Submit plan-scoped work item updates with status and optional outcomes.",
 			InputSchema:  schemaRef(commandSchemaID, "workPayload"),
 			OutputSchema: schemaRef(resultSchemaID, "workResult"),
+		},
+		{
+			Name:         toolHistorySearch,
+			Title:        "Search History",
+			Description:  "List or search work plans, receipts, and runs without direct database access.",
+			InputSchema:  schemaRef(commandSchemaID, "historySearchPayload"),
+			OutputSchema: schemaRef(resultSchemaID, "historySearchResult"),
 		},
 		{
 			Name:         toolSync,
@@ -171,6 +179,12 @@ func InvokeWithLogger(ctx context.Context, svc core.Service, tool string, input 
 			return p.ProjectID
 		}, func(p v1.WorkPayload) (v1.WorkResult, *core.APIError) {
 			return svc.Work(ctx, p)
+		})
+	case toolHistorySearch:
+		return invokeTypedTool(ctx, logger, tool, input, func(p v1.HistorySearchPayload) string {
+			return p.ProjectID
+		}, func(p v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
+			return svc.HistorySearch(ctx, p)
 		})
 	case toolSync:
 		return invokeTypedTool(ctx, logger, tool, input, func(p v1.SyncPayload) string {
