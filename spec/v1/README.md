@@ -15,7 +15,9 @@ This directory defines the v1 wire contract for the context broker.
 
 ## MCP Contract
 
-Expose exactly five tools in v1.1:
+The MCP adapter exposes twelve tools — all CLI operations are available via MCP:
+
+Agent-facing:
 
 1. `get_context`
 2. `fetch`
@@ -23,16 +25,26 @@ Expose exactly five tools in v1.1:
 4. `report_completion`
 5. `work`
 
+Maintenance:
+
+6. `sync`
+7. `health_check`
+8. `health_fix`
+9. `coverage`
+10. `eval`
+11. `verify`
+12. `bootstrap`
+
 Tool input/output shapes are referenced from CLI payload/result defs to guarantee parity.
 
-The v1.1 MCP flow is index-first:
+The MCP flow is index-first:
 
-- `get_context` returns an index-first receipt with scoped rules, suggestions, memories, and plans.
+- `get_context` returns an index-first receipt with scoped rules, suggestions, memories, and active plans (queried from the database, not just the current receipt).
 - Each rule entry now includes `rule_id`, a deterministic stable identifier derived from the existing rule `key` semantics (no additional input required).
 - `fetch` resolves receipt/plan-scoped artifacts by key, or via `receipt_id` shorthand when keys are omitted.
-- `work` updates plan-scoped work item state and supports `receipt_id` without `plan_key`.
-- `work` also supports status-only retrieval with zero `items`.
+- `work` creates/updates structured plans with tasks (max 256 per request). Supports `receipt_id` without `plan_key` (derives `plan_key` as `plan:<receipt_id>`). `mode` controls merge vs replace semantics.
 - For work updates, standard verification keys are `verify:tests` and `verify:diff-review`.
+- `eval` is the public retrieval-evaluation command/tool name. `verify` selects repo-defined executable checks from `.acm/acm-tests.yaml` or `acm-tests.yaml`, with `tests_file` as the explicit override.
 - `propose_memory` and `report_completion` remain receipt-scoped write operations.
 
 Advisory scope mode defaults to `warn` when `scope_mode` is omitted. When work items are present, `scope_mode=strict` enforces verification checks and `scope_mode=warn` surfaces warnings.

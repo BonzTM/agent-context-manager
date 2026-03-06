@@ -22,7 +22,7 @@ When you call `get_context`, acm returns a receipt. A receipt is a scoped snapsh
 - **Rules** — hard constraints the agent must follow
 - **Suggestions** — code/doc/test pointers relevant to the task (advisory)
 - **Memories** — durable facts from past work
-- **Plans** — active work items and their status
+- **Plans** — active work plans for the project, with task counts and fetch keys for resumption
 - **Meta** — receipt ID, resolved tags, budget accounting
 
 The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `report_completion`, `propose_memory`). It ties everything back to the original retrieval.
@@ -49,18 +49,37 @@ A memory is a durable fact learned from completed work. Unlike model-specific me
 
 Memories are proposed via `propose_memory`, validated, and either promoted to durable storage or held in quarantine for review.
 
-## Work Item
+## Plan
 
-A work item is a stateful task tracked by acm. Work items have:
+A plan is a durable work container that tracks what an agent is doing. Plans survive context compaction — when an agent loses its conversation history, `get_context` returns active plans with task counts and fetch keys, so the agent can resume where it left off.
 
-- **Key** — unique identifier (e.g., `implement-auth-refactor`, `verify:tests`)
+Each plan has:
+
+- **Plan key** — `plan:<receipt_id>` format, auto-derived from `receipt_id` if not provided
+- **Title** — human-readable name
+- **Objective** — what the plan aims to achieve
+- **Kind** — free-form label (e.g., `bugfix`, `feature`)
+- **Status** — `pending`, `in_progress`, `complete`, or `blocked`
+- **Stages** — optional planning stages: spec outline, refined spec, implementation plan
+- **Scope** — in-scope/out-of-scope/constraints lists
+
+Plans are created and updated via the `work` command. Updates can use `merge` mode (default, upserts tasks by key) or `replace` mode (replaces all tasks).
+
+## Task
+
+A task is a unit of work within a plan. Tasks have:
+
+- **Key** — unique identifier within the plan (e.g., `implement-auth-refactor`, `verify:tests`)
 - **Summary** — what needs to be done
 - **Status** — `pending`, `in_progress`, `complete`, or `blocked`
+- **Dependencies** — keys of other tasks this one depends on
+- **Acceptance criteria** — conditions for completion
 - **Outcome** — what happened (filled on completion)
+- **Evidence** — references supporting the outcome
 
-Work items are grouped under a plan (identified by `plan_key`, auto-generated from `receipt_id` if not provided). They survive context compaction — when an agent loses its conversation history, it can call `get_context` and see active plans in the receipt, then `fetch` to get full details.
+Tasks can reference a `parent_task_key` for grouping, and can be fetched individually via `fetch --key task:plan:<receipt-id>#<task-key>`.
 
-Two special work item keys are used for definition-of-done verification:
+Two special task keys are used for definition-of-done verification:
 - `verify:tests` — confirms tests were run
 - `verify:diff-review` — confirms the diff was reviewed for unintended changes
 
@@ -68,7 +87,13 @@ Two special work item keys are used for definition-of-done verification:
 
 Tags are flat labels used to scope pointers, rules, and memories. Examples: `backend`, `auth`, `test`, `frontend`.
 
-acm maintains a canonical tag dictionary that normalizes aliases (e.g., `api` and `server` both map to `backend`). When you call `get_context`, your task text is decomposed into 3-6 canonical tags, and acm uses those to find relevant pointers.
+acm normalizes tags through a canonical dictionary that maps aliases to a single form (e.g., `api` and `server` both map to `backend`). When you call `get_context`, your task text is decomposed into 3-6 canonical tags, and acm uses those to find relevant pointers.
+
+The tag dictionary has two layers:
+- **Embedded base** — ships with acm (`internal/service/postgres/canonical_tags.json`), covers common aliases
+- **Repo-local overrides** — `.acm/acm-tags.yaml` (auto-discovered), adds project-specific tags and aliases on top of the base
+
+Use `--tags-file` on any command that does tag normalization to override discovery with an explicit path.
 
 Tags replace the concept of "profiles" from other systems. They're simpler: just strings, no hierarchy, no inheritance.
 
@@ -94,7 +119,7 @@ Used in `report_completion` to validate that changed files were within the recei
 
 ## Canonical Ruleset
 
-The human-authored YAML file where you define your rules. acm discovers it automatically at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override with an explicit path. Format:
+The human-authored YAML file where you define your rules. acm discovers it automatically at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override with an explicit path. If you maintain a repo-local tag dictionary separately, use `--tags-file` on `get-context`, `propose-memory`, `report-completion`, `sync`, `health-fix`, `eval`, `verify`, or `bootstrap` to supply it explicitly for canonical tag normalization. Format:
 
 ```yaml
 version: acm.rules.v1
@@ -107,6 +132,39 @@ rules:
 ```
 
 acm reads this file during `sync` or `health-fix --fixer sync_ruleset` and upserts the rules as pointers. The canonical ruleset is the source of truth — acm stores and delivers, the file defines.
+
+## Executable Verification Definitions
+
+The human-authored YAML file where you define repo-local executable checks for `verify`. acm discovers it automatically at `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml` in the project root. Use `--tests-file` on `verify` to override with an explicit path.
+
+`eval` and `verify` solve different problems:
+
+- `eval` checks retrieval quality against an eval suite.
+- `verify` selects repo-defined executable checks from receipt context, phase, changed files, and optional explicit test ids, then runs them sequentially.
+
+Format:
+
+```yaml
+version: acm.tests.v1
+
+defaults:
+  cwd: .
+  timeout_sec: 300
+
+tests:
+  - id: go-unit
+    summary: Run Go unit tests for ACM packages
+    command:
+      argv: ["go", "test", "./cmd/...", "./internal/..."]
+    select:
+      phases: ["execute", "review"]
+      tags_any: ["backend"]
+      changed_paths_any: ["cmd/**", "internal/**"]
+    expected:
+      exit_code: 0
+```
+
+v1 test definitions are argv-only. `verify` reuses the existing `verify:tests` task key for definition-of-done updates when work context is present.
 
 ## File-Based Flags
 
@@ -121,11 +179,13 @@ Most CLI commands that accept text or list values support inline flags and file-
 | `--file-changed` (repeatable) | `--files-changed-json` | `--files-changed-file` | JSON string array |
 | `--evidence-key` (repeatable) | `--evidence-keys-json` | `--evidence-keys-file` | JSON string array |
 | `--related-key` (repeatable) | `--related-keys-json` | `--related-keys-file` | JSON string array |
-| `--tag` (repeatable) | `--tags-json` | `--tags-file` | JSON string array |
+| `--memory-tag` (repeatable) | `--memory-tags-json` | `--memory-tags-file` | JSON string array |
 | `--expect` (repeatable) | `--expected-versions-json` | `--expected-versions-file` | JSON object (`{"key": "version"}`) |
 | - | `--plan-json` | `--plan-file` | JSON object (work plan metadata) |
 | - | `--tasks-json` | `--tasks-file` | JSON array of work tasks |
 | - | `--items-json` | `--items-file` | JSON array of legacy work items |
-| - | `--eval-suite-inline-json` | `--eval-suite-inline-file` | JSON array of regress cases |
+| - | `--eval-suite-inline-json` | `--eval-suite-inline-file` | JSON array of eval cases |
 
 All file flags accept `-` for stdin.
+
+`--tags-file` is reserved for the canonical tag dictionary override on commands that do runtime tag normalization.

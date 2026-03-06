@@ -2,6 +2,7 @@
 
 ## Deployment Defaults
 
+- Local default path is `<repo-root>/.acm/context.db` when you do not set `ACM_SQLITE_PATH`.
 - Always set `ACM_SQLITE_PATH` explicitly in non-local environments.
 - Store the DB on persistent storage (not `/tmp`).
 - Recommended location pattern: `/var/lib/agent-context-manager/context.db`.

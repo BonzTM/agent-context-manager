@@ -1,0 +1,15 @@
+# acm-tags.yaml
+# Repo-local canonical tag overrides layered on top of acm's embedded tag base.
+# Save this as .acm/acm-tags.yaml (preferred).
+
+version: acm.tags.v1
+canonical_tags:
+  backend: [backend, api, server]
+  auth: [auth, authentication, login]
+  payments: [payments, billing, checkout]
+
+# Field notes:
+# - version: required; must be acm.tags.v1.
+# - canonical_tags keys: canonical tag values acm should emit/store.
+# - canonical_tags values: accepted aliases (case-insensitive) that normalize to the key.
+# - Repo-local aliases override the embedded base dictionary when the same alias appears in both.

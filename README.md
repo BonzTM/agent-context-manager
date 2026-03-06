@@ -11,18 +11,28 @@ acm is infrastructure, not opinions. It doesn't ship default rules or enforce a 
 
 ## Install
 
+Preferred install path:
+
 ```bash
-go install github.com/joshd/agent-context-manager/cmd/acm@latest
-go install github.com/joshd/agent-context-manager/cmd/acm-mcp@latest
+go install github.com/bonztm/agent-context-manager/cmd/acm@latest
+go install github.com/bonztm/agent-context-manager/cmd/acm-mcp@latest
 ```
 
-Or build from source:
+Go installs binaries to `$GOBIN` if it is set, otherwise to `$(go env GOPATH)/bin` (typically `~/go/bin`). That directory must be on your `PATH`.
 
 ```bash
-git clone https://github.com/joshd/agent-context-manager.git
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+If you want prebuilt binaries instead, download the `acm-binaries` artifact from a successful `Go Build` GitHub Actions run and place `acm` and `acm-mcp` on your `PATH`.
+
+If you are working from a checkout, build from source:
+
+```bash
+git clone https://github.com/bonztm/agent-context-manager.git
 cd agent-context-manager
-go build ./cmd/acm
-go build ./cmd/acm-mcp
+go build -o dist/acm ./cmd/acm
+go build -o dist/acm-mcp ./cmd/acm-mcp
 ```
 
 ## Quick Start (5 minutes)
@@ -36,10 +46,11 @@ acm bootstrap --project my-cool-app --project-root .
 ```
 
 Bootstrap respects `.gitignore` by default and generates descriptions with LLM assistance. Use `--persist-candidates` to save the candidate list to `.acm/bootstrap_candidates.json`.
+Bootstrap also seeds `.acm/acm-rules.yaml` when it is missing, seeds `.acm/acm-tags.yaml` with inferred repo tag suggestions when possible, seeds a blank structured `.acm/acm-tests.yaml`, appends `.acm/context.db` to `.gitignore`, and creates or extends `.env.example`.
 
-### 2. Write your rules
+### 2. Fill in your seeded rules
 
-Create `.acm/acm-rules.yaml`:
+Bootstrap creates `.acm/acm-rules.yaml` if it does not already exist. Replace the blank scaffold with your project rules:
 
 ```yaml
 version: acm.rules.v1
@@ -67,9 +78,9 @@ Wire agents to acm via slash commands, skill packs, or MCP tools — see [Gettin
 
 Once connected, agents call acm operations automatically during tasks:
 
-1. `get_context` — retrieves a scoped receipt (rules, suggestions, memories, work state)
-2. `fetch` — pulls full content for selected pointer keys
-3. `work` — tracks multi-step progress (survives context compaction)
+1. `get_context` — retrieves a scoped receipt (rules, suggestions, memories, active plans from prior runs)
+2. `fetch` — pulls full content for pointer keys, plan keys, or task keys
+3. `work` — creates/updates structured plans with tasks (survives context compaction)
 4. `report_completion` — closes the task, validates scope
 5. `propose_memory` — saves durable facts for future retrieval
 
@@ -99,7 +110,7 @@ Installs the acm-broker skill to `~/.codex/skills/acm-broker`.
 acm-mcp invoke --tool get_context --in payload.json
 ```
 
-Five tools exposed: `get_context`, `fetch`, `work`, `propose_memory`, `report_completion`.
+Twelve tools exposed — the five agent-facing operations (`get_context`, `fetch`, `work`, `propose_memory`, `report_completion`) plus seven maintenance operations (`sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`).
 
 ## CLI Reference
 
@@ -108,11 +119,11 @@ All commands support `--help` for full flag documentation.
 ### Agent-facing (called by agents via CLI, skills, or MCP)
 
 ```bash
-acm get-context    --project <id> (--task-text <text>|--task-file <path>) --phase <plan|execute|review>
+acm get-context    --project <id> (--task-text <text>|--task-file <path>) --phase <plan|execute|review> [--tags-file <path>]
 acm fetch          --project <id> [--key <key>]... [--keys-file <path>|--keys-json <json>] [--expect <key=version>]... [--expected-versions-file <path>|--expected-versions-json <json>] [--receipt-id <id>]
 acm work           --project <id> [--plan-key <key>|--receipt-id <id>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>] [--items-file <path>|--items-json <json>]
-acm propose-memory --project <id> --receipt-id <id> --category <cat> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> --evidence-key <key> [--auto-promote]
-acm report-completion --project <id> --receipt-id <id> [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] (--outcome <text>|--outcome-file <path>) [--scope-mode <strict|warn|auto_index>]
+acm propose-memory --project <id> --receipt-id <id> --category <cat> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> --evidence-key <key> [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [--auto-promote]
+acm report-completion --project <id> --receipt-id <id> [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] (--outcome <text>|--outcome-file <path>) [--scope-mode <strict|warn|auto_index>] [--tags-file <path>]
 ```
 
 Most list and text flags support inline values and `--*-file` alternatives (`-` for stdin). JSON list/object inputs also support `--*-json` for one-shot agent calls without temporary files.
@@ -120,12 +131,13 @@ Most list and text flags support inline values and `--*-file` alternatives (`-` 
 ### Human-facing (setup and maintenance)
 
 ```bash
-acm bootstrap     --project <id> --project-root . [--persist-candidates] [--respect-gitignore] [--llm-assist-descriptions] [--output-candidates-path <path>] [--rules-file <path>]
-acm sync          --project <id> --mode <changed|full|working_tree> [--insert-new-candidates] [--rules-file <path>]
+acm bootstrap     --project <id> --project-root . [--persist-candidates] [--respect-gitignore] [--llm-assist-descriptions] [--output-candidates-path <path>] [--rules-file <path>] [--tags-file <path>]
+acm sync          --project <id> --mode <changed|full|working_tree> [--insert-new-candidates] [--rules-file <path>] [--tags-file <path>]
 acm health        --project <id> [--include-details]
-acm health-fix    --project <id> --apply [--fixer <name>] [--rules-file <path>]
+acm health-fix    --project <id> --apply [--fixer <name>] [--rules-file <path>] [--tags-file <path>]
 acm coverage      --project <id> --project-root .
-acm regress       --project <id> (--eval-suite-path ./eval.json|--eval-suite-inline-file <path>|--eval-suite-inline-json <json>)
+acm eval          --project <id> (--eval-suite-path ./eval.json|--eval-suite-inline-file <path>|--eval-suite-inline-json <json>) [--minimum-recall <0..1>] [--tags-file <path>]
+acm verify        --project <id> [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]
 ```
 
 ### JSON envelope mode
@@ -139,10 +151,18 @@ acm validate --in request.json
 
 ## Storage Backend
 
-SQLite by default (zero config). Set `ACM_PG_DSN` for Postgres when you need write concurrency.
+SQLite is zero-config by default. acm resolves config in this order:
+
+1. Process environment (`ACM_*`)
+2. Repo-root `.env`
+3. Implicit SQLite at `<repo-root>/.acm/context.db`
+
+When acm chooses that implicit repo-local SQLite path, it also ensures `.gitignore` contains `.acm/context.db`.
+
+Set `ACM_PG_DSN` for Postgres when you need write concurrency.
 
 ```bash
-# SQLite (default)
+# SQLite override
 export ACM_SQLITE_PATH=/path/to/context.db
 
 # Postgres
@@ -163,9 +183,13 @@ See [SQLite Operations](docs/SQLITE_OPERATIONS.md) for deployment, backup, and r
 
 ## Canonical Rules
 
-acm doesn't ship rules. You author them in `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root, and acm ingests and enforces them. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override discovery with an explicit path.
+acm doesn't ship project rules. You author them in `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root, and acm ingests and enforces them. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override discovery with an explicit path.
 
-See [docs/examples/acm-rules.yaml](docs/examples/acm-rules.yaml) for the format, and [Getting Started](docs/getting-started.md) for the full rule authoring and maintenance workflow.
+Canonical tag normalization starts from the embedded base dictionary and merges repo-local overrides from `.acm/acm-tags.yaml` on every runtime call. Use `--tags-file` on `get-context`, `propose-memory`, `report-completion`, `sync`, `health-fix`, `eval`, `verify`, or `bootstrap` to point acm at a non-default tag dictionary file.
+
+Executable verification definitions live in `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml` in the project root. `bootstrap` now seeds the preferred `.acm/acm-tests.yaml` skeleton when neither canonical location exists. Use `--tests-file` on `verify` to override discovery with an explicit path. v1 definitions are argv-only and let projects define reusable repo-local verification checks without introducing a second planning model.
+
+See [docs/examples/acm-rules.yaml](docs/examples/acm-rules.yaml) and [docs/examples/acm-tags.yaml](docs/examples/acm-tags.yaml) for the formats, and [Getting Started](docs/getting-started.md) for the full authoring and maintenance workflow.
 
 ## Logging
 

@@ -4,13 +4,34 @@ This guide walks you through setting up acm in a project from scratch. Steps 1-4
 
 ## Prerequisites
 
-- Go 1.22+ installed
+- Go 1.26+ installed if you plan to use `go install` or build from source
 - A git repository you want to manage with acm
 
 ## Step 1: Install acm
 
+Preferred path:
+
 ```bash
-go install github.com/joshd/agent-context-manager/cmd/acm@latest
+go install github.com/bonztm/agent-context-manager/cmd/acm@latest
+go install github.com/bonztm/agent-context-manager/cmd/acm-mcp@latest
+```
+
+Go installs binaries to `$GOBIN` if it is set, otherwise to `$(go env GOPATH)/bin` (typically `~/go/bin`). That directory must be on your `PATH`.
+
+```bash
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+If you want prebuilt binaries instead, download the `acm-binaries` artifact from a successful `Go Build` GitHub Actions run and put `acm` on your `PATH`.
+
+If you are building locally from a checkout:
+
+```bash
+git clone https://github.com/bonztm/agent-context-manager.git
+cd agent-context-manager
+go build -o dist/acm ./cmd/acm
+go build -o dist/acm-mcp ./cmd/acm-mcp
+export PATH="$PWD/dist:$PATH"
 ```
 
 Verify it works:
@@ -33,6 +54,11 @@ Bootstrap defaults:
 - `.gitignore` is respected (`--respect-gitignore` defaults on)
 - Descriptions are generated with LLM assistance (`--llm-assist-descriptions` defaults on)
 - Candidate lists are generated in memory only — add `--persist-candidates` to save them to `.acm/bootstrap_candidates.json` (or set a custom path with `--output-candidates-path`)
+- `.acm/acm-rules.yaml` is seeded if it does not already exist
+- `.acm/acm-tags.yaml` is seeded if it does not already exist, with inferred repo tag suggestions when bootstrap finds strong repeated terms
+- `.acm/acm-tests.yaml` is seeded if neither canonical verification definition location exists
+- `.env.example` is created or extended with ACM runtime variables
+- `.gitignore` is updated to ignore `.acm/context.db`
 
 Check what was indexed:
 
@@ -40,15 +66,9 @@ Check what was indexed:
 acm coverage --project myproject --project-root .
 ```
 
-## Step 3: Write your rules
+## Step 3: Fill in your rules
 
-Create the directory and ruleset file:
-
-```bash
-mkdir -p .acm
-```
-
-Create `.acm/acm-rules.yaml`:
+Bootstrap creates `.acm/acm-rules.yaml` when it is missing. Replace the blank scaffold with your project rules:
 
 ```yaml
 version: acm.rules.v1
@@ -73,6 +93,27 @@ rules:
 ```
 
 These are starter rules. Add, remove, or modify them to match how you want agents to behave in your project. See [concepts.md](concepts.md) for the rule format reference.
+
+Bootstrap also creates `.acm/acm-tags.yaml` when it is missing. acm seeds it with inferred repo tag suggestions when bootstrap finds strong repeated terms; otherwise it falls back to an empty structured file. Use that file to add repo-local canonical tags and aliases on top of acm's embedded base dictionary. A starter example lives at [examples/acm-tags.yaml](examples/acm-tags.yaml).
+
+Bootstrap also creates `.acm/acm-tests.yaml` when neither `.acm/acm-tests.yaml` nor `acm-tests.yaml` already exists. It starts as a blank structured skeleton:
+
+```yaml
+version: acm.tests.v1
+defaults:
+  cwd: .
+  timeout_sec: 300
+tests: []
+```
+
+Bootstrap also creates or extends `.env.example` with ACM runtime defaults:
+
+```dotenv
+ACM_SQLITE_PATH=.acm/context.db
+ACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable
+ACM_LOG_LEVEL=info
+ACM_LOG_SINK=stderr
+```
 
 ## Step 4: Sync rules into acm
 
@@ -113,10 +154,10 @@ The response is a JSON receipt containing:
 - `rules` — hard constraints (full content included for hard enforcement rules)
 - `suggestions` — relevant code/doc/test pointers (key + summary only)
 - `memories` — durable facts from past work
-- `plans` — active work items
+- `plans` — active work plans for the project, with task counts and fetch keys for resumption
 - `_meta` — receipt ID, resolved tags, budget info
 
-The `receipt_id` from `_meta` is the handle for all subsequent operations.
+Plans from prior runs are automatically included — agents can see in-progress work and choose to resume or start fresh. The `receipt_id` from `_meta` is the handle for all subsequent operations.
 
 ### fetch
 
@@ -187,11 +228,11 @@ acm propose-memory --project myproject \
   --content "The signup endpoint validates a CSRF token from the session cookie. Tests must set this header or they get 403." \
   --confidence 4 \
   --evidence-key "myproject:src/signup.go#validate" \
-  --tag backend \
-  --tag auth
+  --memory-tag backend \
+  --memory-tag auth
 ```
 
-For longer memory content, use `--content-file`. Tags and evidence keys also accept `--tags-json` / `--evidence-keys-json` and `--tags-file` / `--evidence-keys-file` (JSON arrays). Add `--auto-promote` to skip quarantine and promote directly if validations pass.
+For longer memory content, use `--content-file`. Memory tags and evidence keys also accept `--memory-tags-json` / `--evidence-keys-json` and `--memory-tags-file` / `--evidence-keys-file` (JSON arrays). Use `--tags-file` when you need to override the canonical tag dictionary used for runtime normalization. Add `--auto-promote` to skip quarantine and promote directly if validations pass.
 
 Memories are available in future `get_context` calls when relevant tags match.
 
@@ -226,9 +267,11 @@ Add an `AGENTS.md` to your project root. A starter template is at [docs/examples
 For models with native tool support, use the MCP adapter:
 
 ```bash
-acm-mcp tools          # list available tools
+acm-mcp tools          # list all 12 available tools
 acm-mcp invoke --tool get_context --in payload.json
 ```
+
+The MCP adapter exposes the same 12 operations as the CLI — five agent-facing (`get_context`, `fetch`, `work`, `propose_memory`, `report_completion`) and seven maintenance (`sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`).
 
 ## Step 7: Ongoing maintenance
 
@@ -254,11 +297,13 @@ acm sync --project myproject --mode working_tree
 
 `sync` re-syncs both file pointers and canonical rules. If you only want to sync rules without touching file pointers, use `acm health-fix --project myproject --apply --fixer sync_ruleset` instead.
 
-If your ruleset is in a non-standard location, use `--rules-file`:
+If your ruleset is in a non-standard location, use `--rules-file`. If you also keep a repo-local tag dictionary outside the default location, pass `--tags-file` the same way:
 
 ```bash
-acm sync --project myproject --mode working_tree --rules-file path/to/my-rules.yaml
+acm sync --project myproject --mode working_tree --rules-file path/to/my-rules.yaml --tags-file path/to/my-tags.yaml
 ```
+
+The same `--tags-file` override is available on `get-context`, `propose-memory`, `report-completion`, `sync`, `health-fix`, `eval`, `verify`, and `bootstrap` when you want runtime tag normalization to use a repo-local dictionary explicitly.
 
 ### Check health
 
@@ -279,7 +324,7 @@ Available fixers:
 - `index_uncovered_files` — add missing files to the index
 - `sync_ruleset` — re-sync rules from canonical ruleset
 
-### Run regression tests
+### Run eval and verify checks
 
 Create an eval suite to verify retrieval quality:
 
@@ -294,12 +339,47 @@ Create an eval suite to verify retrieval quality:
 ```
 
 ```bash
-acm regress --project myproject --eval-suite-path ./eval.json --minimum-recall 0.8
+acm eval --project myproject --eval-suite-path ./eval.json --minimum-recall 0.8
 ```
+
+For repo-defined executable verification, add `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml` in the repo root:
+
+```yaml
+version: acm.tests.v1
+
+defaults:
+  cwd: .
+  timeout_sec: 300
+
+tests:
+  - id: go-unit
+    summary: Run Go unit tests for the repo
+    command:
+      argv: ["go", "test", "./..."]
+    select:
+      phases: ["execute", "review"]
+      changed_paths_any: ["cmd/**", "internal/**"]
+    expected:
+      exit_code: 0
+```
+
+Inspect selection without executing:
+
+```bash
+acm verify --project myproject --phase review --file-changed internal/auth/service.go --dry-run
+```
+
+Run the selected checks:
+
+```bash
+acm verify --project myproject --phase review --file-changed internal/auth/service.go
+```
+
+When you include `--receipt-id` or `--plan-key`, `verify` reuses the existing `verify:tests` work item for definition-of-done updates.
 
 ## Storage
 
-acm uses SQLite by default with zero configuration. The database is created automatically at `<user-cache-dir>/agent-context-manager/context.db`.
+acm uses SQLite by default with zero configuration. When you run inside a repo, the database is created automatically at `<repo-root>/.acm/context.db`. acm also reads `<repo-root>/.env` when present, with process environment variables taking precedence.
 
 To set a specific path:
 

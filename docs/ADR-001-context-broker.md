@@ -47,13 +47,14 @@ Convenience subcommands (build v1 envelopes internally):
 
 - `acm get-context` -> `get_context(task_text, phase, project_id)`
 - `acm fetch` -> `fetch(project_id, keys?, receipt_id?, expected_versions?)`
-- `acm work` -> `work(project_id, receipt_id, plan_key?, items?)`
+- `acm work` -> `work(project_id, plan_key|receipt_id, mode?, plan?, tasks?)`
 - `acm propose-memory` -> `propose_memory(receipt_id, payload_json)`
 - `acm report-completion` -> `report_completion(receipt_id, files_changed, outcome)`
 - `acm sync` -> pointer/hash upkeep from git diff
 - `acm health` / `acm health-check` -> integrity and drift report
 - `acm health-fix` -> apply safe remediations (sync_working_tree, index_uncovered_files, sync_ruleset)
-- `acm regress` -> retrieval regression suite
+- `acm eval` -> retrieval evaluation suite
+- `acm verify` -> repo-defined executable verification
 - `acm bootstrap` -> initial pointer candidate generation (respects .gitignore, LLM-assisted descriptions, optional candidate persistence)
 - `acm coverage` -> file coverage analysis
 
@@ -61,7 +62,7 @@ JSON envelope mode is also available via `acm run --in request.json` and `acm va
 
 #### MCP (`cmd/acm-mcp/`)
 
-Tools:
+Agent-facing tools:
 
 - `get_context`
 - `fetch`
@@ -69,14 +70,25 @@ Tools:
 - `report_completion`
 - `work`
 
+Maintenance tools (same operations as CLI, exposed for tool-native orchestration):
+
+- `sync`
+- `health_check`
+- `health_fix`
+- `coverage`
+- `eval`
+- `verify`
+- `bootstrap`
+
 The v1.1 MCP contract is index-first: `get_context` returns a scoped receipt index, then `fetch`/`work` operate on those plan and pointer keys while `propose_memory`/`report_completion` stay receipt-scoped.
 
 v1.1 ergonomics defaults:
 
 - Advisory scope mode defaults to `warn` when `scope_mode` is omitted.
 - `fetch` accepts `receipt_id` shorthand without explicit `keys`.
-- `work` accepts `receipt_id` without `plan_key`; `items` may be empty for status-only reads.
-- Work updates should include verification items keyed `verify:tests` and `verify:diff-review` for DoD tracking.
+- `work` accepts `receipt_id` without `plan_key`; derives `plan_key` as `plan:<receipt_id>`. Supports structured `plan` metadata and `tasks` array (max 256). `mode` controls merge vs replace semantics.
+- Work updates should include verification tasks keyed `verify:tests` and `verify:diff-review` for DoD tracking.
+- `eval` is the public retrieval-evaluation surface. `verify` discovers repo-defined executable checks from `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml`, with `tests_file` as an explicit override.
 - `get_context` rule entries expose `rule_id`, derived deterministically from the existing stable rule key semantics.
 
 MCP layer is intentionally thin and delegates all business logic to `context-core`.
@@ -196,25 +208,79 @@ CREATE TABLE memory_candidates (
 );
 ```
 
+### 5) `acm_work_plans`
+
+Purpose: structured work plans that survive context compaction and are returned by `get_context`.
+
+```sql
+CREATE TABLE acm_work_plans (
+  plan_id     bigserial PRIMARY KEY,
+  project_id  text NOT NULL,
+  plan_key    text NOT NULL,
+  receipt_id  text,
+  title       text NOT NULL DEFAULT '',
+  objective   text NOT NULL DEFAULT '',
+  kind        text NOT NULL DEFAULT '',
+  parent_plan_key text NOT NULL DEFAULT '',
+  status      text NOT NULL CHECK (status IN ('pending','in_progress','blocked','completed')),
+  stage_spec_outline        text NOT NULL DEFAULT 'pending',
+  stage_refined_spec        text NOT NULL DEFAULT 'pending',
+  stage_implementation_plan text NOT NULL DEFAULT 'pending',
+  in_scope         text[] NOT NULL DEFAULT '{}',
+  out_of_scope     text[] NOT NULL DEFAULT '{}',
+  constraints_list text[] NOT NULL DEFAULT '{}',
+  references_list  text[] NOT NULL DEFAULT '{}',
+  external_refs    text[] NOT NULL DEFAULT '{}',
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, plan_key)
+);
+```
+
+### 6) `acm_work_plan_tasks`
+
+Purpose: individual tasks within a plan, with dependencies and acceptance criteria.
+
+```sql
+CREATE TABLE acm_work_plan_tasks (
+  task_id     bigserial PRIMARY KEY,
+  project_id  text NOT NULL,
+  plan_key    text NOT NULL,
+  task_key    text NOT NULL,
+  summary     text NOT NULL,
+  status      text NOT NULL CHECK (status IN ('pending','in_progress','blocked','completed')),
+  parent_task_key     text NOT NULL DEFAULT '',
+  depends_on          text[] NOT NULL DEFAULT '{}',
+  acceptance_criteria text[] NOT NULL DEFAULT '{}',
+  references_list     text[] NOT NULL DEFAULT '{}',
+  external_refs       text[] NOT NULL DEFAULT '{}',
+  blocked_reason text NOT NULL DEFAULT '',
+  outcome        text NOT NULL DEFAULT '',
+  evidence       text[] NOT NULL DEFAULT '{}',
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, plan_key, task_key),
+  FOREIGN KEY (project_id, plan_key) REFERENCES acm_work_plans(project_id, plan_key) ON DELETE CASCADE
+);
+```
+
 ## Canonical Tags
 
-Use one human-owned `canonical_tags.json` file (not a DB table). All retrieval and write paths normalize tags through this dictionary.
+acm ships an embedded canonical tag base in `internal/service/postgres/canonical_tags.json` and merges repo-local overrides from `.acm/acm-tags.yaml` on every runtime normalization path. Use `--tags-file` / `tags_file` to override discovery with a non-default YAML file.
 
-Current implementation location: `internal/service/postgres/canonical_tags.json`.
+Repo-local dictionary shape:
 
-Dictionary shape:
-
-```json
-{
-  "canonical_tags": {
-    "backend": ["backend", "api", "server"]
-  }
-}
+```yaml
+version: acm.tags.v1
+canonical_tags:
+  backend: [backend, api, server]
+  payments: [payments, billing, checkout]
 ```
 
 Rules:
 - keys are canonical tag values;
 - values are accepted aliases (case-insensitive);
+- repo-local YAML overrides are layered on top of the embedded base dictionary at runtime;
 - retrieval normalizes task-derived tags and selected pointer/memory tags through this dictionary;
 - `propose_memory` normalizes incoming `memory.tags` through the same dictionary before validation/persistence.
 
@@ -237,7 +303,8 @@ Rules:
 7. Expand related hops for non-rules up to `caps.max_hops` (default 1), cap `max_hop_expansion` (default +5).
 8. Fetch active memories by selected pointer keys and tags, confidence-ranked, cap 6.
 9. If fewer than `min_pointer_count` (default 2), widen once to FTS-only by dropping tag overlap while preserving task text and stale policy; if still below threshold, return `insufficient_context`.
-10. Return an index-first context receipt with `receipt_id`, `retrieval_version`, indexed artifacts/keys, reasons, and budget accounting.
+10. Query active work plans for the project (up to 8), include task counts and fetch keys for each plan so agents can resume prior work.
+11. Return an index-first context receipt with `receipt_id`, `retrieval_version`, indexed artifacts/keys, active plans, reasons, and budget accounting.
 
 ## Scope Gate Enforcement
 
@@ -288,12 +355,19 @@ Reports:
 - Use when add/remove/update operations leave drift that can be auto-corrected.
 - Re-run `acm health-check` after apply to confirm final state.
 
-### `acm regress`
+### `acm eval`
 
 - Read `eval_suite.json`.
 - Run `get_context` for each test case.
 - Score precision/recall/F1.
 - Fail CI if aggregate recall below threshold.
+
+### `acm verify`
+
+- Discover definitions from `.acm/acm-tests.yaml` or `acm-tests.yaml`.
+- Select tests deterministically from receipt context, phase, changed files, and explicit test ids.
+- Run selected checks sequentially.
+- Persist concise batch/result summaries and update `verify:tests` when work context is present.
 
 ## Onboarding Templates
 
@@ -303,7 +377,7 @@ Use these starter examples when bootstrapping downstream repos with canonical ru
 - `docs/examples/AGENTS.md`
 - `docs/examples/CLAUDE.md`
 
-Canonical ruleset files are discovered at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root and must declare `version: acm.rules.v1`. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override discovery with an explicit path.
+Canonical ruleset files are discovered at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root and must declare `version: acm.rules.v1`. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override discovery with an explicit path. The runtime normalization surface accepts `--tags-file` / `tags_file` on `get_context`, `propose_memory`, `report_completion`, `sync`, `health_fix`, `eval`, `verify`, and `bootstrap` for a repo-local tag dictionary override.
 
 `CLAUDE.md` should remain a thin companion that maps to `AGENTS.md` as source of truth.
 Rule maintenance flow is add/remove/update, then run `sync` or `health_fix apply`, then verify with `health_check`.
@@ -337,12 +411,13 @@ Load a small packet (~150 words) for every task:
 ## Rollout Plan
 
 1. ~~Implement schema + core + CLI (get_context, propose_memory, report_completion).~~ Done.
-2. ~~Add sync, health_check, health_fix, regress, coverage, bootstrap.~~ Done.
+2. ~~Add sync, health_check, health_fix, eval, coverage, bootstrap.~~ Done.
 3. ~~Add MCP adapter over same core.~~ Done.
 4. ~~Add convenience CLI subcommands (flag-based, no JSON construction).~~ Done.
 5. ~~Add canonical ruleset ingestion and rule pointer sync.~~ Done.
-6. Add CI gates (scope + regression threshold).
-7. Pilot in one project, then templatize.
+6. Add CI gates (scope + eval threshold).
+7. Add executable verification (`verify`) and durable verification summaries.
+8. Pilot in one project, then templatize.
 
 ## Rejected Alternatives
 
