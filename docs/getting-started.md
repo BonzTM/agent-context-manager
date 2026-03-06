@@ -22,7 +22,7 @@ Go installs binaries to `$GOBIN` if it is set, otherwise to `$(go env GOPATH)/bi
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-If you want prebuilt binaries instead, download the `acm-binaries` artifact from a successful `Go Build` GitHub Actions run and put `acm` on your `PATH`.
+If you want prebuilt binaries instead, download the `acm-binaries` artifact from a successful `Go Build` GitHub Actions run and put both `acm` and `acm-mcp` on your `PATH`.
 
 If you are building locally from a checkout:
 
@@ -52,7 +52,6 @@ This scans your repo and creates auto-indexed pointer stubs for discovered files
 
 Bootstrap defaults:
 - `.gitignore` is respected (`--respect-gitignore` defaults on)
-- Descriptions are generated with LLM assistance (`--llm-assist-descriptions` defaults on)
 - Enumerated file lists are generated in memory only — add `--persist-candidates` to save them to `.acm/bootstrap_candidates.json` (or set a custom path with `--output-candidates-path`)
 - `.acm/acm-rules.yaml` is seeded if it does not already exist
 - `.acm/acm-tags.yaml` is seeded if it does not already exist, with inferred repo tag suggestions when bootstrap finds strong repeated terms
@@ -116,6 +115,7 @@ tests: []
 Bootstrap also creates or extends `.env.example` with ACM runtime defaults:
 
 ```dotenv
+ACM_PROJECT_ROOT=/path/to/repo
 ACM_SQLITE_PATH=.acm/context.db
 ACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable
 ACM_UNBOUNDED=false
@@ -171,7 +171,7 @@ The response is a JSON receipt containing:
 - `suggestions` — relevant code/doc/test pointers (key + summary only)
 - `memories` — durable facts from past work
 - `plans` — active work plans for the project, with fetch keys for resumption
-- `_meta` — receipt ID, resolved tags, budget info
+- `_meta` — receipt ID, resolved tags, and budget accounting metadata
 
 Plans from prior runs are automatically included — agents can see in-progress work and choose to resume or start fresh. The `receipt_id` from `_meta` is the handle for all subsequent operations.
 
@@ -183,7 +183,7 @@ Agents call this to pull full content for pointer keys from the receipt:
 acm fetch --project myproject --key "myproject:src/signup.go#validate"
 ```
 
-Or fetch everything referenced by the receipt:
+Or derive the plan fetch key from the receipt:
 
 ```bash
 acm fetch --project myproject --receipt-id <receipt-id>
@@ -222,6 +222,8 @@ acm history search --project myproject --entity all --limit 20
 acm history search --project myproject --entity memory --query "postgres indexing"
 acm history search --project myproject --entity receipt --query "signup validation"
 ```
+
+`work list` and `work search` are the work-specific history surfaces and accept work-only filters such as `--scope` and `--kind`. Generic `history search` is the umbrella for multi-entity discovery and keeps to `--entity`, `--query`, `--limit`, and `--unbounded`.
 
 Results stay compact and include targeted `fetch_keys`, so agents can search first and then `fetch` the exact plan, memory, receipt, or run payloads they need.
 
@@ -437,7 +439,13 @@ When you include `--receipt-id` or `--plan-key`, `verify` reuses the existing `v
 
 acm uses SQLite by default with zero configuration. When you run inside a repo, the database is created automatically at `<repo-root>/.acm/context.db`. acm also reads `<repo-root>/.env` when present, with process environment variables taking precedence.
 
-To set a specific path:
+If you need to run acm from outside the repo directory, set `ACM_PROJECT_ROOT`:
+
+```bash
+export ACM_PROJECT_ROOT=/path/to/repo
+```
+
+To set a specific SQLite path:
 
 ```bash
 export ACM_SQLITE_PATH=/path/to/context.db

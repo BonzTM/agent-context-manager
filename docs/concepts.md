@@ -123,7 +123,7 @@ The phase doesn't filter results — it changes their ranking so the most useful
 | `--max-hop-expansion` | +5 | Maximum additional pointers from hop expansion |
 | `--max-memories` | 6 | Maximum memories returned |
 | `--min-pointer-count` | 2 | Minimum pointers before triggering fallback |
-| `--word-budget-limit` | 0 (off) | Optional word budget for returned content |
+| `--word-budget-limit` | 1200 | Budget accounting target for `get_context` receipts; reported in `_meta.budget`, not used as a truncation cutoff |
 
 Additional flags:
 - `--allow-stale` — include stale pointers (default: false)

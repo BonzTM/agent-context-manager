@@ -20,7 +20,7 @@
 
 Required fields:
 
-- `operation` (one of `get_context`, `propose_memory`, `report_completion`, `sync`, `health_check`, `coverage`, `eval`, `verify`, `bootstrap`)
+- `operation` (one of `get_context`, `fetch`, `propose_memory`, `report_completion`, `work`, `history_search`, `sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`)
 - `project_id` when present in payload
 - `duration_ms` on finish
 - `ok` on finish

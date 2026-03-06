@@ -45,7 +45,7 @@ Scan your repo, seed repo-local ACM files, and materialize an initial auto-index
 acm bootstrap --project my-cool-app --project-root .
 ```
 
-Bootstrap respects `.gitignore` by default and generates descriptions with LLM assistance. Use `--persist-candidates` to save the enumerated file list to `.acm/bootstrap_candidates.json`.
+Bootstrap respects `.gitignore` by default. Use `--persist-candidates` to save the enumerated file list to `.acm/bootstrap_candidates.json`.
 Bootstrap also seeds `.acm/acm-rules.yaml` when it is missing, seeds `.acm/acm-tags.yaml` with inferred repo tag suggestions when possible, seeds a blank structured `.acm/acm-tests.yaml`, appends `.acm/context.db` to `.gitignore`, creates or extends `.env.example`, and auto-indexes discovered repo files into initial pointer stubs so `get_context` works immediately.
 
 ### 2. Fill in your seeded rules
@@ -135,19 +135,19 @@ acm fetch          --project <id> [--key <key>]... [--keys-file <path>|--keys-js
 acm work           --project <id> [--plan-key <key>|--receipt-id <id>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>] [--items-file <path>|--items-json <json>]
 acm work list      --project <id> [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
 acm work search    --project <id> (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
-acm history search --project <id> [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
+acm history search --project <id> [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--limit <n>] [--unbounded]
 acm propose-memory --project <id> --receipt-id <id> --category <cat> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [--evidence-key <key>]... [--evidence-keys-file <path>|--evidence-keys-json <json>] [--related-key <key>]... [--related-keys-file <path>|--related-keys-json <json>] [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [--auto-promote]
 acm report-completion --project <id> --receipt-id <id> [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] (--outcome <text>|--outcome-file <path>) [--scope-mode <strict|warn|auto_index>] [--tags-file <path>]
 ```
 
 Most list and text flags support inline values and `--*-file` alternatives (`-` for stdin). JSON list/object inputs also support `--*-json` for one-shot agent calls without temporary files.
 
-History discovery is intentionally compact: work search/list returns plan summaries with plan-level `fetch_keys`, while generic history search can also return `mem:`, `receipt:`, and `run:` keys for structured follow-up `fetch`.
+History discovery is intentionally compact: `work list` and `work search` are the work-specific surfaces and accept work-only filters such as `--scope` and `--kind`. Generic `history search` is the umbrella for multi-entity discovery and keeps to `--entity`, `--query`, `--limit`, and `--unbounded`, returning plan, memory, receipt, and run `fetch_keys` for structured follow-up `fetch`.
 
 ### Human-facing (setup and maintenance)
 
 ```bash
-acm bootstrap     --project <id> --project-root . [--persist-candidates] [--respect-gitignore] [--llm-assist-descriptions] [--output-candidates-path <path>] [--rules-file <path>] [--tags-file <path>]
+acm bootstrap     --project <id> --project-root . [--persist-candidates] [--respect-gitignore] [--output-candidates-path <path>] [--rules-file <path>] [--tags-file <path>]
 acm sync          --project <id> --mode <changed|full|working_tree> [--insert-new-candidates] [--rules-file <path>] [--tags-file <path>]
 acm health        --project <id> [--include-details]
 acm health-fix    --project <id> --apply [--fixer <name>] [--rules-file <path>] [--tags-file <path>]
@@ -195,8 +195,10 @@ MCP tools use the same payload schema but omit the outer envelope because the to
 SQLite is zero-config by default. acm resolves config in this order:
 
 1. Process environment (`ACM_*`)
-2. Repo-root `.env`
-3. Implicit SQLite at `<repo-root>/.acm/context.db`
+2. `ACM_PROJECT_ROOT` pins the repo root when running acm from another directory
+3. Repo-root `.env` is loaded when present
+4. If `ACM_PG_DSN` is set, Postgres is used
+5. Otherwise SQLite defaults to `<repo-root>/.acm/context.db`
 
 When acm chooses that implicit repo-local SQLite path, it also ensures `.gitignore` contains `.acm/context.db`, `.acm/context.db-shm`, and `.acm/context.db-wal`.
 
@@ -241,6 +243,7 @@ See [docs/examples/acm-rules.yaml](docs/examples/acm-rules.yaml) and [docs/examp
 ## Logging
 
 ```bash
+export ACM_PROJECT_ROOT=/path/to/repo  # optional when running acm from another directory
 export ACM_UNBOUNDED=false  # true removes built-in retrieval/list caps for supported surfaces
 export ACM_LOG_LEVEL=debug   # debug|info|warn|error (default: info)
 export ACM_LOG_SINK=stderr   # stderr|stdout|discard (default: stderr)

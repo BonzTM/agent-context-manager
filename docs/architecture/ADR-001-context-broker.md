@@ -51,13 +51,13 @@ Convenience subcommands (build v1 envelopes internally):
 - `acm propose-memory` -> `propose_memory(receipt_id, payload_json)`
 - `acm report-completion` -> `report_completion(receipt_id, files_changed, outcome)`
 - `acm work list` / `acm work search` -> work plan history
-- `acm history search` -> `history_search(project_id, entity?, query?, scope?)`
+- `acm history search` -> `history_search(project_id, entity?, query?, limit?)`
 - `acm sync` -> pointer/hash upkeep from git diff
 - `acm health` / `acm health-check` -> integrity and drift report
 - `acm health-fix` -> apply safe remediations (sync_working_tree, index_uncovered_files, sync_ruleset)
 - `acm eval` -> retrieval evaluation suite
 - `acm verify` -> repo-defined executable verification
-- `acm bootstrap` -> initial pointer candidate generation (respects .gitignore, LLM-assisted descriptions, optional candidate persistence)
+- `acm bootstrap` -> initial pointer candidate generation (respects .gitignore, optional candidate persistence)
 - `acm coverage` -> file coverage analysis
 
 Structured command-envelope mode is also available via `acm run --in request.json` and `acm validate --in request.json`.
@@ -87,12 +87,12 @@ The v1.1 MCP contract is index-first: `get_context` returns a scoped receipt ind
 
 v1.1 ergonomics defaults:
 
-- Advisory scope mode defaults to `warn` when `scope_mode` is omitted.
+- `report_completion` scope mode defaults to `warn` when `scope_mode` is omitted.
 - `fetch` accepts `receipt_id` shorthand without explicit `keys`.
 - `work` accepts `receipt_id` without `plan_key`; derives `plan_key` as `plan:<receipt_id>`. Supports structured `plan` metadata and `tasks` array (max 256). `mode` controls merge vs replace semantics.
 - Work updates should include a verification task keyed `verify:tests` for executable DoD tracking. `verify:diff-review` is optional workflow metadata.
 - `eval` is the public retrieval-evaluation surface. `verify` discovers repo-defined executable checks from `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml`, with `tests_file` as an explicit override.
-- `history_search` lists or searches compact history across `work`, `memory`, `receipt`, and `run` entities. Returns targeted `fetch_keys` (`plan:`, `mem:`, `receipt:`, `run:`) for selective follow-up `fetch`. `entity` defaults to `all`; `scope` defaults to `all` for generic search.
+- `history_search` lists or searches compact history across `work`, `memory`, `receipt`, and `run` entities. Returns targeted `fetch_keys` (`plan:`, `mem:`, `receipt:`, `run:`) for selective follow-up `fetch`. `entity` defaults to `all`; work-specific filters such as `scope` and `kind` belong on work history flows rather than generic multi-entity search.
 - `get_context` rule entries expose `rule_id`, derived deterministically from the existing stable rule key semantics.
 
 MCP layer is intentionally thin and delegates all business logic to `context-core`.

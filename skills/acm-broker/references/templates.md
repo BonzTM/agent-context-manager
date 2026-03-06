@@ -7,7 +7,7 @@ These examples assume installed `acm` and `acm-mcp` binaries are available on `P
 1. Run `get_context`.
 2. Follow the returned rules block (or rule pointers) as hard requirements.
 3. Treat code pointers as advisory suggestions.
-4. Run `fetch` for indexed artifacts by explicit keys or by `receipt_id` shorthand.
+4. Run `fetch` for indexed artifacts by explicit keys or by `receipt_id` shorthand, which derives the plan fetch key.
 5. Execute the task.
 6. Run `work` with `receipt_id` (no `plan_key` required) to publish updates. Use `tasks` and include `verify:tests` for executable verification tracking.
 7. Run `verify` before `report_completion` when code changes.
@@ -388,7 +388,6 @@ acm-mcp invoke --tool propose_memory --in assets/requests/mcp_propose_memory.jso
     "project_id": "customer-portal",
     "entity": "all",
     "query": "profile save",
-    "scope": "current",
     "limit": 20
   }
 }
@@ -406,6 +405,7 @@ Convenience CLI equivalents:
 ```bash
 acm work list --project customer-portal --scope current
 acm work search --project customer-portal --query "profile save"
+acm work search --project customer-portal --query "profile save" --scope completed --kind bugfix
 acm history search --project customer-portal --entity all --query "profile save" --limit 20
 acm history search --project customer-portal --entity memory --query "profile save"
 ```

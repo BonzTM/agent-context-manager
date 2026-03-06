@@ -1,0 +1,6 @@
+{
+  "project_id": "customer-portal",
+  "entity": "memory",
+  "query": "profile save",
+  "limit": 10
+}
