@@ -3,7 +3,7 @@ Use the context broker before any substantive execution.
 Task text: $ARGUMENTS
 
 Steps:
-1. Create a valid `acm.v1` CLI `get_context` request JSON using task text `$ARGUMENTS`, phase `execute`, and the active `project_id`.
+1. Create a valid `acm.v1` CLI `get_context` request JSON using task text `$ARGUMENTS`, phase `execute`, and the active `project_id` (or omit it when `ACM_PROJECT_ID` / repo-root inference is already configured).
 2. Validate request:
    - `acm validate --in <request.json>`
 3. Run retrieval:

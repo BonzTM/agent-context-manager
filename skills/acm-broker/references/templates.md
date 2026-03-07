@@ -3,17 +3,19 @@
 ## Recommended Loop
 
 These examples assume installed `acm` and `acm-mcp` binaries are available on `PATH`.
+Example payloads show explicit `project_id` values for clarity. In live usage you may omit `project_id` when `ACM_PROJECT_ID` is set or acm can infer the project from the effective repo root.
 
 1. Run `get_context`.
 2. Follow the returned rules block (or rule pointers) as hard requirements.
 3. Treat code pointers as advisory suggestions.
 4. Run `fetch` for indexed artifacts by explicit keys or by `receipt_id` shorthand, which derives the plan fetch key.
 5. Execute the task.
-6. Run `work` with `receipt_id` (no `plan_key` required) to publish updates. Use `tasks` and include `verify:tests` for executable verification tracking.
-7. Run `verify` before `report_completion` when code changes.
-8. Run `report_completion`.
-9. Run `propose_memory` when the result should persist.
-10. When resuming or auditing prior work, use `history_search` or the CLI `work list`, `work search`, `history search --entity all`, or `history search --entity memory`, then `fetch` the returned `fetch_keys`.
+6. Run `work` with `receipt_id` (no `plan_key` required) to publish updates. Use `tasks` and include `verify:tests` for executable verification tracking; add other task keys when `.acm/acm-workflows.yaml` requires them.
+7. Run `review` when you only need to record a single review-gate outcome instead of assembling a broader `work` payload.
+8. Run `verify` before `report_completion` when code changes.
+9. Run `report_completion`.
+10. Run `propose_memory` when the result should persist.
+11. When resuming or auditing prior work, use `history_search` or the CLI `work list`, `work search`, `history search --entity all`, or `history search --entity memory`, then `fetch` the returned `fetch_keys`.
 
 ## CLI `get_context` request
 
@@ -203,7 +205,47 @@ Run:
 acm-mcp invoke --tool work --in assets/requests/mcp_work.json
 ```
 
-When work tasks are present, `report_completion.scope_mode` controls gate behavior: `strict` enforces `verify:tests`, `warn` surfaces warnings.
+## CLI `review` request
+
+```json
+{
+  "version": "acm.v1",
+  "command": "review",
+  "request_id": "req-review-001",
+  "payload": {
+    "project_id": "customer-portal",
+    "receipt_id": "replace-from-get-context-receipt",
+    "run": true
+  }
+}
+```
+
+Run:
+
+```bash
+acm validate --in assets/requests/review.json
+acm run --in assets/requests/review.json
+```
+
+## MCP `review` input
+
+```json
+{
+  "project_id": "customer-portal",
+  "receipt_id": "replace-from-get-context-receipt",
+  "run": true
+}
+```
+
+Run:
+
+```bash
+acm-mcp invoke --tool review --in assets/requests/mcp_review.json
+```
+
+`review` is intentionally thin. It lowers to one `work.tasks[]` merge update. Omitted `key`, `summary`, and `status` default to `review:cross-llm`, `Cross-LLM review`, and `complete`. Prefer `run=true` when the repo workflow defines a runnable gate. Use `status=blocked` plus `blocked_reason` when the review gate is waiting or failed, and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode.
+
+When work tasks are present, `report_completion.scope_mode` controls gate behavior: `strict` enforces configured completion tasks (defaulting to `verify:tests`), `warn` surfaces warnings.
 
 ## CLI `verify` request
 

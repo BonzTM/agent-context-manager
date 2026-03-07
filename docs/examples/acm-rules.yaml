@@ -18,7 +18,7 @@ rules:
 
   - id: rule_track_multistep_work
     summary: Track multi-step or multi-file work with work.
-    content: Create or update a work plan when the task spans multiple steps, touches multiple files, or may need to survive context compaction. Use verify:tests as the executable verification task when code changes.
+    content: Create or update a work plan when the task spans multiple steps, touches multiple files, or may need to survive context compaction. Use verify:tests as the executable verification task when code changes, and add any extra task keys required by .acm/acm-workflows.yaml.
     enforcement: hard
     tags: [planning, tracking]
 
@@ -30,7 +30,7 @@ rules:
 
   - id: rule_verify_code_changes
     summary: Run verify before closing code, config, or behavior changes.
-    content: Use repo-defined verify checks that match the changed files and current phase. Do not call report_completion until executable verification has passed or a human has explicitly accepted the failure.
+    content: Use repo-defined verify checks that match the changed files and current phase. Do not call report_completion until executable verification has passed or the required completion tasks from .acm/acm-workflows.yaml are satisfied.
     enforcement: hard
     tags: [verification, quality]
 

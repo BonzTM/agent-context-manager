@@ -131,7 +131,7 @@ There is no `record_as.work_item_key` in v1. `verify` updates `verify:tests` at 
 CLI shape:
 
 ```bash
-acm verify --project <id> \
+acm verify [--project <id>] \
   [--receipt-id <id>] \
   [--plan-key <key>] \
   [--phase <plan|execute|review>] \
@@ -147,7 +147,7 @@ MCP exposes a `verify` tool with the same payload semantics.
 
 ### Verify Input Semantics
 
-- `project_id`: required
+- `project_id`: optional when runtime defaults are configured; explicit values override `ACM_PROJECT_ID` and repo-root inference
 - `receipt_id`: optional receipt context source
 - `plan_key`: optional plan context / work update target
 - `phase`: optional explicit phase override; otherwise use receipt phase when available

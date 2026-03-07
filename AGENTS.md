@@ -9,6 +9,7 @@ Read it before doing substantive work in this repo. After any compaction, reset,
 - Canonical ACM rules live only in `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` at the repo root.
 - Canonical ACM tags live in `.acm/acm-tags.yaml`.
 - Canonical ACM verification definitions live in `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml` at the repo root.
+- Canonical ACM workflow gate definitions live in `.acm/acm-workflows.yaml` (preferred) or `acm-workflows.yaml` at the repo root.
 - `docs/examples/AGENTS.md` and `docs/examples/CLAUDE.md` are generic starter templates, not the contract for maintaining this repo.
 - Tool-specific companions such as `CLAUDE.md` and skill-pack prompts must stay consistent with this file. If they disagree, this file wins.
 
@@ -22,8 +23,9 @@ Complete this sequence before making code changes or giving repo-specific implem
 4. Read the returned hard rules and fetch only the keys needed for the current step.
 5. If the task is multi-step, multi-file, or handoff-prone, create or update `work` immediately.
 6. If you change code, config, contracts, onboarding, or other executable behavior, run `verify` before `report-completion`.
-7. End the task with `report-completion`, including every changed file and a concise outcome.
-8. Capture durable decisions or recurring pitfalls with `propose-memory`.
+7. If `.acm/acm-workflows.yaml` requires a review task such as `review:cross-llm`, satisfy it with `acm review --run ...` when the task defines a `run` block; otherwise use manual `review` fields or `work`.
+8. End the task with `report-completion`, including every changed file and a concise outcome.
+9. Capture durable decisions or recurring pitfalls with `propose-memory`.
 
 If `acm` is not on `PATH`, fix the environment or invoke the installed binary directly. Do not substitute `go run ./cmd/acm` for normal repository workflow unless you are explicitly testing source-build behavior.
 
@@ -56,6 +58,8 @@ Keep these constraints front-of-mind. They are derived from `.acm/acm-rules.yaml
   User-facing command, onboarding, install, or workflow changes must update `README.md`, `docs/getting-started.md`, `docs/examples`, and `skills/acm-broker/**` in the same change.
 - Verification before completion:
   Code, config, contract, onboarding, and behavior changes require `verify` evidence before `report-completion`.
+- Workflow gates:
+  `report-completion` may enforce additional required work item keys from `.acm/acm-workflows.yaml`; keep workflow definitions aligned with actual task keys and docs, and prefer `acm review --run` when a required review gate defines a `run` block.
 - Durable decisions:
   If a decision or pitfall would save future agent time, record it with `propose-memory`.
 
@@ -69,6 +73,7 @@ Create or update `work` when any of the following are true:
 - you need durable state that should survive compaction or session reset
 
 For code or behavior changes, include `verify:tests`. Add other tasks only when they help execution or resumption.
+For single review-gate updates, `review` is the thinner convenience wrapper around `work`; use `review --run` for runnable workflow gates and reserve manual `status` / `outcome` / `evidence` fields for non-run mode.
 
 ## Verification Expectations
 
@@ -79,6 +84,7 @@ For code or behavior changes, include `verify:tests`. Add other tasks only when 
   - `full-go-suite` runs in `review` when `cmd/**`, `internal/**`, `spec/**`, `skills/**`, `scripts/**`, `go.mod`, or `go.sum` changes
 - If your change is not adequately covered, update `.acm/acm-tests.yaml` before claiming completion.
 - For broad product changes, expect `go test ./...` to run through `verify` or as explicit supplemental validation.
+- For changes that match the repo-local review workflow gate, run `acm review --run --project agent-context-manager --receipt-id <receipt-id>` before `report-completion`.
 
 ## Governance And Maintenance Changes
 
@@ -96,6 +102,7 @@ When changing rules, tags, or tests specifically, keep these files coherent:
 - `.acm/acm-rules.yaml`
 - `.acm/acm-tags.yaml`
 - `.acm/acm-tests.yaml`
+- `.acm/acm-workflows.yaml`
 - `README.md`
 - `docs/getting-started.md`
 - `docs/examples/AGENTS.md`
@@ -104,7 +111,7 @@ When changing rules, tags, or tests specifically, keep these files coherent:
 
 ## Repository Notes
 
-- `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, and `.acm/acm-tests.yaml` are tracked product inputs.
+- `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, `.acm/acm-tests.yaml`, and `.acm/acm-workflows.yaml` are tracked product inputs.
 - `.acm/context.db`, `.acm/context.db-shm`, and `.acm/context.db-wal` are local runtime state and should stay ignored.
 - Prefer small, reviewable changes over broad cleanup.
 - Do not invent compatibility promises, migration behavior, or product requirements that the repo does not define.

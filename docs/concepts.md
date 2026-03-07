@@ -25,7 +25,7 @@ When you call `get_context`, acm returns a receipt. A receipt is a scoped snapsh
 - **Plans** — active work plans for the project, with fetch keys for resumption
 - **Meta** — receipt ID, resolved tags, budget accounting
 
-The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `verify`, `report_completion`, `propose_memory`). It ties everything back to the original retrieval.
+The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `review`, `verify`, `report_completion`, `propose_memory`). It ties everything back to the original retrieval.
 
 ## Rule
 
@@ -86,6 +86,9 @@ Tasks can reference a `parent_task_key` for grouping, and can be fetched individ
 Two special task keys are used for definition-of-done verification:
 - `verify:tests` — confirms tests were run
 - `verify:diff-review` — optional manual review task for diff inspection
+- `review:cross-llm` — default review gate key used by the thin `review` command/tool for cross-LLM or human review outcomes when a workflow wants one
+
+`review` is intentionally thin: it lowers to a single `work.tasks[]` merge update. When omitted, `key` defaults to `review:cross-llm`, `summary` defaults to `Cross-LLM review`, and `status` defaults to `complete`. With `--run` or `run=true`, acm executes the matching workflow task's `run` block and records `complete` on success or `blocked` on failure or timeout. Manual `status`, `outcome`, `blocked_reason`, and `evidence` fields are only for non-run mode.
 
 ## Tag
 
@@ -199,6 +202,46 @@ tests:
 ```
 
 v1 test definitions are argv-only. They support optional `command.env` entries for repo-defined environment variables and `select.always_run: true` for default smoke checks that should auto-select. `verify` reuses the existing `verify:tests` task key for definition-of-done updates when work context is present. `verify:diff-review` is optional workflow metadata, not a built-in acm completion gate.
+
+## Workflow Gate Definitions
+
+The human-authored YAML file where you define which work task keys must be complete before `report_completion` should be considered done. acm discovers it automatically at `.acm/acm-workflows.yaml` (preferred) or `acm-workflows.yaml` in the project root.
+
+Format:
+
+```yaml
+version: acm.workflows.v1
+completion:
+  required_tasks:
+    - key: verify:tests
+      select:
+        changed_paths_any: ["cmd/**", "internal/**", "go.mod", "go.sum"]
+
+    - key: review:cross-llm
+      summary: Cross-LLM review
+      rerun_requires_new_fingerprint: true
+      select:
+        phases: ["review"]
+        changed_paths_any: ["cmd/**", "internal/**", "spec/**"]
+      run:
+        argv: ["scripts/acm-cross-review.sh"]
+        cwd: .
+        timeout_sec: 1800
+```
+
+Runnable review gates are intended to be terminal checks, not inner-loop retries. ACM persists append-only review attempts, skips reruns for the same scoped fingerprint when `rerun_requires_new_fingerprint: true`, and only enforces retry caps when the workflow explicitly sets `max_attempts`.
+
+Selectors use the same shape as `verify` selection:
+
+- `phases`
+- `tags_any`
+- `changed_paths_any`
+- `pointer_keys_any`
+- `always_run`
+
+If a workflow file is absent, or if it exists but does not declare any completion requirements, acm falls back to the built-in `verify:tests` requirement. When a workflow file does declare completion requirements, only the matching task keys are enforced.
+
+Bootstrap seeds a thin `required_tasks: []` skeleton by default. Adding keys like `review:cross-llm` is an opt-in repo policy, not a built-in bootstrap requirement. When a workflow task includes `run`, `review --run` / `run=true` execute that repo-local command and auto-record the task outcome. Keep raw reviewer commands in repo-local scripts and workflow definitions, not maintainer prose.
 
 ## File-Based Flags
 

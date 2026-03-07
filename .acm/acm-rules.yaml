@@ -42,6 +42,18 @@ rules:
     enforcement: hard
     tags: [docs, skills]
 
+  - id: rule_workflow_gates_sync
+    summary: Keep workflow gate definitions aligned with completion behavior.
+    content: Changes to report_completion completion-gate semantics, runnable review gates, or staged workflow onboarding must update .acm/acm-workflows.yaml, repo-local scripts, docs, examples, and skill-pack assets together.
+    enforcement: hard
+    tags: [workflow, completion]
+
+  - id: rule_use_runnable_review_gate
+    summary: Use review --run for configured review gates.
+    content: When .acm/acm-workflows.yaml requires a review task such as review:cross-llm and that task defines a run block, satisfy it with acm review --run rather than copying the underlying reviewer command into AGENTS, rules, or skill prose.
+    enforcement: hard
+    tags: [review, workflow]
+
   - id: rule_idempotent_maintenance
     summary: Maintenance commands should remain deterministic and idempotent.
     content: Sync, bootstrap, coverage, and health-fix changes should preserve deterministic ordering, repeatable counters, and stable path filtering. Add tests for regression-sensitive path sets and summaries.

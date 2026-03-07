@@ -45,11 +45,11 @@ No model runtime gets direct SQL access. Models only interact via broker operati
 
 Convenience subcommands (build v1 envelopes internally):
 
-- `acm get-context` -> `get_context(task_text, phase, project_id)`
-- `acm fetch` -> `fetch(project_id, keys?, receipt_id?, expected_versions?)`
-- `acm work` -> `work(project_id, plan_key|receipt_id, mode?, plan?, tasks?)`
-- `acm propose-memory` -> `propose_memory(receipt_id, payload_json)`
-- `acm report-completion` -> `report_completion(receipt_id, files_changed, outcome)`
+- `acm get-context` -> `get_context(task_text, phase, project_id?)`
+- `acm fetch` -> `fetch(project_id?, keys?, receipt_id?, expected_versions?)`
+- `acm work` -> `work(project_id?, plan_key|receipt_id, mode?, plan?, tasks?)`
+- `acm propose-memory` -> `propose_memory(project_id?, receipt_id, payload_json)`
+- `acm report-completion` -> `report_completion(project_id?, receipt_id, files_changed, outcome)`
 - `acm work list` / `acm work search` -> work plan history
 - `acm history search` -> `history_search(project_id, entity?, query?, limit?)`
 - `acm sync` -> pointer/hash upkeep from git diff
@@ -61,6 +61,7 @@ Convenience subcommands (build v1 envelopes internally):
 - `acm coverage` -> file coverage analysis
 
 Structured command-envelope mode is also available via `acm run --in request.json` and `acm validate --in request.json`.
+For project-scoped commands, runtime resolution is explicit `--project` / `project_id`, then `ACM_PROJECT_ID`, then the effective repo-root name (using `ACM_PROJECT_ROOT` when set).
 
 #### MCP (`cmd/acm-mcp/`)
 
@@ -70,6 +71,7 @@ Agent-facing tools:
 - `fetch`
 - `propose_memory`
 - `report_completion`
+- `review`
 - `work`
 - `history_search`
 
@@ -83,11 +85,12 @@ Maintenance tools (same operations as CLI, exposed for tool-native orchestration
 - `verify`
 - `bootstrap`
 
-The v1.1 MCP contract is index-first: `get_context` returns a scoped receipt index, then `fetch`/`work` operate on those plan and pointer keys while `propose_memory`/`report_completion` stay receipt-scoped.
+The v1.1 MCP contract is index-first: `get_context` returns a scoped receipt index, then `fetch`/`work` operate on those plan and pointer keys while `propose_memory`/`report_completion` stay receipt-scoped. `review` is the thin single-task review-gate surface and can either record a manual review outcome or execute a repo-defined workflow gate.
 
 v1.1 ergonomics defaults:
 
 - `report_completion` scope mode defaults to `warn` when `scope_mode` is omitted.
+- `review` defaults to `key=review:cross-llm`, `summary="Cross-LLM review"`, and `status=complete` outside run mode.
 - `fetch` accepts `receipt_id` shorthand without explicit `keys`.
 - `work` accepts `receipt_id` without `plan_key`; derives `plan_key` as `plan:<receipt_id>`. Supports structured `plan` metadata and `tasks` array (max 256). `mode` controls merge vs replace semantics.
 - Work updates should include a verification task keyed `verify:tests` for executable DoD tracking. `verify:diff-review` is optional workflow metadata.
@@ -290,7 +293,7 @@ Rules:
 
 ## Retrieval Contract
 
-`get_context(task_text, phase='execute', project_id)`:
+`get_context(task_text, phase='execute', project_id?)`:
 
 1. Normalize task text into 3-6 canonical tags.
 2. Query candidates where `(tags overlap OR FTS match)` and `is_stale = false` by default (stale inclusion only when `allow_stale=true`).
@@ -318,7 +321,7 @@ Rules:
 2. Allow configured generated-file exceptions.
 3. Violations default to advisory warnings (`scope_mode=warn`).
 4. `scope_mode=strict` can enforce rejection and require re-retrieval; CI repeats strict scope checks and blocks merge on violation.
-5. When work items are present, `verify:tests` is enforced in `strict` mode and surfaced as a warning in `warn` mode. `verify:diff-review` is optional and not enforced by acm.
+5. When work items are present, repo-defined completion task keys from `.acm/acm-workflows.yaml` or `acm-workflows.yaml` are enforced in `strict` mode and surfaced as warnings in `warn` mode. When no workflow gates are configured, acm falls back to `verify:tests`. `verify:diff-review` remains optional workflow metadata unless a repo explicitly requires it.
 
 ## Memory Ingestion Contract
 
