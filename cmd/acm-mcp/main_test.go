@@ -111,6 +111,71 @@ func TestInvokeWithDeps_HistorySearchDispatchesThroughWrapper(t *testing.T) {
 	}
 }
 
+func TestInvokeWithDeps_ReviewDispatchesThroughWrapper(t *testing.T) {
+	var out bytes.Buffer
+	code := invokeWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		[]string{"--tool", "review"},
+		strings.NewReader(`{"project_id":"my-cool-app","receipt_id":"receipt-1234","outcome":"No blocking review findings."}`),
+		&out,
+		fixedMCPNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			return mcpMainFakeService{}, func() {}, nil
+		},
+	)
+	if code != 0 {
+		t.Fatalf("unexpected exit code: got %d want 0", code)
+	}
+
+	var env v1.ResultEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true, got error %+v", env.Error)
+	}
+	if env.Command != v1.CommandReview {
+		t.Fatalf("unexpected command: %q", env.Command)
+	}
+}
+
+func TestInvokeWithDeps_ReviewRunDispatchesThroughWrapper(t *testing.T) {
+	var out bytes.Buffer
+	svc := &mcpMainReviewCaptureService{}
+	code := invokeWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		[]string{"--tool", "review"},
+		strings.NewReader(`{"project_id":"my-cool-app","receipt_id":"receipt-1234","run":true,"tags_file":".acm/acm-tags.yaml"}`),
+		&out,
+		fixedMCPNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			return svc, func() {}, nil
+		},
+	)
+	if code != 0 {
+		t.Fatalf("unexpected exit code: got %d want 0", code)
+	}
+
+	var env v1.ResultEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true, got error %+v", env.Error)
+	}
+	if env.Command != v1.CommandReview {
+		t.Fatalf("unexpected command: %q", env.Command)
+	}
+	if len(svc.reviewCalls) != 1 {
+		t.Fatalf("expected one review call, got %d", len(svc.reviewCalls))
+	}
+	if got := svc.reviewCalls[0]; !got.Run || got.TagsFile != ".acm/acm-tags.yaml" || got.ReceiptID != "receipt-1234" {
+		t.Fatalf("unexpected review payload: %+v", got)
+	}
+}
+
 func TestInvokeWithDeps_MissingToolWritesStructuredError(t *testing.T) {
 	var out bytes.Buffer
 	code := invokeWithDeps(
@@ -234,6 +299,9 @@ func TestInvokeWithDeps_HelpWritesUsage(t *testing.T) {
 	if !strings.Contains(text, "history_search") {
 		t.Fatalf("expected history_search in help output: %q", text)
 	}
+	if !strings.Contains(text, "review") {
+		t.Fatalf("expected review in help output: %q", text)
+	}
 }
 
 func TestUsage_IncludesVersionFlag(t *testing.T) {
@@ -270,6 +338,10 @@ func (mcpMainFakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchR
 
 func (mcpMainFakeService) ProposeMemory(_ context.Context, _ v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *core.APIError) {
 	return v1.ProposeMemoryResult{}, nil
+}
+
+func (mcpMainFakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
+	return v1.ReviewResult{}, nil
 }
 
 func (mcpMainFakeService) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
@@ -318,4 +390,14 @@ type mcpMainFailingService struct {
 
 func (mcpMainFailingService) GetContext(_ context.Context, _ v1.GetContextPayload) (v1.GetContextResult, *core.APIError) {
 	return v1.GetContextResult{}, core.NewError("NOT_IMPLEMENTED", errors.New("boom").Error(), nil)
+}
+
+type mcpMainReviewCaptureService struct {
+	mcpMainFakeService
+	reviewCalls []v1.ReviewPayload
+}
+
+func (s *mcpMainReviewCaptureService) Review(_ context.Context, payload v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
+	s.reviewCalls = append(s.reviewCalls, payload)
+	return v1.ReviewResult{ReviewKey: payload.Key, Executed: payload.Run}, nil
 }

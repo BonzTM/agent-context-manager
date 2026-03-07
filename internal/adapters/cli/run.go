@@ -11,6 +11,7 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/runtime"
 )
 
 const (
@@ -42,7 +43,7 @@ func RunWithLogger(ctx context.Context, svc core.Service, in io.Reader, out io.W
 	}
 	logger.Info(ctx, logging.EventCLIIngressRead, "ok", true, "bytes", len(input))
 
-	env, payload, valErr := v1.DecodeAndValidateCommand(input)
+	env, payload, valErr := v1.DecodeAndValidateCommandWithDefaults(input, validationDefaultsFromRuntime())
 	projectID := projectIDFromPayload(payload)
 	if valErr != nil {
 		logger.Error(ctx, logging.EventCLIIngressValidate, "ok", false, "command", string(env.Command), "request_id", env.RequestID, "error_code", valErr.Code)
@@ -114,6 +115,13 @@ func RunWithLogger(ctx context.Context, svc core.Service, in io.Reader, out io.W
 	return 0
 }
 
+func validationDefaultsFromRuntime() v1.ValidationDefaults {
+	cfg := runtime.ConfigFromEnv()
+	return v1.ValidationDefaults{
+		ProjectID: cfg.EffectiveProjectID(),
+	}
+}
+
 func dispatch(ctx context.Context, svc core.Service, command v1.Command, payload any) (any, *core.APIError) {
 	switch command {
 	case v1.CommandGetContext:
@@ -124,6 +132,8 @@ func dispatch(ctx context.Context, svc core.Service, command v1.Command, payload
 		return svc.ProposeMemory(ctx, payload.(v1.ProposeMemoryPayload))
 	case commandWork:
 		return svc.Work(ctx, payload.(v1.WorkPayload))
+	case v1.CommandReview:
+		return svc.Review(ctx, payload.(v1.ReviewPayload))
 	case v1.CommandHistorySearch:
 		return svc.HistorySearch(ctx, payload.(v1.HistorySearchPayload))
 	case v1.CommandReportCompletion:
@@ -162,6 +172,8 @@ func projectIDFromPayload(payload any) string {
 	case v1.ProposeMemoryPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case v1.ReportCompletionPayload:
+		return strings.TrimSpace(p.ProjectID)
+	case v1.ReviewPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case v1.WorkPayload:
 		return strings.TrimSpace(p.ProjectID)

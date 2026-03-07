@@ -448,6 +448,39 @@ CREATE INDEX IF NOT EXISTS idx_acm_runs_project_receipt_created
 	ON acm_runs (project_id, receipt_id, created_at DESC, run_id DESC);
 `,
 	},
+	{
+		Name: "0010_acm_review_attempts.sql",
+		SQL: `
+CREATE TABLE IF NOT EXISTS acm_review_attempts (
+	attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id TEXT NOT NULL,
+	receipt_id TEXT NOT NULL,
+	plan_key TEXT NOT NULL DEFAULT '',
+	review_key TEXT NOT NULL,
+	summary TEXT NOT NULL DEFAULT '',
+	fingerprint TEXT NOT NULL,
+	status TEXT NOT NULL,
+	passed INTEGER NOT NULL DEFAULT 0,
+	outcome TEXT NOT NULL DEFAULT '',
+	workflow_source_path TEXT NOT NULL DEFAULT '',
+	command_argv_json TEXT NOT NULL DEFAULT '[]',
+	command_cwd TEXT NOT NULL DEFAULT '',
+	timeout_sec INTEGER NOT NULL DEFAULT 0,
+	exit_code INTEGER NULL,
+	timed_out INTEGER NOT NULL DEFAULT 0,
+	stdout_excerpt TEXT NOT NULL DEFAULT '',
+	stderr_excerpt TEXT NOT NULL DEFAULT '',
+	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	FOREIGN KEY (receipt_id) REFERENCES acm_receipts (receipt_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_acm_review_attempts_project_receipt_key_created
+	ON acm_review_attempts (project_id, receipt_id, review_key, created_at DESC, attempt_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_acm_review_attempts_project_receipt_fingerprint
+	ON acm_review_attempts (project_id, receipt_id, review_key, fingerprint);
+`,
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {

@@ -656,48 +656,7 @@ func verifyGlobToRegexp(pattern string) (*regexp.Regexp, error) {
 }
 
 func runVerifyCommand(ctx context.Context, projectRoot string, def verifyTestDefinition) verifyCommandRun {
-	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(def.TimeoutSec)*time.Second)
-	defer cancel()
-
-	startedAt := time.Now().UTC()
-	command := exec.CommandContext(timeoutCtx, def.Argv[0], def.Argv[1:]...)
-	command.Dir = filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(def.CWD)))
-	command.Env = append(os.Environ(), verifyEnvPairs(def.Env)...)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-
-	err := command.Run()
-	finishedAt := time.Now().UTC()
-
-	var exitCode *int
-	if command.ProcessState != nil {
-		code := command.ProcessState.ExitCode()
-		if code >= 0 {
-			exitCode = &code
-		}
-	}
-	if exitCode == nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ProcessState != nil {
-			code := exitErr.ProcessState.ExitCode()
-			if code >= 0 {
-				exitCode = &code
-			}
-		}
-	}
-
-	return verifyCommandRun{
-		ExitCode:   exitCode,
-		Stdout:     stdout.String(),
-		Stderr:     stderr.String(),
-		StartedAt:  startedAt,
-		FinishedAt: finishedAt,
-		TimedOut:   errors.Is(timeoutCtx.Err(), context.DeadlineExceeded),
-		Err:        err,
-	}
+	return runConfiguredCommand(ctx, projectRoot, def.Argv, def.CWD, def.TimeoutSec, def.Env, nil)
 }
 
 func classifyVerifyCommandRun(run verifyCommandRun, expectedExitCode int) v1.VerifyTestStatus {
@@ -1015,6 +974,65 @@ func verifyEnvPairs(values map[string]string) []string {
 		pairs = append(pairs, key+"="+values[key])
 	}
 	return pairs
+}
+
+func mergeCommandEnv(base, extra map[string]string) map[string]string {
+	if len(base) == 0 && len(extra) == 0 {
+		return nil
+	}
+	merged := make(map[string]string, len(base)+len(extra))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range extra {
+		merged[key] = value
+	}
+	return merged
+}
+
+func runConfiguredCommand(ctx context.Context, projectRoot string, argv []string, cwd string, timeoutSec int, env map[string]string, extraEnv map[string]string) verifyCommandRun {
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	startedAt := time.Now().UTC()
+	command := exec.CommandContext(timeoutCtx, argv[0], argv[1:]...)
+	command.Dir = filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(cwd)))
+	command.Env = append(os.Environ(), verifyEnvPairs(mergeCommandEnv(env, extraEnv))...)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+
+	err := command.Run()
+	finishedAt := time.Now().UTC()
+
+	var exitCode *int
+	if command.ProcessState != nil {
+		code := command.ProcessState.ExitCode()
+		if code >= 0 {
+			exitCode = &code
+		}
+	}
+	if exitCode == nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ProcessState != nil {
+			code := exitErr.ProcessState.ExitCode()
+			if code >= 0 {
+				exitCode = &code
+			}
+		}
+	}
+
+	return verifyCommandRun{
+		ExitCode:   exitCode,
+		Stdout:     stdout.String(),
+		Stderr:     stderr.String(),
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		TimedOut:   errors.Is(timeoutCtx.Err(), context.DeadlineExceeded),
+		Err:        err,
+	}
 }
 
 func newVerifyBatchRunID() (string, error) {

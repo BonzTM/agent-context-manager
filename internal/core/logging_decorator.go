@@ -53,6 +53,12 @@ func (s *loggingService) ProposeMemory(ctx context.Context, payload v1.ProposeMe
 	})
 }
 
+func (s *loggingService) Review(ctx context.Context, payload v1.ReviewPayload) (v1.ReviewResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationReview, payload.ProjectID, func() (v1.ReviewResult, *APIError) {
+		return s.next.Review(ctx, payload)
+	})
+}
+
 func (s *loggingService) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResult, *APIError) {
 	return withOperation(ctx, s.now, s.logger, logging.OperationWork, payload.ProjectID, func() (v1.WorkResult, *APIError) {
 		return s.next.Work(ctx, payload)

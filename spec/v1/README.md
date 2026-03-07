@@ -12,10 +12,11 @@ This directory defines the v1 wire contract for the context broker.
 ## CLI Contract
 
 `acm` in JSON mode should accept a request matching `cli.command.schema.json` and emit a response matching `cli.result.schema.json`.
+For project-scoped commands, `project_id` may be omitted when runtime defaults are configured. Resolution order is explicit `--project` / payload `project_id`, then `ACM_PROJECT_ID`, then inferred effective repo root name.
 
 ## MCP Contract
 
-The MCP adapter exposes thirteen tools — all CLI operations are available via MCP:
+The MCP adapter exposes fourteen tools — all CLI operations are available via MCP:
 
 Agent-facing:
 
@@ -23,18 +24,19 @@ Agent-facing:
 2. `fetch`
 3. `propose_memory`
 4. `report_completion`
-5. `work`
-6. `history_search`
+5. `review`
+6. `work`
+7. `history_search`
 
 Maintenance:
 
-7. `sync`
-8. `health_check`
-9. `health_fix`
-10. `coverage`
-11. `eval`
-12. `verify`
-13. `bootstrap`
+8. `sync`
+9. `health_check`
+10. `health_fix`
+11. `coverage`
+12. `eval`
+13. `verify`
+14. `bootstrap`
 
 Tool input/output shapes are referenced from CLI payload/result defs to guarantee parity.
 
@@ -43,13 +45,16 @@ The MCP flow is index-first:
 - `get_context` returns an index-first receipt with scoped rules, suggestions, memories, and current plans.
 - Each rule entry now includes `rule_id`, a deterministic stable identifier derived from the existing rule `key` semantics (no additional input required).
 - `fetch` resolves receipt/plan-scoped artifacts by key, or derives the plan fetch key from `receipt_id` when keys are omitted.
+- `review` remains work-backed and defaults to `review:cross-llm` with `complete` status when callers omit manual fields; it can also execute a workflow-defined `run` command before recording the final review task status.
 - `work` creates/updates structured plans with tasks (max 256 per request). Supports `receipt_id` without `plan_key` (derives `plan_key` as `plan:<receipt_id>`). `mode` controls merge vs replace semantics.
 - `history_search` lists or searches compact work, memory, receipt, and run history and returns targeted `fetch_keys` for selective follow-up retrieval. `entity` defaults to `all`; `scope` and `kind` are only valid when `entity=work`.
 - For work updates, `verify:tests` is the built-in executable verification key. `verify:diff-review` is optional workflow metadata.
 - `eval` is the public retrieval-evaluation command/tool name. `verify` selects repo-defined executable checks from `.acm/acm-tests.yaml` or `acm-tests.yaml`, with `tests_file` as the explicit override.
+- `bootstrap` accepts repeatable `apply_templates` ids and reports per-template `template_results`. Template application is additive-only: create missing files, upgrade ACM-owned pristine scaffolds, and merge known additive JSON fragments without overwriting edited repo files.
+- `report_completion` can enforce repo-defined completion task keys from `.acm/acm-workflows.yaml` or `acm-workflows.yaml`; runnable review gates may also require a fresh passing attempt for the current scoped fingerprint when fingerprint dedupe is enabled. When no workflow gates are configured, acm falls back to `verify:tests`.
 - `propose_memory` and `report_completion` remain receipt-scoped write operations.
 
-`get_context.caps.word_budget_limit` defaults to `1200` and is reported as accounting metadata in `_meta.budget`; it is not a truncation cutoff. `report_completion.scope_mode` defaults to `warn` when omitted. When work items are present, `scope_mode=strict` enforces verification checks and `scope_mode=warn` surfaces warnings.
+`get_context.caps.word_budget_limit` defaults to `1200` and is reported as accounting metadata in `_meta.budget`; it is not a truncation cutoff. `report_completion.scope_mode` defaults to `warn` when omitted. When work items are present, `scope_mode=strict` enforces configured completion checks and `scope_mode=warn` surfaces warnings.
 
 ## Notes
 

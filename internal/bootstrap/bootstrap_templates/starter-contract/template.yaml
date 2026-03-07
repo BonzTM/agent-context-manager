@@ -1,0 +1,20 @@
+version: acm.bootstrap-template.v1
+id: starter-contract
+summary: Seed starter AGENTS/CLAUDE guidance and upgrade blank rules scaffolds.
+operations:
+  - type: create_if_missing
+    target: AGENTS.md
+    source: files/AGENTS.md
+  - type: create_if_missing
+    target: CLAUDE.md
+    source: files/CLAUDE.md
+  - type: replace_if_pristine
+    target: .acm/acm-rules.yaml
+    source: files/.acm/acm-rules.yaml
+    pristine:
+      - blank_rules_v1
+  - type: replace_if_pristine
+    target: acm-rules.yaml
+    source: files/.acm/acm-rules.yaml
+    pristine:
+      - blank_rules_v1

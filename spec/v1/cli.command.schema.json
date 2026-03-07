@@ -20,6 +20,7 @@
         "get_context",
         "propose_memory",
         "report_completion",
+        "review",
         "history_search",
         "sync",
         "health_check",
@@ -93,7 +94,6 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "project_id",
         "task_text",
         "phase"
       ],
@@ -137,7 +137,6 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "project_id",
         "receipt_id",
         "memory"
       ],
@@ -166,7 +165,6 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "project_id",
         "receipt_id",
         "files_changed",
         "outcome"
@@ -207,12 +205,130 @@
         }
       }
     },
+    "reviewPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "receipt_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
+        },
+        "key": {
+          "allOf": [
+            {
+              "$ref": "shared.schema.json#/$defs/contractKey"
+            }
+          ],
+          "default": "review:cross-llm"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        },
+        "status": {
+          "allOf": [
+            {
+              "$ref": "shared.schema.json#/$defs/workItemStatus"
+            }
+          ],
+          "default": "complete"
+        },
+        "outcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600,
+          "pattern": "^.*\\S.*$"
+        },
+        "blocked_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "pattern": "^.*\\S.*$"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600,
+            "pattern": "^.*\\S.*$"
+          },
+          "minItems": 1,
+          "maxItems": 128
+        },
+        "run": {
+          "type": "boolean",
+          "default": false
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        }
+      },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "receipt_id"
+              ]
+            },
+            {
+              "required": [
+                "plan_key"
+              ]
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "run": {
+                "const": true
+              }
+            },
+            "required": [
+              "run"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "status"
+                  ]
+                },
+                {
+                  "required": [
+                    "outcome"
+                  ]
+                },
+                {
+                  "required": [
+                    "blocked_reason"
+                  ]
+                },
+                {
+                  "required": [
+                    "evidence"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
     "syncPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -251,9 +367,6 @@
     "healthCheckPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -273,9 +386,6 @@
     "healthFixPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -314,9 +424,6 @@
     "evalPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -395,9 +502,6 @@
     "verifyPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -479,10 +583,6 @@
     "bootstrapPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id",
-        "project_root"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -491,6 +591,17 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 2048
+        },
+        "apply_templates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true
         },
         "respect_gitignore": {
           "type": "boolean",
@@ -516,9 +627,6 @@
     "coveragePayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -533,9 +641,6 @@
     "fetchPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -580,9 +685,6 @@
     "workPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -635,9 +737,6 @@
     "historySearchPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "project_id"
-      ],
       "properties": {
         "project_id": {
           "$ref": "shared.schema.json#/$defs/projectId"
@@ -791,6 +890,25 @@
         "properties": {
           "payload": {
             "$ref": "#/$defs/reportCompletionPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "review"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/reviewPayload"
           }
         }
       }

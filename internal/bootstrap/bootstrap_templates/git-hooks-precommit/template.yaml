@@ -1,0 +1,8 @@
+version: acm.bootstrap-template.v1
+id: git-hooks-precommit
+summary: Seed a pre-commit hook that runs acm verify on staged files.
+operations:
+  - type: create_if_missing
+    target: .githooks/pre-commit
+    source: files/.githooks/pre-commit
+    mode: "0755"

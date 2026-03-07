@@ -2154,6 +2154,181 @@ SET
 	return nil
 }
 
+func (r *Repository) SaveReviewAttempt(ctx context.Context, input core.ReviewAttempt) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, fmt.Errorf("sqlite db is required")
+	}
+
+	normalized, err := normalizeReviewAttempt(input)
+	if err != nil {
+		return 0, err
+	}
+
+	commandArgvJSON, err := encodeStringList(nonNilStringListPreserveOrder(normalized.CommandArgv))
+	if err != nil {
+		return 0, fmt.Errorf("encode review attempt command argv: %w", err)
+	}
+
+	result, err := r.db.ExecContext(ctx, `
+INSERT INTO acm_review_attempts (
+	project_id,
+	receipt_id,
+	plan_key,
+	review_key,
+	summary,
+	fingerprint,
+	status,
+	passed,
+	outcome,
+	workflow_source_path,
+	command_argv_json,
+	command_cwd,
+	timeout_sec,
+	exit_code,
+	timed_out,
+	stdout_excerpt,
+	stderr_excerpt,
+	created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`,
+		normalized.ProjectID,
+		normalized.ReceiptID,
+		normalized.PlanKey,
+		normalized.ReviewKey,
+		normalized.Summary,
+		normalized.Fingerprint,
+		normalized.Status,
+		boolToInt(normalized.Passed),
+		normalized.Outcome,
+		normalized.WorkflowSourcePath,
+		commandArgvJSON,
+		normalized.CommandCWD,
+		normalized.TimeoutSec,
+		normalized.ExitCode,
+		boolToInt(normalized.TimedOut),
+		normalized.StdoutExcerpt,
+		normalized.StderrExcerpt,
+		normalized.CreatedAt.Unix(),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("insert review attempt: %w", err)
+	}
+	attemptID, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("read review attempt id: %w", err)
+	}
+	return attemptID, nil
+}
+
+func (r *Repository) ListReviewAttempts(ctx context.Context, input core.ReviewAttemptListQuery) ([]core.ReviewAttempt, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("sqlite db is required")
+	}
+	if strings.TrimSpace(input.ProjectID) == "" {
+		return nil, fmt.Errorf("project_id is required")
+	}
+	if strings.TrimSpace(input.ReceiptID) == "" {
+		return nil, fmt.Errorf("receipt_id is required")
+	}
+	if strings.TrimSpace(input.ReviewKey) == "" {
+		return nil, fmt.Errorf("review_key is required")
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+SELECT
+	attempt_id,
+	project_id,
+	receipt_id,
+	plan_key,
+	review_key,
+	summary,
+	fingerprint,
+	status,
+	passed,
+	outcome,
+	workflow_source_path,
+	command_argv_json,
+	command_cwd,
+	timeout_sec,
+	exit_code,
+	timed_out,
+	stdout_excerpt,
+	stderr_excerpt,
+	created_at
+FROM acm_review_attempts
+WHERE project_id = ?
+  AND receipt_id = ?
+  AND review_key = ?
+ORDER BY created_at ASC, attempt_id ASC
+`, strings.TrimSpace(input.ProjectID), strings.TrimSpace(input.ReceiptID), strings.TrimSpace(input.ReviewKey))
+	if err != nil {
+		return nil, fmt.Errorf("query review attempts: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]core.ReviewAttempt, 0)
+	for rows.Next() {
+		var row core.ReviewAttempt
+		var commandArgvJSON string
+		var exitCode sql.NullInt64
+		var passedInt int
+		var timedOutInt int
+		var createdAt int64
+		if err := rows.Scan(
+			&row.AttemptID,
+			&row.ProjectID,
+			&row.ReceiptID,
+			&row.PlanKey,
+			&row.ReviewKey,
+			&row.Summary,
+			&row.Fingerprint,
+			&row.Status,
+			&passedInt,
+			&row.Outcome,
+			&row.WorkflowSourcePath,
+			&commandArgvJSON,
+			&row.CommandCWD,
+			&row.TimeoutSec,
+			&exitCode,
+			&timedOutInt,
+			&row.StdoutExcerpt,
+			&row.StderrExcerpt,
+			&createdAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan review attempt: %w", err)
+		}
+		commandArgv, err := decodeStringListPreserveOrder(commandArgvJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode review attempt command argv: %w", err)
+		}
+		row.ProjectID = strings.TrimSpace(row.ProjectID)
+		row.ReceiptID = strings.TrimSpace(row.ReceiptID)
+		row.PlanKey = strings.TrimSpace(row.PlanKey)
+		row.ReviewKey = strings.TrimSpace(row.ReviewKey)
+		row.Summary = strings.TrimSpace(row.Summary)
+		row.Fingerprint = strings.TrimSpace(row.Fingerprint)
+		row.Status = strings.TrimSpace(row.Status)
+		row.Passed = passedInt != 0
+		row.Outcome = strings.TrimSpace(row.Outcome)
+		row.WorkflowSourcePath = strings.TrimSpace(row.WorkflowSourcePath)
+		row.CommandArgv = normalizeStringListPreserveOrder(commandArgv)
+		row.CommandCWD = strings.TrimSpace(row.CommandCWD)
+		if exitCode.Valid {
+			code := int(exitCode.Int64)
+			row.ExitCode = &code
+		}
+		row.TimedOut = timedOutInt != 0
+		row.StdoutExcerpt = strings.TrimSpace(row.StdoutExcerpt)
+		row.StderrExcerpt = strings.TrimSpace(row.StderrExcerpt)
+		row.CreatedAt = time.Unix(createdAt, 0).UTC()
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate review attempts: %w", err)
+	}
+	return out, nil
+}
+
 func (r *Repository) SaveVerificationBatch(ctx context.Context, input core.VerificationBatch) error {
 	if r == nil || r.db == nil {
 		return fmt.Errorf("sqlite db is required")
@@ -2813,6 +2988,18 @@ func decodeStringList(raw string) ([]string, error) {
 	return normalizeStringList(values), nil
 }
 
+func decodeStringListPreserveOrder(raw string) ([]string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(trimmed), &values); err != nil {
+		return nil, fmt.Errorf("unmarshal string list: %w", err)
+	}
+	return normalizeStringListPreserveOrder(values), nil
+}
+
 func encodeInt64List(values []int64) (string, error) {
 	raw, err := json.Marshal(values)
 	if err != nil {
@@ -2874,6 +3061,27 @@ type normalizedVerificationBatch struct {
 	SelectedTestIDs []string
 	Results         []core.VerificationTestRun
 	CreatedAt       time.Time
+}
+
+type normalizedReviewAttempt struct {
+	ProjectID          string
+	ReceiptID          string
+	PlanKey            string
+	ReviewKey          string
+	Summary            string
+	Fingerprint        string
+	Status             string
+	Passed             bool
+	Outcome            string
+	WorkflowSourcePath string
+	CommandArgv        []string
+	CommandCWD         string
+	TimeoutSec         int
+	ExitCode           *int
+	TimedOut           bool
+	StdoutExcerpt      string
+	StderrExcerpt      string
+	CreatedAt          time.Time
 }
 
 func normalizeRunReceiptSummary(input core.RunReceiptSummary) (normalizedRunSummary, error) {
@@ -3023,6 +3231,63 @@ func normalizeVerificationBatch(input core.VerificationBatch) (normalizedVerific
 		SelectedTestIDs: normalizeStringListPreserveOrder(input.SelectedTestIDs),
 		Results:         results,
 		CreatedAt:       createdAt,
+	}, nil
+}
+
+func normalizeReviewAttempt(input core.ReviewAttempt) (normalizedReviewAttempt, error) {
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return normalizedReviewAttempt{}, fmt.Errorf("project_id is required")
+	}
+	receiptID := strings.TrimSpace(input.ReceiptID)
+	if receiptID == "" {
+		return normalizedReviewAttempt{}, fmt.Errorf("receipt_id is required")
+	}
+	reviewKey := strings.TrimSpace(input.ReviewKey)
+	if reviewKey == "" {
+		return normalizedReviewAttempt{}, fmt.Errorf("review_key is required")
+	}
+	fingerprint := strings.TrimSpace(input.Fingerprint)
+	if fingerprint == "" {
+		return normalizedReviewAttempt{}, fmt.Errorf("fingerprint is required")
+	}
+	status := strings.TrimSpace(input.Status)
+	if status != "passed" && status != "failed" {
+		return normalizedReviewAttempt{}, fmt.Errorf("status must be passed|failed")
+	}
+	timeoutSec := input.TimeoutSec
+	if timeoutSec <= 0 {
+		return normalizedReviewAttempt{}, fmt.Errorf("timeout_sec must be > 0")
+	}
+	if input.ExitCode != nil {
+		exitCode := *input.ExitCode
+		if exitCode < 0 || exitCode > 255 {
+			return normalizedReviewAttempt{}, fmt.Errorf("exit_code must be 0..255 when provided")
+		}
+	}
+	createdAt := input.CreatedAt.UTC()
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	return normalizedReviewAttempt{
+		ProjectID:          projectID,
+		ReceiptID:          receiptID,
+		PlanKey:            strings.TrimSpace(input.PlanKey),
+		ReviewKey:          reviewKey,
+		Summary:            strings.TrimSpace(input.Summary),
+		Fingerprint:        fingerprint,
+		Status:             status,
+		Passed:             input.Passed,
+		Outcome:            strings.TrimSpace(input.Outcome),
+		WorkflowSourcePath: strings.TrimSpace(input.WorkflowSourcePath),
+		CommandArgv:        normalizeStringListPreserveOrder(input.CommandArgv),
+		CommandCWD:         strings.TrimSpace(input.CommandCWD),
+		TimeoutSec:         timeoutSec,
+		ExitCode:           input.ExitCode,
+		TimedOut:           input.TimedOut,
+		StdoutExcerpt:      strings.TrimSpace(input.StdoutExcerpt),
+		StderrExcerpt:      strings.TrimSpace(input.StderrExcerpt),
+		CreatedAt:          createdAt,
 	}, nil
 }
 

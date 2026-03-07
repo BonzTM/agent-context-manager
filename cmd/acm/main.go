@@ -34,42 +34,46 @@ var entryPointCommands = []helpCommand{
 
 var workflowCommands = []helpCommand{
 	{
-		usage:   "acm get-context --project <id> [--task-text <text>|--task-file <path>] [--tags-file <path>] [--unbounded[=true|false]] [flags]",
+		usage:   "acm get-context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--unbounded[=true|false]] [flags]",
 		summary: "Resolve a scoped receipt with rules, pointers, memories, and active work.",
 	},
 	{
-		usage:   "acm fetch --project <id> [--key <pointer>]... [--keys-file <path>] [--keys-json <json>] [--receipt-id <id>] [--expect <key=version>]... [--expected-versions-file <path>] [--expected-versions-json <json>]",
+		usage:   "acm fetch [--project <id>] [--key <pointer>]... [--keys-file <path>] [--keys-json <json>] [--receipt-id <id>] [--expect <key=version>]... [--expected-versions-file <path>] [--expected-versions-json <json>]",
 		summary: "Fetch pointer, plan, or task content by key, with optional version checks.",
 	},
 	{
-		usage:   "acm propose-memory --project <id> --receipt-id <id> --category <name> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [flags]",
+		usage:   "acm propose-memory [--project <id>] --receipt-id <id> --category <name> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [flags]",
 		summary: "Propose durable memory tied to a receipt, evidence, and canonical tags.",
 	},
 	{
-		usage:   "acm work --project <id> [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>] [--items-file <path>|--items-json <json>]",
+		usage:   "acm work [--project <id>] [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>] [--items-file <path>|--items-json <json>]",
 		summary: "Create or update structured plans and tasks that survive compaction.",
 	},
 	{
-		usage:   "acm work list --project <id> [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
+		usage:   "acm work list [--project <id>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
 		summary: "List compact plan summaries for current, deferred, completed, or all work.",
 	},
 	{
-		usage:   "acm work search --project <id> (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
+		usage:   "acm work search [--project <id>] (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
 		summary: "Search plan and task history without direct database access.",
 	},
 	{
-		usage:   "acm history search --project <id> [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--limit <n>] [--unbounded[=true|false]]",
+		usage:   "acm history search [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--limit <n>] [--unbounded[=true|false]]",
 		summary: "Search recent work, memory, receipt, and run history without direct database access.",
 	},
 	{
-		usage:   "acm report-completion --project <id> --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--files-changed-json <json>] [--scope-mode <mode>] [--tags-file <path>]",
-		summary: "Close a receipt, validate scope, and persist the completion summary.",
+		usage:   "acm report-completion [--project <id>] --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--files-changed-json <json>] [--scope-mode <mode>] [--tags-file <path>]",
+		summary: "Close a receipt, validate scope, and enforce configured completion task gates.",
+	},
+	{
+		usage:   "acm review [--project <id>] [--receipt-id <id>|--plan-key <key>] [--run] [--key <task-key>] [--summary <text>] [--status <pending|in_progress|complete|blocked>] [--outcome <text>|--outcome-file <path>] [--blocked-reason <text>] [--evidence <text>]... [--evidence-file <path>|--evidence-json <json>] [--tags-file <path>]",
+		summary: "Record or execute a single review gate such as `review:cross-llm` through the work tracker.",
 	},
 }
 
 var maintenanceCommands = []helpCommand{
 	{
-		usage:   "acm sync --project <id> [--mode changed|full|working_tree] [--git-range <range>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--insert-new-candidates[=true|false]]",
+		usage:   "acm sync [--project <id>] [--mode changed|full|working_tree] [--git-range <range>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--insert-new-candidates[=true|false]]",
 		summary: "Refresh repository pointers and canonical rules from the working tree or git history.",
 	},
 	{
@@ -77,28 +81,28 @@ var maintenanceCommands = []helpCommand{
 		summary: "Alias for `acm health-check`.",
 	},
 	{
-		usage:   "acm health-check --project <id> [--include-details[=true|false]] [--max-findings-per-check <n>]",
+		usage:   "acm health-check [--project <id>] [--include-details[=true|false]] [--max-findings-per-check <n>]",
 		summary: "Inspect repository health without making changes.",
 	},
 	{
-		usage:   "acm health-fix --project <id> [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--fixer <name>]...",
+		usage:   "acm health-fix [--project <id>] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--fixer <name>]...",
 		summary: "Plan or apply repair actions such as sync_working_tree, index_uncovered_files, and sync_ruleset.",
 	},
 	{
-		usage:   "acm coverage --project <id> [--project-root <path>]",
+		usage:   "acm coverage [--project <id>] [--project-root <path>]",
 		summary: "Measure repository indexing coverage against the current project tree.",
 	},
 	{
-		usage:   "acm eval --project <id> (--eval-suite-path <path> | --eval-suite-inline-file <path> | --eval-suite-inline-json <json>) [--minimum-recall <0..1>] [--tags-file <path>]",
+		usage:   "acm eval [--project <id>] (--eval-suite-path <path> | --eval-suite-inline-file <path> | --eval-suite-inline-json <json>) [--minimum-recall <0..1>] [--tags-file <path>]",
 		summary: "Run retrieval-quality evaluation cases against ACM context selection.",
 	},
 	{
-		usage:   "acm verify --project <id> [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]",
+		usage:   "acm verify [--project <id>] [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]",
 		summary: "Select and execute repo-defined verification checks from `.acm/acm-tests.yaml` or `acm-tests.yaml`.",
 	},
 	{
-		usage:   "acm bootstrap --project <id> --project-root <path> [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--output-candidates-path <path>]",
-		summary: "Seed repo-local ACM files and scan a repository for initial pointer candidates.",
+		usage:   "acm bootstrap [--project <id>] [--project-root <path>] [--apply-template <id>]... [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--output-candidates-path <path>]",
+		summary: "Seed repo-local ACM files, optionally apply additive templates, and scan a repository for initial pointer candidates.",
 	},
 }
 
@@ -134,6 +138,7 @@ func main() {
 		"fetch",
 		"propose-memory",
 		"report-completion",
+		"review",
 		"sync",
 		"health",
 		"health-check",
@@ -249,7 +254,9 @@ func validate(ctx context.Context, logger logging.Logger, args []string) int {
 		return 2
 	}
 	logger.Info(ctx, logging.EventACMIORead, "stage", "read_input", "subcommand", "validate", "ok", true, "bytes", len(b))
-	_, _, valErr := v1.DecodeAndValidateCommand(b)
+	_, _, valErr := v1.DecodeAndValidateCommandWithDefaults(b, v1.ValidationDefaults{
+		ProjectID: runtime.ConfigFromEnv().EffectiveProjectID(),
+	})
 	if valErr != nil {
 		logger.Error(ctx, logging.EventACMRun, "stage", "validate", "subcommand", "validate", "ok", false, "error_code", valErr.Code)
 		fmt.Printf("{\n  \"ok\": false,\n  \"error\": {\n    \"code\": %q,\n    \"message\": %q\n  }\n}\n", valErr.Code, valErr.Message)
@@ -304,7 +311,7 @@ func printMainUsage(w io.Writer) {
 	printHelpCommands(w, maintenanceCommands)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Shared Conventions:")
-	fmt.Fprintln(w, "  - Every convenience command requires `--project` or `--project-id`.")
+	fmt.Fprintln(w, "  - Convenience commands accept optional `--project` or `--project-id`; explicit values override env and repo-root defaults.")
 	fmt.Fprintln(w, "  - Run `acm <subcommand> --help` for exhaustive flags and examples for one command.")
 	fmt.Fprintln(w, "  - `--project` and `--project-id` are aliases on convenience commands.")
 	fmt.Fprintln(w, "  - `--request` and `--request-id` are aliases on convenience commands.")
@@ -322,14 +329,17 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Config Resolution:")
 	fmt.Fprintln(w, "  1. Process environment (`ACM_*`) wins.")
-	fmt.Fprintln(w, "  2. `ACM_PROJECT_ROOT` can pin the project root when the current shell is elsewhere.")
-	fmt.Fprintln(w, "  3. Repo-root `.env` is loaded when present.")
-	fmt.Fprintln(w, "  4. If `ACM_PG_DSN` is set, Postgres is used.")
-	fmt.Fprintln(w, "  5. Otherwise SQLite defaults to `<repo-root>/.acm/context.db`.")
-	fmt.Fprintln(w, "  6. Outside a repo, SQLite defaults to `<cwd>/.acm/context.db`.")
+	fmt.Fprintln(w, "  2. `--project` / `project_id` wins when provided.")
+	fmt.Fprintln(w, "  3. Otherwise `ACM_PROJECT_ID` sets the default project namespace.")
+	fmt.Fprintln(w, "  4. Otherwise the repo-root name is inferred, using `ACM_PROJECT_ROOT` when the shell is elsewhere.")
+	fmt.Fprintln(w, "  5. Repo-root `.env` is loaded when present.")
+	fmt.Fprintln(w, "  6. If `ACM_PG_DSN` is set, Postgres is used.")
+	fmt.Fprintln(w, "  7. Otherwise SQLite defaults to `<repo-root>/.acm/context.db`.")
+	fmt.Fprintln(w, "  8. Outside a repo, SQLite defaults to `<cwd>/.acm/context.db`.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Environment Variables:")
 	fmt.Fprintln(w, "  - `ACM_PG_DSN`: Postgres DSN. If set, Postgres is the active backend.")
+	fmt.Fprintln(w, "  - `ACM_PROJECT_ID`: Optional default project identifier for convenience, run, validate, and MCP tool calls.")
 	fmt.Fprintln(w, "  - `ACM_PROJECT_ROOT`: Optional explicit repo root when running acm from another directory.")
 	fmt.Fprintln(w, "  - `ACM_SQLITE_PATH`: Optional explicit SQLite path. Relative paths resolve from the detected project root.")
 	fmt.Fprintln(w, "  - `ACM_UNBOUNDED`: `true|false`. When true, retrieval/list surfaces stop applying built-in result caps.")
@@ -341,24 +351,29 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  - `.acm/acm-rules.yaml` or `acm-rules.yaml`: canonical rules.")
 	fmt.Fprintln(w, "  - `.acm/acm-tags.yaml`: repo-local canonical tag overrides.")
 	fmt.Fprintln(w, "  - `.acm/acm-tests.yaml` or `acm-tests.yaml`: repo-local executable verification definitions.")
+	fmt.Fprintln(w, "  - `.acm/acm-workflows.yaml` or `acm-workflows.yaml`: repo-local completion gate definitions.")
 	fmt.Fprintln(w, "  - `.env`: repo-local runtime/env overrides, loaded automatically.")
 	fmt.Fprintln(w, "  - `.env.example`: seeded bootstrap example for ACM runtime variables.")
 	fmt.Fprintln(w, "  - `.acm/bootstrap_candidates.json`: optional persisted bootstrap candidate output.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "First-Run Recovery:")
 	fmt.Fprintln(w, "  # zero-config local bootstrap")
-	fmt.Fprintln(w, "  acm bootstrap --project myproject --project-root .")
-	fmt.Fprintln(w, "  acm health --project myproject --include-details")
+	fmt.Fprintln(w, "  acm bootstrap")
+	fmt.Fprintln(w, "  # later, opt into additive starter templates without overwriting edited files")
+	fmt.Fprintln(w, "  acm bootstrap --apply-template starter-contract --apply-template verify-go")
+	fmt.Fprintln(w, "  acm health --include-details")
 	fmt.Fprintln(w, "  # after later edits, refresh changed files")
-	fmt.Fprintln(w, "  acm sync --project myproject --mode working_tree --insert-new-candidates")
+	fmt.Fprintln(w, "  acm sync --mode working_tree --insert-new-candidates")
 	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  # pin a stable namespace when the folder name is not what you want")
+	fmt.Fprintln(w, "  export ACM_PROJECT_ID=myproject")
 	fmt.Fprintln(w, "  # force explicit local SQLite")
 	fmt.Fprintln(w, "  export ACM_SQLITE_PATH=.acm/context.db")
-	fmt.Fprintln(w, "  acm health --project myproject --include-details")
+	fmt.Fprintln(w, "  acm health --include-details")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "  # switch to Postgres")
 	fmt.Fprintln(w, "  export ACM_PG_DSN='postgres://user:pass@localhost:5432/agents_context?sslmode=disable'")
-	fmt.Fprintln(w, "  acm health --project myproject --include-details")
+	fmt.Fprintln(w, "  acm health --include-details")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "More Help:")
 	fmt.Fprintln(w, "  - `acm-mcp --help` describes the MCP adapter surface.")

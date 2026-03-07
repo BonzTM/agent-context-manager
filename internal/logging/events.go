@@ -4,6 +4,7 @@ const (
 	OperationGetContext       = "get_context"
 	OperationFetch            = "fetch"
 	OperationProposeMemory    = "propose_memory"
+	OperationReview           = "review"
 	OperationWork             = "work"
 	OperationHistorySearch    = "history_search"
 	OperationReportCompletion = "report_completion"

@@ -25,6 +25,10 @@ func (s *Service) ProposeMemory(_ context.Context, _ v1.ProposeMemoryPayload) (v
 	return v1.ProposeMemoryResult{}, notImplemented("propose_memory")
 }
 
+func (s *Service) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
+	return v1.ReviewResult{}, notImplemented("review")
+}
+
 func (s *Service) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *core.APIError) {
 	return v1.WorkResult{}, notImplemented("work")
 }

@@ -370,12 +370,12 @@ type MemoryHistoryListQuery struct {
 }
 
 type MemoryHistorySummary struct {
-	MemoryID    int64
-	Category    string
-	Subject     string
-	Content     string
-	Confidence  int
-	UpdatedAt   time.Time
+	MemoryID   int64
+	Category   string
+	Subject    string
+	Content    string
+	Confidence int
+	UpdatedAt  time.Time
 }
 
 type RunHistoryListQuery struct {
@@ -400,6 +400,34 @@ type RunHistorySummary struct {
 	FilesChanged []string
 	Outcome      string
 	UpdatedAt    time.Time
+}
+
+type ReviewAttempt struct {
+	AttemptID          int64
+	ProjectID          string
+	ReceiptID          string
+	PlanKey            string
+	ReviewKey          string
+	Summary            string
+	Fingerprint        string
+	Status             string
+	Passed             bool
+	Outcome            string
+	WorkflowSourcePath string
+	CommandArgv        []string
+	CommandCWD         string
+	TimeoutSec         int
+	ExitCode           *int
+	TimedOut           bool
+	StdoutExcerpt      string
+	StderrExcerpt      string
+	CreatedAt          time.Time
+}
+
+type ReviewAttemptListQuery struct {
+	ProjectID string
+	ReceiptID string
+	ReviewKey string
 }
 
 type VerificationBatch struct {
@@ -449,6 +477,8 @@ type Repository interface {
 	LookupMemoryByID(context.Context, MemoryLookupQuery) (ActiveMemory, error)
 	PersistProposedMemory(context.Context, ProposeMemoryPersistence) (ProposeMemoryPersistenceResult, error)
 	SaveRunReceiptSummary(context.Context, RunReceiptSummary) (RunReceiptIDs, error)
+	SaveReviewAttempt(context.Context, ReviewAttempt) (int64, error)
+	ListReviewAttempts(context.Context, ReviewAttemptListQuery) ([]ReviewAttempt, error)
 	UpsertWorkItems(context.Context, WorkItemsUpsertInput) (int, error)
 	ListWorkItems(context.Context, FetchLookupQuery) ([]WorkItem, error)
 	ApplySync(context.Context, SyncApplyInput) (SyncApplyResult, error)

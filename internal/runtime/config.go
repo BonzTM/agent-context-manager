@@ -5,15 +5,18 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bonztm/agent-context-manager/internal/projectid"
 	"github.com/bonztm/agent-context-manager/internal/workspace"
 )
 
 const PostgresDSNEnvVar = "ACM_PG_DSN"
 const SQLitePathEnvVar = "ACM_SQLITE_PATH"
+const ProjectIDEnvVar = "ACM_PROJECT_ID"
 const ProjectRootEnvVar = "ACM_PROJECT_ROOT"
 
 type Config struct {
 	PostgresDSN   string
+	ProjectID     string
 	SQLitePath    string
 	ProjectRoot   string
 	ProjectIsRepo bool
@@ -23,6 +26,7 @@ func ConfigFromEnv() Config {
 	env := loadRuntimeEnv("", os.LookupEnv)
 	return Config{
 		PostgresDSN:   env.Get(PostgresDSNEnvVar),
+		ProjectID:     env.Get(ProjectIDEnvVar),
 		SQLitePath:    env.Get(SQLitePathEnvVar),
 		ProjectRoot:   strings.TrimSpace(env.projectRoot),
 		ProjectIsRepo: env.projectIsRepo,
@@ -52,6 +56,17 @@ func (c Config) EffectiveSQLitePath() string {
 
 func (c Config) UsesImplicitSQLitePath() bool {
 	return strings.TrimSpace(c.SQLitePath) == ""
+}
+
+func (c Config) EffectiveProjectRoot() string {
+	return c.effectiveProjectRoot()
+}
+
+func (c Config) EffectiveProjectID() string {
+	if projectID := strings.TrimSpace(c.ProjectID); projectID != "" {
+		return projectID
+	}
+	return projectid.FromRoot(c.effectiveProjectRoot())
 }
 
 func (c Config) effectiveProjectRoot() string {

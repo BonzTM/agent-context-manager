@@ -9,10 +9,12 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/runtime"
 )
 
 const (
 	toolFetch         = "fetch"
+	toolReview        = "review"
 	toolWork          = "work"
 	toolHistorySearch = "history_search"
 	toolSync          = "sync"
@@ -61,6 +63,13 @@ func ToolDefinitions() []ToolDef {
 			Description:  "Validate changed files against the active receipt and persist run summary.",
 			InputSchema:  schemaRef(commandSchemaID, "reportCompletionPayload"),
 			OutputSchema: schemaRef(resultSchemaID, "reportCompletionResult"),
+		},
+		{
+			Name:         toolReview,
+			Title:        "Record Review Gate",
+			Description:  "Record or execute a single review task gate such as review:cross-llm through the work tracker.",
+			InputSchema:  schemaRef(commandSchemaID, "reviewPayload"),
+			OutputSchema: schemaRef(resultSchemaID, "reviewResult"),
 		},
 		{
 			Name:         toolWork,
@@ -121,7 +130,7 @@ func ToolDefinitions() []ToolDef {
 		{
 			Name:         toolBootstrap,
 			Title:        "Bootstrap Repository",
-			Description:  "Scan a repository and generate or persist initial ACM candidates.",
+			Description:  "Scan a repository, seed ACM files, and optionally apply additive bootstrap templates.",
 			InputSchema:  schemaRef(commandSchemaID, "bootstrapPayload"),
 			OutputSchema: schemaRef(resultSchemaID, "bootstrapResult"),
 		},
@@ -173,6 +182,12 @@ func InvokeWithLogger(ctx context.Context, svc core.Service, tool string, input 
 			return p.ProjectID
 		}, func(p v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
 			return svc.ReportCompletion(ctx, p)
+		})
+	case toolReview:
+		return invokeTypedTool(ctx, logger, tool, input, func(p v1.ReviewPayload) string {
+			return p.ProjectID
+		}, func(p v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
+			return svc.Review(ctx, p)
 		})
 	case toolWork:
 		return invokeTypedTool(ctx, logger, tool, input, func(p v1.WorkPayload) string {
@@ -239,18 +254,20 @@ func InvokeWithLogger(ctx context.Context, svc core.Service, tool string, input 
 
 func invokeTypedTool[Payload any, Result any](ctx context.Context, logger logging.Logger, tool string, input []byte, projectID func(Payload) string, run func(Payload) (Result, *core.APIError)) (any, *core.APIError) {
 	rawProjectID := projectIDFromRawToolInput(input)
-	if err := validateRawToolInput(tool, json.RawMessage(input)); err != nil {
-		return mcpToolInputError(ctx, logger, tool, rawProjectID, err)
+	defaults := validationDefaultsFromRuntime()
+	effectiveProjectID := rawProjectID
+	if effectiveProjectID == "" {
+		effectiveProjectID = defaults.ProjectID
 	}
 
-	var payload Payload
-	if err := json.Unmarshal(input, &payload); err != nil {
-		return mcpToolInputError(ctx, logger, tool, rawProjectID, err)
+	payload, err := decodeValidatedToolPayload[Payload](tool, json.RawMessage(input), defaults)
+	if err != nil {
+		return mcpToolInputError(ctx, logger, tool, effectiveProjectID, err)
 	}
 
 	normalizedProjectID := strings.TrimSpace(projectID(payload))
 	if normalizedProjectID == "" {
-		normalizedProjectID = rawProjectID
+		normalizedProjectID = effectiveProjectID
 	}
 	logMCPValidateSuccess(ctx, logger, tool, normalizedProjectID)
 	logMCPDispatchStart(ctx, logger, tool, normalizedProjectID)
@@ -265,7 +282,8 @@ func invokeTypedTool[Payload any, Result any](ctx context.Context, logger loggin
 	return result, nil
 }
 
-func validateRawToolInput(tool string, raw json.RawMessage) error {
+func decodeValidatedToolPayload[Payload any](tool string, raw json.RawMessage, defaults v1.ValidationDefaults) (Payload, error) {
+	var zero Payload
 	wrapped := map[string]any{
 		"version":    v1.Version,
 		"command":    tool,
@@ -274,13 +292,24 @@ func validateRawToolInput(tool string, raw json.RawMessage) error {
 	}
 	blob, err := json.Marshal(wrapped)
 	if err != nil {
-		return err
+		return zero, err
 	}
-	_, _, valErr := v1.DecodeAndValidateCommand(blob)
+	_, payload, valErr := v1.DecodeAndValidateCommandWithDefaults(blob, defaults)
 	if valErr != nil {
-		return fmt.Errorf("%s: %s", valErr.Code, valErr.Message)
+		return zero, fmt.Errorf("%s: %s", valErr.Code, valErr.Message)
 	}
-	return nil
+	typed, ok := payload.(Payload)
+	if !ok {
+		return zero, fmt.Errorf("validated payload type mismatch for tool %s", tool)
+	}
+	return typed, nil
+}
+
+func validationDefaultsFromRuntime() v1.ValidationDefaults {
+	cfg := runtime.ConfigFromEnv()
+	return v1.ValidationDefaults{
+		ProjectID: cfg.EffectiveProjectID(),
+	}
 }
 
 func projectIDFromRawToolInput(input []byte) string {

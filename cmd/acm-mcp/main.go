@@ -78,7 +78,7 @@ func invokeWithDeps(ctx context.Context, logger logging.Logger, args []string, s
 
 	fs := flag.NewFlagSet("invoke", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	tool := fs.String("tool", "", "tool name: get_context|fetch|propose_memory|report_completion|work|history_search|sync|health_check|health_fix|coverage|eval|verify|bootstrap")
+	tool := fs.String("tool", "", "tool name: get_context|fetch|propose_memory|report_completion|review|work|history_search|sync|health_check|health_fix|coverage|eval|verify|bootstrap")
 	in := fs.String("in", "-", "tool input JSON file or '-' for stdin")
 	if err := fs.Parse(args); err != nil {
 		logger.Error(ctx, logging.EventACMMCP, "stage", "parse_flags", "subcommand", "invoke", "ok", false, "error_code", "INVALID_FLAGS")
@@ -189,6 +189,8 @@ func commandForTool(tool string) (v1.Command, bool) {
 		return v1.CommandProposeMemory, true
 	case string(v1.CommandReportCompletion):
 		return v1.CommandReportCompletion, true
+	case string(v1.CommandReview):
+		return v1.CommandReview, true
 	case string(v1.CommandWork):
 		return v1.CommandWork, true
 	case string(v1.CommandHistorySearch):
@@ -228,16 +230,18 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  acm-mcp --version | -v")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "MCP v1 tools:")
-	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, work, history_search")
+	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, review, work, history_search")
 	fmt.Fprintln(w, "  sync, health_check, health_fix, coverage, eval, verify, bootstrap")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Config Resolution:")
 	fmt.Fprintln(w, "  1. Process environment (`ACM_*`) wins.")
-	fmt.Fprintln(w, "  2. `ACM_PROJECT_ROOT` can pin the project root when the current shell is elsewhere.")
-	fmt.Fprintln(w, "  3. Repo-root `.env` is loaded when present.")
-	fmt.Fprintln(w, "  4. `ACM_PG_DSN` takes precedence over SQLite.")
-	fmt.Fprintln(w, "  5. Default SQLite path is `<repo-root>/.acm/context.db`.")
-	fmt.Fprintln(w, "  6. `ACM_UNBOUNDED=true` removes built-in retrieval/list caps for supported tools.")
+	fmt.Fprintln(w, "  2. Input `project_id` wins when provided.")
+	fmt.Fprintln(w, "  3. Otherwise `ACM_PROJECT_ID` sets the default project namespace.")
+	fmt.Fprintln(w, "  4. Otherwise the repo-root name is inferred, using `ACM_PROJECT_ROOT` when the shell is elsewhere.")
+	fmt.Fprintln(w, "  5. Repo-root `.env` is loaded when present.")
+	fmt.Fprintln(w, "  6. `ACM_PG_DSN` takes precedence over SQLite.")
+	fmt.Fprintln(w, "  7. Default SQLite path is `<repo-root>/.acm/context.db`.")
+	fmt.Fprintln(w, "  8. `ACM_UNBOUNDED=true` removes built-in retrieval/list caps for supported tools.")
 }
 
 func printVersion(w io.Writer, binaryName string) {
@@ -258,6 +262,6 @@ func invokeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  --in <path>     JSON input file or '-' for stdin (default: -)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Tool names:")
-	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, work, history_search")
+	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, review, work, history_search")
 	fmt.Fprintln(w, "  sync, health_check, health_fix, coverage, eval, verify, bootstrap")
 }

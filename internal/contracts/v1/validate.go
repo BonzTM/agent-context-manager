@@ -7,6 +7,8 @@ import (
 	pathpkg "path"
 	"regexp"
 	"strings"
+
+	"github.com/bonztm/agent-context-manager/internal/projectid"
 )
 
 var (
@@ -18,7 +20,15 @@ var (
 	planKindRe   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 )
 
+type ValidationDefaults struct {
+	ProjectID string
+}
+
 func DecodeAndValidateCommand(data []byte) (CommandEnvelope, any, *ErrorPayload) {
+	return DecodeAndValidateCommandWithDefaults(data, ValidationDefaults{})
+}
+
+func DecodeAndValidateCommandWithDefaults(data []byte, defaults ValidationDefaults) (CommandEnvelope, any, *ErrorPayload) {
 	var env CommandEnvelope
 	if err := decodeStrict(data, &env); err != nil {
 		return CommandEnvelope{}, nil, validationError("INVALID_JSON", err.Error())
@@ -37,7 +47,7 @@ func DecodeAndValidateCommand(data []byte) (CommandEnvelope, any, *ErrorPayload)
 		return CommandEnvelope{}, nil, validationError("INVALID_PAYLOAD", "payload is required")
 	}
 
-	payload, errp := decodePayload(env.Command, env.Payload)
+	payload, errp := decodePayload(env.Command, env.Payload, normalizeValidationDefaults(defaults))
 	if errp != nil {
 		return CommandEnvelope{}, nil, errp
 	}
@@ -45,13 +55,14 @@ func DecodeAndValidateCommand(data []byte) (CommandEnvelope, any, *ErrorPayload)
 	return env, payload, nil
 }
 
-func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
+func decodePayload(command Command, raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 	switch command {
 	case CommandGetContext:
 		var p GetContextPayload
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 		if err := validateGetContextPayload(&p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
@@ -61,6 +72,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 		fields, err := decodeObjectFields(raw)
 		if err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
@@ -74,6 +86,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 		if err := validateProposeMemoryPayload(&p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
@@ -83,6 +96,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 		fields, err := decodeObjectFields(raw)
 		if err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
@@ -91,11 +105,26 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
 		return p, nil
+	case CommandReview:
+		var p ReviewPayload
+		if err := decodeStrict(raw, &p); err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
+		fields, err := decodeObjectFields(raw)
+		if err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		if err := validateReviewPayload(&p, fields); err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		return p, nil
 	case CommandWork:
 		var p WorkPayload
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 		if err := validateWorkPayload(&p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
@@ -105,6 +134,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 		if err := validateHistorySearchPayload(&p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
@@ -114,6 +144,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
 		if err := validateSyncPayload(&p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
@@ -123,6 +154,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 		if err := validateHealthCheckPayload(&p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
@@ -132,6 +164,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
 		fields, err := decodeObjectFields(raw)
 		if err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
@@ -145,6 +178,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
 		if err := validateCoveragePayload(&p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
@@ -154,6 +188,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 		if err := validateEvalPayload(&p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
@@ -163,6 +198,7 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
+		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 		fields, err := decodeObjectFields(raw)
 		if err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
@@ -176,7 +212,12 @@ func decodePayload(command Command, raw json.RawMessage) (any, *ErrorPayload) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
-		if err := validateBootstrapPayload(&p); err != nil {
+		p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
+		fields, err := decodeObjectFields(raw)
+		if err != nil {
+			return nil, validationError("INVALID_PAYLOAD", err.Error())
+		}
+		if err := validateBootstrapPayload(&p, fields); err != nil {
 			return nil, validationError("INVALID_PAYLOAD", err.Error())
 		}
 		return p, nil
@@ -191,6 +232,7 @@ func isValidCommand(command Command) bool {
 		CommandFetch,
 		CommandProposeMemory,
 		CommandReportCompletion,
+		CommandReview,
 		CommandWork,
 		CommandHistorySearch,
 		CommandSync,
@@ -336,6 +378,82 @@ func validateReportCompletionPayload(p *ReportCompletionPayload, fields map[stri
 	}
 	if err := validateRelativePathList(p.FilesChanged, 256, "files_changed"); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateReviewPayload(p *ReviewPayload, fields map[string]json.RawMessage) error {
+	if err := validateProjectID(p.ProjectID); err != nil {
+		return err
+	}
+
+	receiptID := strings.TrimSpace(p.ReceiptID)
+	planKey := strings.TrimSpace(p.PlanKey)
+	if receiptID == "" && planKey == "" {
+		return fmt.Errorf("either receipt_id or plan_key is required")
+	}
+	if receiptID != "" && !requestIDRe.MatchString(receiptID) {
+		return fmt.Errorf("receipt_id format is invalid")
+	}
+	if planKey != "" {
+		if err := validatePlanKeyFormat(planKey, "plan_key"); err != nil {
+			return err
+		}
+		derivedReceiptID := strings.TrimSpace(planKey[len("plan:"):])
+		if receiptID != "" && receiptID != derivedReceiptID {
+			return fmt.Errorf("plan_key and receipt_id must reference the same receipt")
+		}
+	}
+	if p.Key != "" {
+		if err := validateBoundedKey(p.Key, 512); err != nil {
+			return fmt.Errorf("key %w", err)
+		}
+	}
+	if p.Summary != "" {
+		trimmed := strings.TrimSpace(p.Summary)
+		if trimmed == "" || len(trimmed) > 600 {
+			return fmt.Errorf("summary must be 1..600 chars when provided")
+		}
+	}
+	if p.Status != "" {
+		if err := validateWorkItemStatusValue(p.Status, "status"); err != nil {
+			return err
+		}
+	}
+	if p.BlockedReason != "" {
+		trimmed := strings.TrimSpace(p.BlockedReason)
+		if trimmed == "" || len(trimmed) > 600 {
+			return fmt.Errorf("blocked_reason must be 1..600 chars when provided")
+		}
+	}
+	if p.Outcome != "" {
+		trimmed := strings.TrimSpace(p.Outcome)
+		if trimmed == "" || len(trimmed) > 1600 {
+			return fmt.Errorf("outcome must be 1..1600 chars when provided")
+		}
+	}
+	if err := validateOptionalArrayField(fields, "evidence", len(p.Evidence)); err != nil {
+		return err
+	}
+	if err := validateStringList(p.Evidence, 128, 1600, "evidence"); err != nil {
+		return err
+	}
+	if err := validateTagsFile(p.TagsFile); err != nil {
+		return err
+	}
+	if p.Run {
+		if p.Status != "" {
+			return fmt.Errorf("status must be omitted when run=true")
+		}
+		if strings.TrimSpace(p.Outcome) != "" {
+			return fmt.Errorf("outcome must be omitted when run=true")
+		}
+		if strings.TrimSpace(p.BlockedReason) != "" {
+			return fmt.Errorf("blocked_reason must be omitted when run=true")
+		}
+		if len(p.Evidence) > 0 {
+			return fmt.Errorf("evidence must be omitted when run=true")
+		}
 	}
 	return nil
 }
@@ -780,15 +898,12 @@ func validateVerifyPayload(p *VerifyPayload, fields map[string]json.RawMessage) 
 	return nil
 }
 
-func validateBootstrapPayload(p *BootstrapPayload) error {
+func validateBootstrapPayload(p *BootstrapPayload, fields map[string]json.RawMessage) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
-	if strings.TrimSpace(p.ProjectRoot) == "" {
-		return fmt.Errorf("project_root is required")
-	}
-	if len(strings.TrimSpace(p.ProjectRoot)) > 2048 {
-		return fmt.Errorf("project_root too long")
+	if err := validateOptionalProjectRoot(p.ProjectRoot); err != nil {
+		return err
 	}
 	if err := validateRulesFile(p.RulesFile); err != nil {
 		return err
@@ -803,6 +918,17 @@ func validateBootstrapPayload(p *BootstrapPayload) error {
 		}
 		if len(value) > 2048 {
 			return fmt.Errorf("output_candidates_path too long")
+		}
+	}
+	if err := validateOptionalArrayField(fields, "apply_templates", len(p.ApplyTemplates)); err != nil {
+		return err
+	}
+	if err := validateUniqueStrings(p.ApplyTemplates, "apply_templates"); err != nil {
+		return err
+	}
+	for i, templateID := range p.ApplyTemplates {
+		if err := validateBoundedKey(templateID, 128); err != nil {
+			return fmt.Errorf("apply_templates[%d] %w", i, err)
 		}
 	}
 	return nil
@@ -862,6 +988,29 @@ func validateProjectID(v string) error {
 		return fmt.Errorf("project_id format is invalid")
 	}
 	return nil
+}
+
+func normalizeValidationDefaults(defaults ValidationDefaults) ValidationDefaults {
+	return ValidationDefaults{
+		ProjectID: strings.TrimSpace(defaults.ProjectID),
+	}
+}
+
+func defaultProjectID(projectID string, defaults ValidationDefaults) string {
+	if trimmed := strings.TrimSpace(projectID); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(defaults.ProjectID)
+}
+
+func defaultProjectIDForRoot(projectID, projectRoot string, defaults ValidationDefaults) string {
+	if trimmed := strings.TrimSpace(projectID); trimmed != "" {
+		return trimmed
+	}
+	if inferred := projectid.FromRoot(projectRoot); inferred != "" {
+		return inferred
+	}
+	return strings.TrimSpace(defaults.ProjectID)
 }
 
 func validateScopeMode(mode ScopeMode) error {

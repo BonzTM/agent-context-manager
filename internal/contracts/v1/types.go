@@ -11,6 +11,7 @@ const (
 	CommandFetch            Command = "fetch"
 	CommandProposeMemory    Command = "propose_memory"
 	CommandReportCompletion Command = "report_completion"
+	CommandReview           Command = "review"
 	CommandWork             Command = "work"
 	CommandHistorySearch    Command = "history_search"
 	CommandSync             Command = "sync"
@@ -288,13 +289,14 @@ type VerifyPayload struct {
 }
 
 type BootstrapPayload struct {
-	ProjectID            string  `json:"project_id"`
-	ProjectRoot          string  `json:"project_root"`
-	RulesFile            string  `json:"rules_file,omitempty"`
-	TagsFile             string  `json:"tags_file,omitempty"`
-	PersistCandidates    *bool   `json:"persist_candidates,omitempty"`
-	RespectGitIgnore     *bool   `json:"respect_gitignore,omitempty"`
-	OutputCandidatesPath *string `json:"output_candidates_path,omitempty"`
+	ProjectID            string   `json:"project_id"`
+	ProjectRoot          string   `json:"project_root"`
+	RulesFile            string   `json:"rules_file,omitempty"`
+	TagsFile             string   `json:"tags_file,omitempty"`
+	PersistCandidates    *bool    `json:"persist_candidates,omitempty"`
+	RespectGitIgnore     *bool    `json:"respect_gitignore,omitempty"`
+	OutputCandidatesPath *string  `json:"output_candidates_path,omitempty"`
+	ApplyTemplates       []string `json:"apply_templates,omitempty"`
 }
 
 type ContextBudget struct {
@@ -569,9 +571,23 @@ type VerifyResult struct {
 }
 
 type BootstrapResult struct {
-	CandidateCount       int      `json:"candidate_count"`
-	IndexedStubs         int      `json:"indexed_stubs"`
-	CandidatesPersisted  bool     `json:"candidates_persisted"`
-	OutputCandidatesPath string   `json:"output_candidates_path,omitempty"`
-	Warnings             []string `json:"warnings,omitempty"`
+	CandidateCount       int                       `json:"candidate_count"`
+	IndexedStubs         int                       `json:"indexed_stubs"`
+	CandidatesPersisted  bool                      `json:"candidates_persisted"`
+	OutputCandidatesPath string                    `json:"output_candidates_path,omitempty"`
+	Warnings             []string                  `json:"warnings,omitempty"`
+	TemplateResults      []BootstrapTemplateResult `json:"template_results,omitempty"`
+}
+
+type BootstrapTemplateConflict struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+type BootstrapTemplateResult struct {
+	TemplateID       string                      `json:"template_id"`
+	Created          []string                    `json:"created,omitempty"`
+	Updated          []string                    `json:"updated,omitempty"`
+	Unchanged        []string                    `json:"unchanged,omitempty"`
+	SkippedConflicts []BootstrapTemplateConflict `json:"skipped_conflicts,omitempty"`
 }

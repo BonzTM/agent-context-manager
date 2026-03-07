@@ -21,6 +21,7 @@
         "get_context",
         "propose_memory",
         "report_completion",
+        "review",
         "history_search",
         "sync",
         "health_check",
@@ -208,6 +209,125 @@
         "run_id": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "reviewExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_path": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "command_argv": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "pattern": "^.*\\S.*$"
+          },
+          "minItems": 1,
+          "maxItems": 256
+        },
+        "command_cwd": {
+          "$ref": "shared.schema.json#/$defs/relativePath"
+        },
+        "timeout_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "timed_out": {
+          "type": "boolean"
+        },
+        "stdout_excerpt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600,
+          "pattern": "^.*\\S.*$"
+        },
+        "stderr_excerpt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600,
+          "pattern": "^.*\\S.*$"
+        }
+      }
+    },
+    "reviewResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_key",
+        "plan_status",
+        "updated",
+        "review_key",
+        "review_status"
+      ],
+      "properties": {
+        "plan_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "plan_status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "complete",
+            "blocked"
+          ]
+        },
+        "updated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "task_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "review_key": {
+          "$ref": "shared.schema.json#/$defs/contractKey"
+        },
+        "review_status": {
+          "$ref": "shared.schema.json#/$defs/workItemStatus"
+        },
+        "attempts_run": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passing_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fingerprint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "skipped_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "^.*\\S.*$"
+        },
+        "executed": {
+          "type": "boolean"
+        },
+        "execution": {
+          "$ref": "#/$defs/reviewExecution"
         }
       }
     },
@@ -671,8 +791,78 @@
             "maxLength": 500
           }
         },
+        "template_results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bootstrapTemplateResult"
+          },
+          "maxItems": 64
+        },
         "candidates_persisted": {
           "type": "boolean"
+        }
+      }
+    },
+    "bootstrapTemplateConflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "reason"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "shared.schema.json#/$defs/relativePath"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "bootstrapTemplateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template_id"
+      ],
+      "properties": {
+        "template_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "created": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "updated": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "unchanged": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "skipped_conflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bootstrapTemplateConflict"
+          },
+          "maxItems": 256
         }
       }
     },
@@ -1147,6 +1337,29 @@
         "properties": {
           "result": {
             "$ref": "#/$defs/reportCompletionResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "review"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/reviewResult"
           }
         }
       }

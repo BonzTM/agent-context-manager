@@ -2,6 +2,8 @@ package v1
 
 import (
 	"fmt"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -33,6 +35,51 @@ func TestDecodeAndValidateCommand_GetContextSuccess(t *testing.T) {
 	}
 	if p.TagsFile != "" {
 		t.Fatalf("expected empty tags_file by default, got %q", p.TagsFile)
+	}
+}
+
+func TestDecodeAndValidateCommandWithDefaults_FillsMissingProjectID(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"get_context",
+		"request_id":"req-12345",
+		"payload":{
+			"task_text":"fix preference save bug",
+			"phase":"execute"
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommandWithDefaults([]byte(json), ValidationDefaults{ProjectID: "env-project"})
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(GetContextPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.ProjectID != "env-project" {
+		t.Fatalf("unexpected project_id: %q", p.ProjectID)
+	}
+}
+
+func TestDecodeAndValidateCommand_RejectsMissingProjectIDWithoutDefaults(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"get_context",
+		"request_id":"req-12345",
+		"payload":{
+			"task_text":"fix preference save bug",
+			"phase":"execute"
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+	if !strings.Contains(errp.Message, "project_id") {
+		t.Fatalf("unexpected error message: %q", errp.Message)
 	}
 }
 
@@ -135,6 +182,116 @@ func TestDecodeAndValidateCommand_ReportCompletionRejectsEscapingPath(t *testing
 			"files_changed":["src/../.."],
 			"outcome":"done",
 			"scope_mode":"warn"
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
+func TestDecodeAndValidateCommand_ReviewSuccess(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"review",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"outcome":"Cross-LLM review passed with no blocking issues.",
+			"evidence":["review://cross-llm/run-1"]
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(ReviewPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.ProjectID != "my-cool-app" || p.ReceiptID != "receipt-1234" {
+		t.Fatalf("unexpected payload: %+v", p)
+	}
+}
+
+func TestDecodeAndValidateCommand_ReviewRequiresSelectionContext(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"review",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app"
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
+func TestDecodeAndValidateCommand_ReviewRejectsEmptyEvidenceArray(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"review",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"evidence":[]
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
+func TestDecodeAndValidateCommand_ReviewRunSuccess(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"review",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"run":true,
+			"tags_file":".acm/acm-tags.yaml"
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(ReviewPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if !p.Run || p.TagsFile != ".acm/acm-tags.yaml" {
+		t.Fatalf("unexpected payload: %+v", p)
+	}
+}
+
+func TestDecodeAndValidateCommand_ReviewRunRejectsManualOutcomeFields(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"review",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"run":true,
+			"status":"complete",
+			"outcome":"No blocking review findings."
 		}
 	}`
 	_, _, errp := DecodeAndValidateCommand([]byte(json))
@@ -887,6 +1044,7 @@ func TestDecodeAndValidateCommand_BootstrapPayloadPersistCandidates(t *testing.T
 			"project_id":"my-cool-app",
 			"project_root":".",
 			"tags_file":"custom-tags.json",
+			"apply_templates":["starter-contract","verify-go"],
 			"persist_candidates":true
 		}
 	}`
@@ -903,6 +1061,132 @@ func TestDecodeAndValidateCommand_BootstrapPayloadPersistCandidates(t *testing.T
 	}
 	if p.TagsFile != "custom-tags.json" {
 		t.Fatalf("unexpected tags_file: %q", p.TagsFile)
+	}
+	if want := []string{"starter-contract", "verify-go"}; !reflect.DeepEqual(p.ApplyTemplates, want) {
+		t.Fatalf("unexpected apply_templates: got %v want %v", p.ApplyTemplates, want)
+	}
+}
+
+func TestDecodeAndValidateCommand_BootstrapAllowsInferredDefaults(t *testing.T) {
+	validJSON := `{
+		"version":"acm.v1",
+		"command":"bootstrap",
+		"request_id":"req-12345",
+		"payload":{
+			"respect_gitignore":true
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommandWithDefaults([]byte(validJSON), ValidationDefaults{ProjectID: "env-project"})
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(BootstrapPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.ProjectID != "env-project" {
+		t.Fatalf("unexpected project_id: %q", p.ProjectID)
+	}
+	if p.ProjectRoot != "" {
+		t.Fatalf("expected empty project_root for runtime inference, got %q", p.ProjectRoot)
+	}
+	if p.RespectGitIgnore == nil || !*p.RespectGitIgnore {
+		t.Fatalf("expected respect_gitignore=true, got %+v", p.RespectGitIgnore)
+	}
+}
+
+func TestDecodeAndValidateCommand_ProjectRootOverridesDefaultProjectID(t *testing.T) {
+	projectRoot := filepath.Join("tmp", "Target Repo")
+	tests := []struct {
+		name    string
+		command Command
+		payload string
+		assert  func(t *testing.T, payload any)
+	}{
+		{
+			name:    "sync",
+			command: CommandSync,
+			payload: fmt.Sprintf(`{"project_root":%q}`, projectRoot),
+			assert: func(t *testing.T, payload any) {
+				t.Helper()
+				p := payload.(SyncPayload)
+				if got, want := p.ProjectID, "Target-Repo"; got != want {
+					t.Fatalf("unexpected project_id: got %q want %q", got, want)
+				}
+			},
+		},
+		{
+			name:    "health_fix",
+			command: CommandHealthFix,
+			payload: fmt.Sprintf(`{"project_root":%q}`, projectRoot),
+			assert: func(t *testing.T, payload any) {
+				t.Helper()
+				p := payload.(HealthFixPayload)
+				if got, want := p.ProjectID, "Target-Repo"; got != want {
+					t.Fatalf("unexpected project_id: got %q want %q", got, want)
+				}
+			},
+		},
+		{
+			name:    "coverage",
+			command: CommandCoverage,
+			payload: fmt.Sprintf(`{"project_root":%q}`, projectRoot),
+			assert: func(t *testing.T, payload any) {
+				t.Helper()
+				p := payload.(CoveragePayload)
+				if got, want := p.ProjectID, "Target-Repo"; got != want {
+					t.Fatalf("unexpected project_id: got %q want %q", got, want)
+				}
+			},
+		},
+		{
+			name:    "bootstrap",
+			command: CommandBootstrap,
+			payload: fmt.Sprintf(`{"project_root":%q}`, projectRoot),
+			assert: func(t *testing.T, payload any) {
+				t.Helper()
+				p := payload.(BootstrapPayload)
+				if got, want := p.ProjectID, "Target-Repo"; got != want {
+					t.Fatalf("unexpected project_id: got %q want %q", got, want)
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			json := fmt.Sprintf(`{
+				"version":"acm.v1",
+				"command":%q,
+				"request_id":"req-12345",
+				"payload":%s
+			}`, tc.command, tc.payload)
+			_, payload, errp := DecodeAndValidateCommandWithDefaults([]byte(json), ValidationDefaults{ProjectID: "env-project"})
+			if errp != nil {
+				t.Fatalf("unexpected error: %+v", errp)
+			}
+			tc.assert(t, payload)
+		})
+	}
+}
+
+func TestDecodeAndValidateCommand_BootstrapRejectsEmptyApplyTemplates(t *testing.T) {
+	invalidJSON := `{
+		"version":"acm.v1",
+		"command":"bootstrap",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"project_root":".",
+			"apply_templates":[]
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(invalidJSON))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
 	}
 }
 

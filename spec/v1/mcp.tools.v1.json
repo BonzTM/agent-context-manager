@@ -17,8 +17,8 @@
       "items": {
         "$ref": "#/$defs/toolContract"
       },
-      "minItems": 13,
-      "maxItems": 13
+      "minItems": 14,
+      "maxItems": 14
     }
   },
   "$defs": {
@@ -40,6 +40,7 @@
             "fetch",
             "propose_memory",
             "report_completion",
+            "review",
             "work",
             "history_search",
             "sync",
@@ -92,6 +93,12 @@
     },
     "reportCompletionOutput": {
       "$ref": "cli.result.schema.json#/$defs/reportCompletionResult"
+    },
+    "reviewInput": {
+      "$ref": "cli.command.schema.json#/$defs/reviewPayload"
+    },
+    "reviewOutput": {
+      "$ref": "cli.result.schema.json#/$defs/reviewResult"
     },
     "workInput": {
       "$ref": "cli.command.schema.json#/$defs/workPayload"
@@ -203,6 +210,19 @@
       }
     },
     {
+      "name": "review",
+      "title": "Record Review Gate",
+      "description": "Record or execute a single review task gate such as review:cross-llm through the work tracker.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reviewPayload"
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reviewResult"
+      }
+    },
+    {
       "name": "work",
       "title": "Submit Completion Work",
       "description": "Submit plan-scoped work item updates with status and optional outcomes.",
@@ -309,7 +329,7 @@
     {
       "name": "bootstrap",
       "title": "Bootstrap Repository",
-      "description": "Scan a repository and generate or persist initial ACM candidates.",
+      "description": "Scan a repository, seed ACM files, and optionally apply additive bootstrap templates.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/bootstrapPayload"

@@ -11,10 +11,16 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/runtime"
 	"github.com/bonztm/agent-context-manager/internal/service/unconfigured"
 )
 
 type fakeService struct{}
+
+type capturingService struct {
+	fakeService
+	coveragePayload v1.CoveragePayload
+}
 
 func (f fakeService) GetContext(_ context.Context, _ v1.GetContextPayload) (v1.GetContextResult, *core.APIError) {
 	return v1.GetContextResult{Status: "insufficient_context"}, nil
@@ -26,6 +32,16 @@ func (f fakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult
 
 func (f fakeService) ProposeMemory(_ context.Context, _ v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *core.APIError) {
 	return v1.ProposeMemoryResult{CandidateID: 1, Status: "pending", Validation: v1.ProposeMemoryValidation{HardPassed: true, SoftPassed: true}}, nil
+}
+
+func (f fakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
+	return v1.ReviewResult{
+		PlanKey:      "plan:receipt-1234",
+		PlanStatus:   "pending",
+		Updated:      1,
+		ReviewKey:    v1.DefaultReviewTaskKey,
+		ReviewStatus: v1.WorkItemStatusComplete,
+	}, nil
 }
 
 func (f fakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *core.APIError) {
@@ -68,6 +84,11 @@ func (f fakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.Boo
 	return v1.BootstrapResult{}, nil
 }
 
+func (c *capturingService) Coverage(_ context.Context, payload v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {
+	c.coveragePayload = payload
+	return v1.CoverageResult{}, nil
+}
+
 func TestInvoke_UnknownTool(t *testing.T) {
 	_, err := Invoke(context.Background(), fakeService{}, "unknown", []byte(`{}`))
 	if err == nil {
@@ -86,6 +107,35 @@ func TestInvoke_GetContext(t *testing.T) {
 	}
 	if _, ok := result.(v1.GetContextResult); !ok {
 		t.Fatalf("unexpected result type: %T", result)
+	}
+}
+
+func TestInvoke_DefaultsProjectIDFromEnv(t *testing.T) {
+	t.Setenv(runtime.ProjectIDEnvVar, "env-project")
+
+	result, err := Invoke(context.Background(), fakeService{}, "get_context", []byte(`{"task_text":"x","phase":"execute"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.(v1.GetContextResult); !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+}
+
+func TestInvoke_ProjectRootInferenceOverridesEnvProjectID(t *testing.T) {
+	t.Setenv(runtime.ProjectIDEnvVar, "env-project")
+	projectRoot := filepath.Join(t.TempDir(), "Target Repo")
+	svc := &capturingService{}
+
+	result, err := Invoke(context.Background(), svc, toolCoverage, []byte(`{"project_root":"`+projectRoot+`"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.(v1.CoverageResult); !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+	if got, want := svc.coveragePayload.ProjectID, "Target-Repo"; got != want {
+		t.Fatalf("unexpected inferred project_id: got %q want %q", got, want)
 	}
 }
 
@@ -115,6 +165,15 @@ func TestInvoke_FetchAndWork(t *testing.T) {
 	}
 	if _, ok := workResult.(v1.WorkResult); !ok {
 		t.Fatalf("unexpected work result type: %T", workResult)
+	}
+
+	reviewPayload := []byte(`{"project_id":"my-cool-app","receipt_id":"receipt-1234","outcome":"No blocking review findings."}`)
+	reviewResult, reviewErr := Invoke(context.Background(), fakeService{}, toolReview, reviewPayload)
+	if reviewErr != nil {
+		t.Fatalf("unexpected review error: %v", reviewErr)
+	}
+	if _, ok := reviewResult.(v1.ReviewResult); !ok {
+		t.Fatalf("unexpected review result type: %T", reviewResult)
 	}
 }
 
@@ -228,8 +287,8 @@ func TestInvoke_RemainingTools(t *testing.T) {
 
 func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 	defs := ToolDefinitions()
-	if len(defs) != 13 {
-		t.Fatalf("unexpected tool count: got %d want 13", len(defs))
+	if len(defs) != 14 {
+		t.Fatalf("unexpected tool count: got %d want 14", len(defs))
 	}
 
 	expectedInputRefs := map[string]string{
@@ -237,6 +296,7 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"fetch":             "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/fetchPayload",
 		"propose_memory":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/proposeMemoryPayload",
 		"report_completion": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reportCompletionPayload",
+		"review":            "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reviewPayload",
 		"work":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/workPayload",
 		"history_search":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/historySearchPayload",
 		"sync":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/syncPayload",
@@ -252,6 +312,7 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"fetch":             "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/fetchResult",
 		"propose_memory":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/proposeMemoryResult",
 		"report_completion": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reportCompletionResult",
+		"review":            "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reviewResult",
 		"work":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/workResult",
 		"history_search":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/historySearchResult",
 		"sync":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/syncResult",

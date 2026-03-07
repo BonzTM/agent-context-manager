@@ -10,6 +10,7 @@ type Service interface {
 	GetContext(context.Context, v1.GetContextPayload) (v1.GetContextResult, *APIError)
 	Fetch(context.Context, v1.FetchPayload) (v1.FetchResult, *APIError)
 	ProposeMemory(context.Context, v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *APIError)
+	Review(context.Context, v1.ReviewPayload) (v1.ReviewResult, *APIError)
 	Work(context.Context, v1.WorkPayload) (v1.WorkResult, *APIError)
 	HistorySearch(context.Context, v1.HistorySearchPayload) (v1.HistorySearchResult, *APIError)
 	ReportCompletion(context.Context, v1.ReportCompletionPayload) (v1.ReportCompletionResult, *APIError)

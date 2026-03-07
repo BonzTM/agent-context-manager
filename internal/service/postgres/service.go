@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	bootstrapkit "github.com/bonztm/agent-context-manager/internal/bootstrap"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/workspace"
@@ -52,6 +53,7 @@ var healthTagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
 
 type gitRunnerFunc func(ctx context.Context, projectRoot string, args ...string) (string, error)
+type reviewRunnerFunc func(ctx context.Context, projectRoot string, command workflowRunDefinition, extraEnv map[string]string) verifyCommandRun
 
 type syncPathRecord struct {
 	Path        string
@@ -101,6 +103,7 @@ type Service struct {
 	repo             core.Repository
 	runGitCommand    gitRunnerFunc
 	runVerifyCommand verifyRunnerFunc
+	runReviewCommand reviewRunnerFunc
 	projectRoot      string
 }
 
@@ -116,6 +119,7 @@ func NewWithProjectRoot(repo core.Repository, projectRoot string) (*Service, err
 		repo:             repo,
 		runGitCommand:    runGitCommand,
 		runVerifyCommand: runVerifyCommand,
+		runReviewCommand: runWorkflowReviewCommand,
 		projectRoot:      normalizeSyncProjectRoot(projectRoot),
 	}, nil
 }
@@ -820,7 +824,29 @@ func (s *Service) ReportCompletion(ctx context.Context, payload v1.ReportComplet
 		return v1.ReportCompletionResult{}, reportCompletionInternalError("list_work_items", err)
 	}
 
-	definitionOfDoneIssues := evaluateDefinitionOfDoneIssues(workItems, filesChanged)
+	workflowRequirements, workflowSource, err := s.loadWorkflowCompletionRequirements(s.defaultProjectRoot(), payload.TagsFile)
+	if err != nil {
+		return v1.ReportCompletionResult{}, workflowDefinitionsAPIError(workflowSource.SourcePath, err)
+	}
+	requiredTaskKeys := defaultCompletionRequiredTaskKeys()
+	var requiredWorkflowDefinitions []workflowRequiredTaskDefinition
+	if hasConfiguredWorkflowRequiredTasks(workflowSource, workflowRequirements) {
+		requiredWorkflowDefinitions = matchWorkflowRequiredTaskDefinitions(workflowRequirements, verifySelectionContext{
+			Phase:        v1.Phase(strings.TrimSpace(scope.Phase)),
+			Tags:         normalizeValues(scope.ResolvedTags),
+			PointerKeys:  normalizeValues(scope.PointerKeys),
+			FilesChanged: filesChanged,
+		})
+		requiredTaskKeys = make([]string, 0, len(requiredWorkflowDefinitions))
+		for _, definition := range requiredWorkflowDefinitions {
+			requiredTaskKeys = append(requiredTaskKeys, definition.Key)
+		}
+	}
+
+	definitionOfDoneIssues, apiErr := s.evaluateDefinitionOfDoneIssues(ctx, payload.ProjectID, payload.ReceiptID, filesChanged, workItems, requiredTaskKeys, requiredWorkflowDefinitions, scope, workflowSource.SourcePath)
+	if apiErr != nil {
+		return v1.ReportCompletionResult{}, apiErr
+	}
 	scopeMode := effectiveScopeMode(payload.ScopeMode)
 	if scopeMode == v1.ScopeModeStrict && (len(violations) > 0 || len(definitionOfDoneIssues) > 0) {
 		return v1.ReportCompletionResult{
@@ -882,6 +908,8 @@ func completionScopeManagedPaths() []string {
 		canonicalTagsDefaultFilePath,
 		canonicalRulesetPrimarySourcePath,
 		canonicalRulesetSecondarySourcePath,
+		workflowDefinitionsPrimarySourcePath,
+		workflowDefinitionsSecondarySourcePath,
 		verifyTestsPrimarySourcePath,
 		verifyTestsSecondarySourcePath,
 	})
@@ -1058,6 +1086,19 @@ func (s *Service) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v
 
 	projectRoot := s.effectiveProjectRoot(payload.ProjectRoot)
 	outputPath, persistCandidates := resolveBootstrapOutputPath(projectRoot, payload.OutputCandidatesPath, payload.PersistCandidates)
+	excludedPaths := bootstrapManagedRelativePaths(projectRoot, outputPath, payload.RulesFile, payload.TagsFile)
+	templates, err := bootstrapkit.ResolveTemplates(payload.ApplyTemplates)
+	if err != nil {
+		var unknown bootstrapkit.UnknownTemplateError
+		if errors.As(err, &unknown) {
+			return v1.BootstrapResult{}, core.NewError(
+				"INVALID_INPUT",
+				"unknown bootstrap template",
+				map[string]any{"template_id": unknown.TemplateID},
+			)
+		}
+		return v1.BootstrapResult{}, bootstrapInternalError("load_templates", err)
+	}
 
 	paths, warnings, err := s.collectBootstrapPaths(ctx, projectRoot, outputPath, payload.RulesFile, payload.TagsFile, effectiveRespectGitIgnore(payload.RespectGitIgnore))
 	if err != nil {
@@ -1066,6 +1107,16 @@ func (s *Service) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v
 
 	if err := ensureBootstrapScaffold(projectRoot, payload.RulesFile, payload.TagsFile, paths); err != nil {
 		return v1.BootstrapResult{}, bootstrapInternalError("seed_scaffold", err)
+	}
+
+	templateResults := []v1.BootstrapTemplateResult(nil)
+	if len(templates) > 0 {
+		appliedTemplates, err := bootstrapkit.ApplyTemplates(projectRoot, payload.ProjectID, templates)
+		if err != nil {
+			return v1.BootstrapResult{}, bootstrapInternalError("apply_templates", err)
+		}
+		templateResults = appliedTemplates.TemplateResults
+		paths = mergeBootstrapTemplateCandidatePaths(paths, appliedTemplates.CandidatePaths, excludedPaths)
 	}
 
 	rulesetSync, err := s.syncCanonicalRulesets(ctx, strings.TrimSpace(payload.ProjectID), projectRoot, payload.RulesFile, payload.TagsFile, true)
@@ -1091,6 +1142,7 @@ func (s *Service) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v
 		CandidateCount:      len(paths),
 		IndexedStubs:        indexedStubs,
 		CandidatesPersisted: persistCandidates,
+		TemplateResults:     templateResults,
 	}
 	if persistCandidates {
 		result.OutputCandidatesPath = outputPath
@@ -2046,15 +2098,24 @@ func derivePlanStatusFromWorkItems(items []core.WorkItem) string {
 	}
 }
 
-func evaluateDefinitionOfDoneIssues(items []core.WorkItem, filesChanged []string) []string {
+func (s *Service) evaluateDefinitionOfDoneIssues(ctx context.Context, projectID, receiptID string, filesChanged []string, items []core.WorkItem, requiredTaskKeys []string, requiredDefinitions []workflowRequiredTaskDefinition, scope core.ReceiptScope, workflowSourcePath string) ([]string, *core.APIError) {
 	normalizedFilesChanged := normalizeCompletionPaths(filesChanged)
 	if len(normalizedFilesChanged) == 0 {
-		return []string{"files_changed must include at least one repository-relative path"}
+		return []string{"files_changed must include at least one repository-relative path"}, nil
+	}
+
+	normalizedRequiredTaskKeys := normalizeCompletionRequiredTaskKeys(requiredTaskKeys)
+	if len(normalizedRequiredTaskKeys) == 0 {
+		return nil, nil
 	}
 
 	normalizedItems := normalizeWorkItems(items)
 	if len(normalizedItems) == 0 {
-		return []string{fmt.Sprintf("required verification work item is missing: %s", requiredVerifyTestsKey)}
+		issues := make([]string, 0, len(normalizedRequiredTaskKeys))
+		for _, requiredKey := range normalizedRequiredTaskKeys {
+			issues = append(issues, missingCompletionWorkItemIssue(requiredKey))
+		}
+		return issues, nil
 	}
 
 	statusByKey := make(map[string]string, len(normalizedItems))
@@ -2062,23 +2123,66 @@ func evaluateDefinitionOfDoneIssues(items []core.WorkItem, filesChanged []string
 		statusByKey[item.ItemKey] = normalizeWorkItemStatus(item.Status)
 	}
 
-	requiredKeys := []string{requiredVerifyTestsKey}
-	issues := make([]string, 0, len(requiredKeys))
-	for _, requiredKey := range requiredKeys {
+	issues := make([]string, 0, len(normalizedRequiredTaskKeys))
+	for _, requiredKey := range normalizedRequiredTaskKeys {
 		status, ok := statusByKey[requiredKey]
 		if !ok {
-			issues = append(issues, fmt.Sprintf("required verification work item is missing: %s", requiredKey))
+			issues = append(issues, missingCompletionWorkItemIssue(requiredKey))
 			continue
 		}
 		if status != core.WorkItemStatusComplete {
-			issues = append(issues, fmt.Sprintf("required verification work item is not complete: %s (status=%s)", requiredKey, status))
+			issues = append(issues, incompleteCompletionWorkItemIssue(requiredKey, status))
+		}
+	}
+
+	for _, definition := range requiredDefinitions {
+		if definition.Run == nil || !definition.RerunRequiresNewFingerprint {
+			continue
+		}
+		status, ok := statusByKey[definition.Key]
+		if !ok || status != core.WorkItemStatusComplete {
+			continue
+		}
+		attempts, apiErr := s.listReviewAttempts(ctx, projectID, receiptID, definition.Key)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		if len(attempts) == 0 {
+			issues = append(issues, staleReviewCompletionWorkItemIssue(definition.Key))
+			continue
+		}
+		fingerprint, apiErr := computeReviewFingerprint(s.defaultProjectRoot(), projectID, receiptID, definition.Key, workflowSourcePath, *definition.Run, scope)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		attempt, ok := latestReviewAttemptByFingerprint(attempts, fingerprint)
+		if !ok || !attempt.Passed {
+			issues = append(issues, staleReviewCompletionWorkItemIssue(definition.Key))
 		}
 	}
 
 	if len(issues) == 0 {
-		return nil
+		return nil, nil
 	}
-	return issues
+	return issues, nil
+}
+
+func missingCompletionWorkItemIssue(requiredKey string) string {
+	if requiredKey == requiredVerifyTestsKey {
+		return fmt.Sprintf("required verification work item is missing: %s", requiredKey)
+	}
+	return fmt.Sprintf("required workflow work item is missing: %s", requiredKey)
+}
+
+func incompleteCompletionWorkItemIssue(requiredKey, status string) string {
+	if requiredKey == requiredVerifyTestsKey {
+		return fmt.Sprintf("required verification work item is not complete: %s (status=%s)", requiredKey, status)
+	}
+	return fmt.Sprintf("required workflow work item is not complete: %s (status=%s)", requiredKey, status)
+}
+
+func staleReviewCompletionWorkItemIssue(requiredKey string) string {
+	return fmt.Sprintf("required workflow review is stale for the current scoped fingerprint: %s", requiredKey)
 }
 
 func normalizeCompletionPaths(paths []string) []string {
@@ -3114,6 +3218,9 @@ func ensureBootstrapScaffold(projectRoot, rulesFile, tagsFile string, candidateP
 	if err := ensureBootstrapVerifyTestsScaffold(projectRoot); err != nil {
 		return err
 	}
+	if err := ensureBootstrapWorkflowDefinitionsScaffold(projectRoot); err != nil {
+		return err
+	}
 
 	if strings.TrimSpace(rulesFile) == "" {
 		exists, err := bootstrapCanonicalRulesetExists(projectRoot)
@@ -3123,7 +3230,7 @@ func ensureBootstrapScaffold(projectRoot, rulesFile, tagsFile string, candidateP
 		if !exists {
 			if err := writeBootstrapScaffoldFile(
 				filepath.Join(projectRoot, filepath.FromSlash(canonicalRulesetPrimarySourcePath)),
-				[]byte("version: "+canonicalRulesVersionV1+"\nrules: []\n"),
+				[]byte(bootstrapkit.BlankRulesContents),
 			); err != nil {
 				return err
 			}
@@ -3158,6 +3265,7 @@ func ensureBootstrapEnvExample(projectRoot string) error {
 	entries := []string{
 		"# ACM runtime configuration",
 		"# Copy this file to .env to override local defaults.",
+		"ACM_PROJECT_ID=myproject",
 		"ACM_PROJECT_ROOT=/path/to/repo",
 		"ACM_SQLITE_PATH=.acm/context.db",
 		"ACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable",
@@ -3222,7 +3330,19 @@ func ensureBootstrapVerifyTestsScaffold(projectRoot string) error {
 
 	return writeBootstrapScaffoldFile(
 		filepath.Join(projectRoot, filepath.FromSlash(verifyTestsPrimarySourcePath)),
-		[]byte("version: "+verifyTestsVersionV1+"\ndefaults:\n  cwd: .\n  timeout_sec: 300\ntests: []\n"),
+		[]byte(bootstrapkit.BlankTestsContents),
+	)
+}
+
+func ensureBootstrapWorkflowDefinitionsScaffold(projectRoot string) error {
+	exists, err := bootstrapWorkflowDefinitionsExist(projectRoot)
+	if err != nil || exists {
+		return err
+	}
+
+	return writeBootstrapScaffoldFile(
+		filepath.Join(projectRoot, filepath.FromSlash(workflowDefinitionsPrimarySourcePath)),
+		[]byte(bootstrapkit.BlankWorkflowsContents),
 	)
 }
 
@@ -3246,6 +3366,24 @@ func bootstrapCanonicalRulesetExists(projectRoot string) (bool, error) {
 
 func bootstrapVerifyTestsExists(projectRoot string) (bool, error) {
 	for _, sourcePath := range []string{verifyTestsPrimarySourcePath, verifyTestsSecondarySourcePath} {
+		absolutePath := filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(sourcePath)))
+		stat, err := os.Stat(absolutePath)
+		switch {
+		case err == nil:
+			if !stat.IsDir() {
+				return true, nil
+			}
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+func bootstrapWorkflowDefinitionsExist(projectRoot string) (bool, error) {
+	for _, sourcePath := range []string{workflowDefinitionsPrimarySourcePath, workflowDefinitionsSecondarySourcePath} {
 		absolutePath := filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(sourcePath)))
 		stat, err := os.Stat(absolutePath)
 		switch {
@@ -3427,13 +3565,14 @@ func bootstrapOutputRelativePath(projectRoot, outputPath string) string {
 }
 
 func bootstrapManagedRelativePaths(projectRoot, outputPath, rulesFile, tagsFile string) []string {
-	managed := make([]string, 0, len(canonicalRulesetDefaultPaths)+7)
+	managed := make([]string, 0, len(canonicalRulesetDefaultPaths)+9)
 	if relativeOutputPath := bootstrapOutputRelativePath(projectRoot, outputPath); relativeOutputPath != "" {
 		managed = append(managed, relativeOutputPath)
 	}
 	managed = append(managed, ".gitignore", workspace.DotEnvExampleFileName)
 	managed = append(managed, canonicalTagsDefaultFilePath)
 	managed = append(managed, canonicalRulesetDefaultPaths...)
+	managed = append(managed, workflowDefinitionsPrimarySourcePath, workflowDefinitionsSecondarySourcePath)
 	managed = append(managed, verifyTestsPrimarySourcePath, verifyTestsSecondarySourcePath)
 	if relativeRulesPath := bootstrapManagedRelativePath(projectRoot, rulesFile); relativeRulesPath != "" {
 		managed = append(managed, relativeRulesPath)
@@ -3476,6 +3615,12 @@ func filterBootstrapPaths(paths []string, excludedPaths []string) []string {
 	return filtered
 }
 
+func mergeBootstrapTemplateCandidatePaths(existing []string, additional []string, excluded []string) []string {
+	merged := append([]string(nil), existing...)
+	merged = append(merged, additional...)
+	return filterBootstrapPaths(normalizeCompletionPaths(merged), excluded)
+}
+
 func isManagedProjectPath(raw string) bool {
 	normalized := normalizeCompletionPath(raw)
 	if normalized == "" {
@@ -3487,6 +3632,7 @@ func isManagedProjectPath(raw string) bool {
 		workspace.DotEnvFileName,
 		workspace.DotEnvExampleFileName,
 		canonicalRulesetSecondarySourcePath,
+		workflowDefinitionsSecondarySourcePath,
 		verifyTestsSecondarySourcePath:
 		return true
 	}

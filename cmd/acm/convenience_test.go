@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -292,6 +293,97 @@ func TestBuildWorkEnvelope_LoadsPlanAndTasksJSON(t *testing.T) {
 	}
 	if len(payload.Items) != 0 {
 		t.Fatalf("expected legacy items to be empty when tasks are provided, got %+v", payload.Items)
+	}
+}
+
+func TestBuildReviewEnvelope_LoadsOutcomeFileAndEvidenceJSON(t *testing.T) {
+	outcomePath := filepath.Join(t.TempDir(), "review-outcome.txt")
+	if err := os.WriteFile(outcomePath, []byte("Cross-LLM review passed with no blocking issues."), 0o644); err != nil {
+		t.Fatalf("write outcome fixture: %v", err)
+	}
+
+	env, err := buildConvenienceEnvelope("review", []string{
+		"--project", "myproject",
+		"--request", "req-12345678",
+		"--receipt-id", "receipt-87654321",
+		"--outcome-file", outcomePath,
+		"--evidence-json", `["review://cross-llm/run-1","comment://issue-42"]`,
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandReview {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.ReviewPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.ReceiptID != "receipt-87654321" {
+		t.Fatalf("unexpected receipt id: %q", payload.ReceiptID)
+	}
+	if payload.Key != "" {
+		t.Fatalf("unexpected review key: %q", payload.Key)
+	}
+	if payload.Status != "" {
+		t.Fatalf("unexpected review status: %q", payload.Status)
+	}
+	if payload.Outcome != "Cross-LLM review passed with no blocking issues." {
+		t.Fatalf("unexpected review outcome: %q", payload.Outcome)
+	}
+	if len(payload.Evidence) != 2 {
+		t.Fatalf("expected 2 evidence values, got %d", len(payload.Evidence))
+	}
+}
+
+func TestBuildReviewEnvelope_RequiresSelectionContext(t *testing.T) {
+	_, err := buildConvenienceEnvelope("review", []string{
+		"--project", "myproject",
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected error for missing review selection context")
+	}
+	if !strings.Contains(err.Error(), "review requires --receipt-id or --plan-key") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildReviewEnvelope_RunModeIncludesTagsFile(t *testing.T) {
+	env, err := buildConvenienceEnvelope("review", []string{
+		"--project", "myproject",
+		"--receipt-id", "receipt-87654321",
+		"--run",
+		"--tags-file", ".acm/acm-tags.yaml",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.ReviewPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if !payload.Run {
+		t.Fatalf("expected run=true, got %+v", payload)
+	}
+	if payload.TagsFile != ".acm/acm-tags.yaml" {
+		t.Fatalf("unexpected tags file: %q", payload.TagsFile)
+	}
+}
+
+func TestBuildReviewEnvelope_RunModeRejectsManualOutcomeFields(t *testing.T) {
+	_, err := buildConvenienceEnvelope("review", []string{
+		"--project", "myproject",
+		"--receipt-id", "receipt-87654321",
+		"--run",
+		"--outcome", "No blocking review findings.",
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected error for run mode with manual outcome")
+	}
+	if !strings.Contains(err.Error(), "--outcome and --outcome-file are only supported when --run is omitted") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -738,6 +830,8 @@ func TestBuildBootstrapEnvelope_RulesAndTagsFileFlags(t *testing.T) {
 	env, err := buildConvenienceEnvelope("bootstrap", []string{
 		"--project", "myproject",
 		"--project-root", ".",
+		"--apply-template", "starter-contract",
+		"--apply-template", "verify-go",
 		"--rules-file", "legacy-rules.yaml",
 		"--tags-file", "legacy-tags.json",
 		"--persist-candidates",
@@ -756,8 +850,34 @@ func TestBuildBootstrapEnvelope_RulesAndTagsFileFlags(t *testing.T) {
 	if payload.TagsFile != "legacy-tags.json" {
 		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
 	}
+	if want := []string{"starter-contract", "verify-go"}; !reflect.DeepEqual(payload.ApplyTemplates, want) {
+		t.Fatalf("unexpected apply_templates: got %v want %v", payload.ApplyTemplates, want)
+	}
 	if payload.PersistCandidates == nil || !*payload.PersistCandidates {
 		t.Fatalf("expected persist_candidates=true, got %+v", payload.PersistCandidates)
+	}
+}
+
+func TestBuildBootstrapEnvelope_AllowsOmittedProjectAndRoot(t *testing.T) {
+	env, err := buildConvenienceEnvelope("bootstrap", []string{
+		"--apply-template", "starter-contract",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.BootstrapPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.ProjectID != "" {
+		t.Fatalf("expected empty project_id for runtime inference, got %q", payload.ProjectID)
+	}
+	if payload.ProjectRoot != "" {
+		t.Fatalf("expected empty project_root for runtime inference, got %q", payload.ProjectRoot)
+	}
+	if want := []string{"starter-contract"}; !reflect.DeepEqual(payload.ApplyTemplates, want) {
+		t.Fatalf("unexpected apply_templates: got %v want %v", payload.ApplyTemplates, want)
 	}
 }
 
@@ -819,6 +939,36 @@ func TestRunConvenienceWithDeps_EndToEndGetContext(t *testing.T) {
 	}
 }
 
+func TestRunConvenienceWithDeps_DefaultsProjectIDFromEnv(t *testing.T) {
+	t.Setenv(runtime.ProjectIDEnvVar, "env-project")
+
+	svc := &convenienceFakeService{}
+	out := &bytes.Buffer{}
+	recorder := logging.NewRecorder()
+
+	code := runConvenienceWithDeps(
+		context.Background(),
+		recorder,
+		"get-context",
+		[]string{"--request", "req-12345678", "--task-text", "Add health checks", "--phase", "execute"},
+		out,
+		fixedNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			return svc, func() {}, nil
+		},
+		cli.RunWithLogger,
+	)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if len(svc.getContextCalls) != 1 {
+		t.Fatalf("expected one get_context call, got %d", len(svc.getContextCalls))
+	}
+	if got := svc.getContextCalls[0].ProjectID; got != "env-project" {
+		t.Fatalf("unexpected inferred project id: %q", got)
+	}
+}
+
 func fixedNow() time.Time {
 	return time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC)
 }
@@ -838,6 +988,10 @@ func (f *convenienceFakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1
 
 func (f *convenienceFakeService) ProposeMemory(_ context.Context, _ v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *core.APIError) {
 	return v1.ProposeMemoryResult{}, nil
+}
+
+func (f *convenienceFakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
+	return v1.ReviewResult{}, nil
 }
 
 func (f *convenienceFakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *core.APIError) {

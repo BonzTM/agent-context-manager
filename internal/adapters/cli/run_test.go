@@ -5,16 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
+	"github.com/bonztm/agent-context-manager/internal/runtime"
 	"github.com/bonztm/agent-context-manager/internal/service/unconfigured"
 )
 
 type fakeService struct{}
+
+type capturingService struct {
+	fakeService
+	bootstrapPayload v1.BootstrapPayload
+}
 
 func (f fakeService) GetContext(_ context.Context, _ v1.GetContextPayload) (v1.GetContextResult, *core.APIError) {
 	return v1.GetContextResult{Status: "insufficient_context"}, nil
@@ -26,6 +33,16 @@ func (f fakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult
 
 func (f fakeService) ProposeMemory(_ context.Context, _ v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *core.APIError) {
 	return v1.ProposeMemoryResult{}, nil
+}
+
+func (f fakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
+	return v1.ReviewResult{
+		PlanKey:      "plan.alpha",
+		PlanStatus:   "pending",
+		Updated:      1,
+		ReviewKey:    v1.DefaultReviewTaskKey,
+		ReviewStatus: v1.WorkItemStatusComplete,
+	}, nil
 }
 
 func (f fakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *core.APIError) {
@@ -65,6 +82,11 @@ func (f fakeService) Verify(_ context.Context, _ v1.VerifyPayload) (v1.VerifyRes
 }
 
 func (f fakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {
+	return v1.BootstrapResult{}, nil
+}
+
+func (c *capturingService) Bootstrap(_ context.Context, payload v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {
+	c.bootstrapPayload = payload
 	return v1.BootstrapResult{}, nil
 }
 
@@ -114,6 +136,56 @@ func TestRun_ValidationFailure(t *testing.T) {
 	}
 	if env.Error == nil {
 		t.Fatalf("expected error payload")
+	}
+}
+
+func TestRun_DefaultsProjectIDFromEnv(t *testing.T) {
+	t.Setenv(runtime.ProjectIDEnvVar, "env-project")
+
+	in := bytes.NewBufferString(`{
+		"version":"acm.v1",
+		"command":"get_context",
+		"request_id":"req-12345",
+		"payload":{
+			"task_text":"x",
+			"phase":"execute"
+		}
+	}`)
+	out := &bytes.Buffer{}
+	code := Run(context.Background(), fakeService{}, in, out, func() time.Time { return time.Date(2026, 3, 4, 10, 0, 0, 0, time.UTC) })
+	if code != 0 {
+		t.Fatalf("expected exit code 0 got %d", code)
+	}
+
+	var env v1.ResultEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true, got false: %+v", env.Error)
+	}
+}
+
+func TestRun_BootstrapPrefersProjectRootInferenceOverEnvProjectID(t *testing.T) {
+	t.Setenv(runtime.ProjectIDEnvVar, "env-project")
+	projectRoot := filepath.Join(t.TempDir(), "Target Repo")
+
+	in := bytes.NewBufferString(`{
+		"version":"acm.v1",
+		"command":"bootstrap",
+		"request_id":"req-12345",
+		"payload":{
+			"project_root":"` + projectRoot + `"
+		}
+	}`)
+	out := &bytes.Buffer{}
+	svc := &capturingService{}
+	code := Run(context.Background(), svc, in, out, func() time.Time { return time.Date(2026, 3, 4, 10, 0, 0, 0, time.UTC) })
+	if code != 0 {
+		t.Fatalf("expected exit code 0 got %d", code)
+	}
+	if got, want := svc.bootstrapPayload.ProjectID, "Target-Repo"; got != want {
+		t.Fatalf("unexpected inferred project_id: got %q want %q", got, want)
 	}
 }
 
@@ -231,6 +303,11 @@ func TestDispatch_RoutesFetchWorkAndHistorySearch(t *testing.T) {
 			payload: v1.WorkPayload{ProjectID: "my-cool-app", PlanKey: "plan.alpha", Items: []v1.WorkItemPayload{{Key: "x.go", Summary: "x", Status: v1.WorkItemStatusPending}}},
 		},
 		{
+			name:    "review",
+			command: v1.CommandReview,
+			payload: v1.ReviewPayload{ProjectID: "my-cool-app", ReceiptID: "receipt-1234", Outcome: "No blocking review findings."},
+		},
+		{
 			name:    "history_search",
 			command: v1.CommandHistorySearch,
 			payload: v1.HistorySearchPayload{ProjectID: "my-cool-app", Query: "bootstrap", Scope: v1.HistoryScopeAll},
@@ -252,6 +329,10 @@ func TestDispatch_RoutesFetchWorkAndHistorySearch(t *testing.T) {
 				if _, ok := result.(v1.WorkResult); !ok {
 					t.Fatalf("unexpected work result type: %T", result)
 				}
+			case v1.CommandReview:
+				if _, ok := result.(v1.ReviewResult); !ok {
+					t.Fatalf("unexpected review result type: %T", result)
+				}
 			case v1.CommandHistorySearch:
 				if _, ok := result.(v1.HistorySearchResult); !ok {
 					t.Fatalf("unexpected history search result type: %T", result)
@@ -264,6 +345,9 @@ func TestDispatch_RoutesFetchWorkAndHistorySearch(t *testing.T) {
 func TestProjectIDFromPayload_ExtractsFromMapAndStruct(t *testing.T) {
 	if got := projectIDFromPayload(map[string]any{"project_id": "  my-cool-app  "}); got != "my-cool-app" {
 		t.Fatalf("unexpected map project id: %q", got)
+	}
+	if got := projectIDFromPayload(v1.ReviewPayload{ProjectID: "  my-cool-app  "}); got != "my-cool-app" {
+		t.Fatalf("unexpected review project id: %q", got)
 	}
 	if got := projectIDFromPayload(struct{ ProjectID string }{ProjectID: "  my-cool-app  "}); got != "my-cool-app" {
 		t.Fatalf("unexpected struct project id: %q", got)

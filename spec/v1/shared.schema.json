@@ -792,6 +792,7 @@
         "fetch",
         "propose_memory",
         "report_completion",
+        "review",
         "work",
         "sync",
         "health_check",

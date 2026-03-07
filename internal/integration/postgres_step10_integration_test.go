@@ -229,6 +229,7 @@ func assertMigrationsApplied(t *testing.T, ctx context.Context, pool *pgxpool.Po
 		"0006_acm_work_plan_hierarchy.sql",
 		"0007_acm_verification_runs.sql",
 		"0008_acm_run_history_indexes.sql",
+		"0010_acm_review_attempts.sql",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected migration record set: got %v want %v", got, want)

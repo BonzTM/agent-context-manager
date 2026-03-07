@@ -1,0 +1,29 @@
+#!/bin/bash
+# Pre-commit hook: run acm verify on staged files, including deletions.
+# Install: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+changed=$(git diff --cached --name-only --diff-filter=ACMRTD)
+
+if [ -z "$changed" ]; then
+  exit 0
+fi
+
+file_args=()
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  file_args+=(--file-changed "$f")
+done <<< "$changed"
+
+if [ ${#file_args[@]} -eq 0 ]; then
+  exit 0
+fi
+
+echo "Running acm verify (pre-commit gate)..."
+acm verify --project "{{project_id}}" --phase review "${file_args[@]}" || {
+  echo ""
+  echo "COMMIT BLOCKED: acm verify failed."
+  echo "Fix the issues above, then try again."
+  exit 1
+}

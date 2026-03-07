@@ -25,6 +25,10 @@ func (f decoratorFakeService) ProposeMemory(_ context.Context, _ v1.ProposeMemor
 	return v1.ProposeMemoryResult{}, f.errorFor(logging.OperationProposeMemory)
 }
 
+func (f decoratorFakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *APIError) {
+	return v1.ReviewResult{}, f.errorFor(logging.OperationReview)
+}
+
 func (f decoratorFakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *APIError) {
 	return v1.WorkResult{}, f.errorFor(logging.OperationWork)
 }
@@ -182,6 +186,16 @@ func decoratorOperationCases() []decoratorOperationCase {
 			operation: logging.OperationProposeMemory,
 			call: func(ctx context.Context, svc Service) *APIError {
 				_, apiErr := svc.ProposeMemory(ctx, v1.ProposeMemoryPayload{
+					ProjectID: "project.alpha",
+					ReceiptID: "receipt-12345",
+				})
+				return apiErr
+			},
+		},
+		{
+			operation: logging.OperationReview,
+			call: func(ctx context.Context, svc Service) *APIError {
+				_, apiErr := svc.Review(ctx, v1.ReviewPayload{
 					ProjectID: "project.alpha",
 					ReceiptID: "receipt-12345",
 				})

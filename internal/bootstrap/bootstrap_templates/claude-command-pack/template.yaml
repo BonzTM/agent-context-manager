@@ -1,0 +1,31 @@
+version: acm.bootstrap-template.v1
+id: claude-command-pack
+summary: Seed the Claude acm-broker command pack into .claude.
+operations:
+  - type: create_if_missing
+    target: .claude/acm-broker/README.md
+    source: files/.claude/acm-broker/README.md
+  - type: create_if_missing
+    target: .claude/acm-broker/CLAUDE.md
+    source: files/.claude/acm-broker/CLAUDE.md
+  - type: create_if_missing
+    target: .claude/commands/acm-eval.md
+    source: files/.claude/commands/acm-eval.md
+  - type: create_if_missing
+    target: .claude/commands/acm-get.md
+    source: files/.claude/commands/acm-get.md
+  - type: create_if_missing
+    target: .claude/commands/acm-memory.md
+    source: files/.claude/commands/acm-memory.md
+  - type: create_if_missing
+    target: .claude/commands/acm-report.md
+    source: files/.claude/commands/acm-report.md
+  - type: create_if_missing
+    target: .claude/commands/acm-review.md
+    source: files/.claude/commands/acm-review.md
+  - type: create_if_missing
+    target: .claude/commands/acm-verify.md
+    source: files/.claude/commands/acm-verify.md
+  - type: create_if_missing
+    target: .claude/commands/acm-work.md
+    source: files/.claude/commands/acm-work.md
