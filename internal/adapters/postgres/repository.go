@@ -108,7 +108,6 @@ func (r *Repository) FetchCandidatePointers(ctx context.Context, input core.Cand
 			IsRule      bool
 			IsStale     bool
 			UpdatedAt   time.Time
-			Rank        float32
 		}
 		if err := rows.Scan(
 			&row.Key,
@@ -121,7 +120,6 @@ func (r *Repository) FetchCandidatePointers(ctx context.Context, input core.Cand
 			&row.IsRule,
 			&row.IsStale,
 			&row.UpdatedAt,
-			&row.Rank,
 		); err != nil {
 			return nil, fmt.Errorf("scan candidate pointer: %w", err)
 		}
@@ -136,15 +134,13 @@ func (r *Repository) FetchCandidatePointers(ctx context.Context, input core.Cand
 			Tags:        row.Tags,
 			IsRule:      row.IsRule,
 			IsStale:     row.IsStale,
-			Rank:        float64(row.Rank),
 			UpdatedAt:   row.UpdatedAt,
 		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate candidate pointers: %w", err)
 	}
-
-	return results, nil
+	return storagedomain.RankCandidatePointers(results, input, defaultCandidateLimit), nil
 }
 
 func (r *Repository) FetchRelatedHopPointers(ctx context.Context, input core.RelatedHopPointersQuery) ([]core.HopPointer, error) {

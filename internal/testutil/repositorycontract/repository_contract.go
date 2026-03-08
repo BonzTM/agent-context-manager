@@ -215,6 +215,14 @@ func runCandidatePointerRanking(t *testing.T, projectID string, repo ContractRep
 	}) {
 		t.Fatalf("unexpected execute ranking order: got %v", got)
 	}
+	assertCandidateRanks(t, executeRows, map[string]float64{
+		"pointer.code.alpha": 45,
+		"pointer.code.full":  45,
+		"pointer.code.tag":   30,
+		"pointer.test.alpha": 30,
+		"pointer.code.text":  15,
+		"pointer.doc.alpha":  15,
+	})
 
 	reviewRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
 		ProjectID: projectID,
@@ -236,6 +244,14 @@ func runCandidatePointerRanking(t *testing.T, projectID string, repo ContractRep
 	}) {
 		t.Fatalf("unexpected review ranking order: got %v", got)
 	}
+	assertCandidateRanks(t, reviewRows, map[string]float64{
+		"pointer.test.alpha": 30,
+		"pointer.code.alpha": 15,
+		"pointer.code.full":  15,
+		"pointer.doc.alpha":  15,
+		"pointer.code.tag":   10,
+		"pointer.code.text":  5,
+	})
 
 	planRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
 		ProjectID: projectID,
@@ -257,6 +273,14 @@ func runCandidatePointerRanking(t *testing.T, projectID string, repo ContractRep
 	}) {
 		t.Fatalf("unexpected plan ranking order: got %v", got)
 	}
+	assertCandidateRanks(t, planRows, map[string]float64{
+		"pointer.doc.alpha":  30,
+		"pointer.code.alpha": 15,
+		"pointer.code.full":  15,
+		"pointer.test.alpha": 15,
+		"pointer.code.tag":   10,
+		"pointer.code.text":  5,
+	})
 
 	signalRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
 		ProjectID: projectID,
@@ -275,6 +299,11 @@ func runCandidatePointerRanking(t *testing.T, projectID string, repo ContractRep
 	}) {
 		t.Fatalf("unexpected signal ranking order: got %v", got)
 	}
+	assertCandidateRanks(t, signalRows, map[string]float64{
+		"pointer.code.full":  60,
+		"pointer.code.alpha": 45,
+		"pointer.code.tag":   30,
+	})
 
 	unboundedRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
 		ProjectID: projectID,
@@ -289,6 +318,18 @@ func runCandidatePointerRanking(t *testing.T, projectID string, repo ContractRep
 	}
 	if len(unboundedRows) != 6 {
 		t.Fatalf("expected six unbounded ranking candidates, got %d", len(unboundedRows))
+	}
+}
+
+func assertCandidateRanks(t *testing.T, rows []core.CandidatePointer, want map[string]float64) {
+	t.Helper()
+
+	got := make(map[string]float64, len(rows))
+	for _, row := range rows {
+		got[row.Key] = row.Rank
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected candidate ranks: got %#v want %#v", got, want)
 	}
 }
 

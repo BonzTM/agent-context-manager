@@ -28,60 +28,37 @@ func TestBuildCandidatePointersQuery_DeterministicInputs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(sql, "ORDER BY p.is_rule DESC, score DESC, p.pointer_key ASC") {
+	if !strings.Contains(sql, "ORDER BY p.pointer_key ASC") {
 		t.Fatalf("unexpected ordering clause:\n%s", sql)
 	}
-	if !strings.Contains(sql, "WHEN 'plan' THEN") || !strings.Contains(sql, "WHEN 'execute' THEN") || !strings.Contains(sql, "WHEN 'review' THEN") {
-		t.Fatalf("expected phase-weighted score expression:\n%s", sql)
+	if strings.Contains(sql, "ts_rank_cd") || strings.Contains(sql, "websearch_to_tsquery") {
+		t.Fatalf("did not expect SQL-specific ranking expressions:\n%s", sql)
 	}
-	if gotPhase, ok := args[1].(string); !ok || gotPhase != "plan" {
-		t.Fatalf("expected phase arg plan, got %#v", args[1])
-	}
-
-	gotTags, ok := args[4].([]string)
-	if !ok {
-		t.Fatalf("expected tags arg []string, got %T", args[4])
-	}
-	wantTags := []string{"backend", "ops"}
-	if !reflect.DeepEqual(gotTags, wantTags) {
-		t.Fatalf("unexpected tags ordering: got %v want %v", gotTags, wantTags)
-	}
-
-	if gotLimit, ok := args[len(args)-1].(int); !ok || gotLimit != defaultCandidateLimit {
-		t.Fatalf("expected default limit %d, got %#v", defaultCandidateLimit, args[len(args)-1])
+	wantArgs := []any{"project-a", staleBefore}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
 	}
 }
 
-func TestBuildCandidatePointersQuery_DefaultPhase(t *testing.T) {
+func TestBuildCandidatePointersQuery_DoesNotApplySQLRankingOrLimit(t *testing.T) {
 	sql, args, err := buildCandidatePointersQuery(core.CandidatePointerQuery{
 		ProjectID: "project-a",
 		TaskText:  "retrieve context",
+		Phase:     "plan",
+		Tags:      []string{"backend"},
+		Limit:     1,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "CASE $2::text") {
-		t.Fatalf("expected phase argument in score expression:\n%s", sql)
+	if strings.Contains(sql, "LIMIT") {
+		t.Fatalf("did not expect SQL limit clause:\n%s", sql)
 	}
-	if got, ok := args[1].(string); !ok || got != "execute" {
-		t.Fatalf("expected default phase execute, got %#v", args[1])
+	if strings.Contains(sql, "search_vector") {
+		t.Fatalf("did not expect SQL search-vector ranking predicate:\n%s", sql)
 	}
-}
-
-func TestBuildCandidatePointersQuery_UsesLiteralUnderscoreTestPathFallback(t *testing.T) {
-	sql, _, err := buildCandidatePointersQuery(core.CandidatePointerQuery{
-		ProjectID: "project-a",
-		TaskText:  "execute tests",
-		Phase:     "execute",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(sql, "strpos(lower(p.path), '_test.') > 0") {
-		t.Fatalf("expected literal _test path fallback in phase weighting:\n%s", sql)
-	}
-	if strings.Contains(sql, "LIKE '%_test.%'") {
-		t.Fatalf("did not expect wildcard LIKE _test fallback:\n%s", sql)
+	if got, want := args, []any{"project-a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected args: got %#v want %#v", got, want)
 	}
 }
 

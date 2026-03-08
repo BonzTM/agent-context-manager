@@ -90,6 +90,155 @@ func NormalizePhase(raw string) string {
 	}
 }
 
+func RankCandidatePointers(candidates []core.CandidatePointer, input core.CandidatePointerQuery, defaultLimit int) []core.CandidatePointer {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	phase := NormalizePhase(input.Phase)
+	limit := input.Limit
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	taskTokens := TokenizeCandidateQuery(input.TaskText)
+	queryTags := NormalizeStringList(input.Tags)
+
+	ranked := make([]core.CandidatePointer, 0, len(candidates))
+	for _, candidate := range candidates {
+		textRank := CandidateTextMatchRank(taskTokens, candidate)
+		tagOverlap := CandidateTagOverlap(candidate.Tags, queryTags)
+		if len(taskTokens) > 0 || len(queryTags) > 0 {
+			if textRank == 0 && tagOverlap == 0 {
+				continue
+			}
+		}
+
+		candidate.Rank = ((float64(tagOverlap) * 10.0) + (float64(textRank) * 5.0)) * CandidatePhaseWeight(phase, candidate)
+		ranked = append(ranked, candidate)
+	}
+
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].IsRule != ranked[j].IsRule {
+			return ranked[i].IsRule
+		}
+		if ranked[i].Rank != ranked[j].Rank {
+			return ranked[i].Rank > ranked[j].Rank
+		}
+		return ranked[i].Key < ranked[j].Key
+	})
+	if !input.Unbounded && len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+	return ranked
+}
+
+func CandidateTextMatchRank(tokens []string, pointer core.CandidatePointer) int {
+	if len(tokens) == 0 {
+		return 0
+	}
+	searchSpace := strings.ToLower(strings.Join([]string{
+		pointer.Label,
+		pointer.Description,
+		strings.Join(pointer.Tags, " "),
+	}, " "))
+	score := 0
+	for _, token := range tokens {
+		if strings.Contains(searchSpace, token) {
+			score++
+		}
+	}
+	return score
+}
+
+func CandidatePhaseWeight(phase string, pointer core.CandidatePointer) float64 {
+	switch phase {
+	case "plan":
+		switch CandidatePointerKind(pointer) {
+		case "rule":
+			return 3
+		case "doc":
+			return 2
+		default:
+			return 1
+		}
+	case "execute":
+		switch CandidatePointerKind(pointer) {
+		case "code":
+			return 3
+		case "test":
+			return 2
+		case "rule":
+			return 1
+		default:
+			return 1
+		}
+	case "review":
+		switch CandidatePointerKind(pointer) {
+		case "rule":
+			return 3
+		case "test":
+			return 2
+		case "code":
+			return 1
+		default:
+			return 1
+		}
+	default:
+		return 1
+	}
+}
+
+func CandidatePointerKind(pointer core.CandidatePointer) string {
+	if pointer.IsRule {
+		return "rule"
+	}
+	kind := strings.ToLower(strings.TrimSpace(pointer.Kind))
+	switch kind {
+	case "doc", "docs", "documentation":
+		return "doc"
+	case "test", "tests":
+		return "test"
+	}
+	if strings.Contains(strings.ToLower(pointer.Path), "_test.") {
+		return "test"
+	}
+	return "code"
+}
+
+func TokenizeCandidateQuery(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(strings.ToLower(raw), func(r rune) bool {
+		return !(r == '.' || r == '_' || r == '-' || r == '/' || r == ':' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z'))
+	})
+	return NormalizeStringList(fields)
+}
+
+func CandidateTagOverlap(values, targets []string) int {
+	if len(values) == 0 || len(targets) == 0 {
+		return 0
+	}
+	targetSet := make(map[string]struct{}, len(targets))
+	for _, value := range targets {
+		targetSet[value] = struct{}{}
+	}
+	count := 0
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		if _, ok := targetSet[value]; !ok {
+			continue
+		}
+		if _, dupe := seen[value]; dupe {
+			continue
+		}
+		seen[value] = struct{}{}
+		count++
+	}
+	return count
+}
+
 func NormalizeWorkPlanListScope(raw string) string {
 	switch strings.TrimSpace(raw) {
 	case WorkPlanListScopeCurrent:

@@ -44,18 +44,10 @@ func buildCandidatePointersQuery(input core.CandidatePointerQuery) (string, []an
 		return "", nil, fmt.Errorf("project_id is required")
 	}
 
-	taskText := strings.TrimSpace(input.TaskText)
-	phase := normalizePhase(input.Phase)
-	tags := normalizeStringList(input.Tags)
-	limit := normalizeLimit(input.Limit, defaultCandidateLimit)
-
 	args := &sqlArgs{}
 	projectIDArg := args.add(projectID)
-	phaseArg := args.add(phase)
-	rankExpr := "0::float8"
-	tagOverlapExpr := "0::float8"
 
-	predicates := make([]string, 0, 4)
+	predicates := make([]string, 0, 2)
 	if !input.StaleFilter.AllowStale {
 		predicates = append(predicates, "p.is_stale = FALSE")
 	}
@@ -63,22 +55,6 @@ func buildCandidatePointersQuery(input core.CandidatePointerQuery) (string, []an
 		staleBeforeArg := args.add(input.StaleFilter.StaleBefore.UTC())
 		predicates = append(predicates, fmt.Sprintf("(p.is_stale = FALSE OR (p.stale_at IS NOT NULL AND p.stale_at <= %s))", staleBeforeArg))
 	}
-
-	matchPredicates := make([]string, 0, 2)
-	if taskText != "" {
-		taskArg := args.add(taskText)
-		rankExpr = fmt.Sprintf("ts_rank_cd(p.search_vector, websearch_to_tsquery('simple', %s))::float8", taskArg)
-		matchPredicates = append(matchPredicates, fmt.Sprintf("p.search_vector @@ websearch_to_tsquery('simple', %s)", taskArg))
-	}
-	if len(tags) > 0 {
-		tagsArg := args.add(tags)
-		tagOverlapExpr = fmt.Sprintf("(SELECT COUNT(DISTINCT tag)::float8 FROM unnest(p.tags) AS tag WHERE tag = ANY(%s::text[]))", tagsArg)
-		matchPredicates = append(matchPredicates, fmt.Sprintf("p.tags && %s::text[]", tagsArg))
-	}
-	if len(matchPredicates) > 0 {
-		predicates = append(predicates, "("+strings.Join(matchPredicates, " OR ")+")")
-	}
-	scoreExpr := fmt.Sprintf("((%s * 10.0) + (%s * 5.0)) * (%s) AS score", tagOverlapExpr, rankExpr, phaseWeightExpr(phaseArg))
 
 	var sb strings.Builder
 	sb.WriteString(`
@@ -92,10 +68,7 @@ SELECT
 	p.tags,
 	p.is_rule,
 	p.is_stale,
-	p.updated_at,
-	`)
-	sb.WriteString(scoreExpr)
-	sb.WriteString(`
+	p.updated_at
 FROM acm_pointers p
 WHERE p.project_id = `)
 	sb.WriteString(projectIDArg)
@@ -106,32 +79,9 @@ WHERE p.project_id = `)
 	}
 
 	sb.WriteString(`
-ORDER BY p.is_rule DESC, score DESC, p.pointer_key ASC
-`)
-	if !input.Unbounded {
-		limitArg := args.add(limit)
-		sb.WriteString("LIMIT ")
-		sb.WriteString(limitArg)
-	}
+ORDER BY p.pointer_key ASC`)
 
 	return sb.String(), args.values, nil
-}
-
-func phaseWeightExpr(phaseArg string) string {
-	pointerTypeExpr := `
-CASE
-	WHEN p.is_rule THEN 'rule'
-	WHEN lower(p.kind) IN ('doc', 'docs', 'documentation') THEN 'doc'
-	WHEN lower(p.kind) IN ('test', 'tests') OR strpos(lower(p.path), '_test.') > 0 THEN 'test'
-	ELSE 'code'
-END`
-	return fmt.Sprintf(`
-CASE %s::text
-	WHEN 'plan' THEN CASE %s WHEN 'rule' THEN 3.0 WHEN 'doc' THEN 2.0 ELSE 1.0 END
-	WHEN 'execute' THEN CASE %s WHEN 'code' THEN 3.0 WHEN 'test' THEN 2.0 WHEN 'rule' THEN 1.0 ELSE 1.0 END
-	WHEN 'review' THEN CASE %s WHEN 'rule' THEN 3.0 WHEN 'test' THEN 2.0 WHEN 'code' THEN 1.0 ELSE 1.0 END
-	ELSE 1.0
-END`, phaseArg, pointerTypeExpr, pointerTypeExpr, pointerTypeExpr)
 }
 
 func buildRelatedHopPointersQuery(input core.RelatedHopPointersQuery) (string, []any, error) {

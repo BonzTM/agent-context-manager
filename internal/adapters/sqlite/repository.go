@@ -107,9 +107,6 @@ func (r *Repository) FetchCandidatePointers(_ context.Context, input core.Candid
 	}
 
 	phase := normalizePhase(input.Phase)
-	limit := normalizeLimit(input.Limit, defaultCandidateLimit)
-	queryTags := normalizeStringList(input.Tags)
-	taskTokens := tokenize(strings.TrimSpace(input.TaskText))
 	input.StaleFilter.StaleBefore = normalizeStaleBefore(input.StaleFilter.StaleBefore)
 
 	rows, err := r.db.Query(`
@@ -178,35 +175,13 @@ WHERE project_id = ?
 			continue
 		}
 
-		textRank := textMatchRank(taskTokens, row)
-		tagOverlap := overlapCount(row.Tags, queryTags)
-		if len(taskTokens) > 0 || len(queryTags) > 0 {
-			if textRank == 0 && tagOverlap == 0 {
-				continue
-			}
-		}
-
-		weight := phaseWeight(phase, row)
-		row.Rank = ((float64(tagOverlap) * 10.0) + (float64(textRank) * 5.0)) * weight
 		candidates = append(candidates, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate candidate pointers: %w", err)
 	}
-
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].IsRule != candidates[j].IsRule {
-			return candidates[i].IsRule
-		}
-		if candidates[i].Rank != candidates[j].Rank {
-			return candidates[i].Rank > candidates[j].Rank
-		}
-		return candidates[i].Key < candidates[j].Key
-	})
-	if !input.Unbounded && len(candidates) > limit {
-		candidates = candidates[:limit]
-	}
-	return candidates, nil
+	input.Phase = phase
+	return storagedomain.RankCandidatePointers(candidates, input, defaultCandidateLimit), nil
 }
 
 func (r *Repository) FetchRelatedHopPointers(_ context.Context, input core.RelatedHopPointersQuery) ([]core.HopPointer, error) {
@@ -2844,111 +2819,23 @@ func placeholders(n int) string {
 }
 
 func textMatchRank(tokens []string, pointer core.CandidatePointer) int {
-	if len(tokens) == 0 {
-		return 0
-	}
-	searchSpace := strings.ToLower(strings.Join([]string{
-		pointer.Label,
-		pointer.Description,
-		strings.Join(pointer.Tags, " "),
-	}, " "))
-	score := 0
-	for _, token := range tokens {
-		if strings.Contains(searchSpace, token) {
-			score++
-		}
-	}
-	return score
+	return storagedomain.CandidateTextMatchRank(tokens, pointer)
 }
 
 func phaseWeight(phase string, pointer core.CandidatePointer) float64 {
-	pointerType := pointerKind(pointer)
-	switch phase {
-	case "plan":
-		switch pointerType {
-		case "rule":
-			return 3
-		case "doc":
-			return 2
-		default:
-			return 1
-		}
-	case "execute":
-		switch pointerType {
-		case "code":
-			return 3
-		case "test":
-			return 2
-		case "rule":
-			return 1
-		default:
-			return 1
-		}
-	case "review":
-		switch pointerType {
-		case "rule":
-			return 3
-		case "test":
-			return 2
-		case "code":
-			return 1
-		default:
-			return 1
-		}
-	default:
-		return 1
-	}
+	return storagedomain.CandidatePhaseWeight(phase, pointer)
 }
 
 func pointerKind(pointer core.CandidatePointer) string {
-	if pointer.IsRule {
-		return "rule"
-	}
-	kind := strings.ToLower(strings.TrimSpace(pointer.Kind))
-	switch kind {
-	case "doc", "docs", "documentation":
-		return "doc"
-	case "test", "tests":
-		return "test"
-	}
-	if strings.Contains(strings.ToLower(pointer.Path), "_test.") {
-		return "test"
-	}
-	return "code"
+	return storagedomain.CandidatePointerKind(pointer)
 }
 
 func tokenize(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	fields := strings.FieldsFunc(strings.ToLower(raw), func(r rune) bool {
-		return !(r == '.' || r == '_' || r == '-' || r == '/' || r == ':' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z'))
-	})
-	return normalizeStringList(fields)
+	return storagedomain.TokenizeCandidateQuery(raw)
 }
 
 func overlapCount(values, targets []string) int {
-	if len(values) == 0 || len(targets) == 0 {
-		return 0
-	}
-	targetSet := make(map[string]struct{}, len(targets))
-	for _, value := range targets {
-		targetSet[value] = struct{}{}
-	}
-	count := 0
-	seen := map[string]struct{}{}
-	for _, value := range values {
-		if _, ok := targetSet[value]; !ok {
-			continue
-		}
-		if _, dupe := seen[value]; dupe {
-			continue
-		}
-		seen[value] = struct{}{}
-		count++
-	}
-	return count
+	return storagedomain.CandidateTagOverlap(values, targets)
 }
 
 func matchesStaleFilter(isStale bool, staleAt *time.Time, filter core.StaleFilter) bool {
