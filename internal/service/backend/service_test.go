@@ -3046,7 +3046,7 @@ tests:
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
-	svc.runVerifyCommand = func(_ context.Context, _ string, _ verifyTestDefinition) verifyCommandRun {
+	svc.runVerifyCommand = func(_ context.Context, _ string, _ verifyTestDefinition, _ map[string]string) verifyCommandRun {
 		t.Fatal("runVerifyCommand should not be called for dry-run")
 		return verifyCommandRun{}
 	}
@@ -3150,7 +3150,7 @@ tests:
 	}
 
 	base := time.Unix(1_700_000_000, 0).UTC()
-	svc.runVerifyCommand = func(_ context.Context, _ string, def verifyTestDefinition) verifyCommandRun {
+	svc.runVerifyCommand = func(_ context.Context, _ string, def verifyTestDefinition, extraEnv map[string]string) verifyCommandRun {
 		switch def.ID {
 		case "alpha-unit":
 			exitCode := 0
@@ -3163,6 +3163,12 @@ tests:
 		case "beta-pointer":
 			if got := def.Env["ACM_VERIFY_PROFILE"]; got != "pointer" {
 				t.Fatalf("expected verify env for beta-pointer, got %q", got)
+			}
+			if got := extraEnv["ACM_RECEIPT_ID"]; got != "receipt.abc123" {
+				t.Fatalf("unexpected injected ACM_RECEIPT_ID: %+v", extraEnv)
+			}
+			if got := extraEnv["ACM_PLAN_KEY"]; got != "plan:receipt.abc123" {
+				t.Fatalf("unexpected injected ACM_PLAN_KEY: %+v", extraEnv)
 			}
 			exitCode := 1
 			return verifyCommandRun{
@@ -3224,6 +3230,9 @@ tests:
 	if saved.Status != "failed" || saved.TestsSourcePath != ".acm/acm-tests.yaml" {
 		t.Fatalf("unexpected persisted batch: %+v", saved)
 	}
+	if saved.ReceiptID != "receipt.abc123" || saved.PlanKey != "plan:receipt.abc123" {
+		t.Fatalf("unexpected persisted verify scope: %+v", saved)
+	}
 	if got, want := saved.SelectedTestIDs, []string{"alpha-unit", "beta-pointer", "gamma-smoke"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected persisted selected test ids: got %v want %v", got, want)
 	}
@@ -3283,6 +3292,73 @@ func TestVerify_WorkEvidenceIsCapped(t *testing.T) {
 	}
 	if got[0] != "verifyrun:verify-batch-1" {
 		t.Fatalf("unexpected first evidence entry: %q", got[0])
+	}
+}
+
+func TestVerify_InjectsDerivedPlanKeyIntoCommandEnv(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	testsYAML := `version: acm.tests.v1
+tests:
+  - id: smoke
+    summary: Run smoke verification
+    command:
+      argv: ["echo", "noop"]
+    select:
+      always_run: true
+`
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), []byte(testsYAML), 0o644); err != nil {
+		t.Fatalf("write tests file: %v", err)
+	}
+
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID: "project.alpha",
+			ReceiptID: "receipt.abc123",
+			Phase:     "execute",
+		}},
+		workUpsertResults: []int{1},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	var gotEnv map[string]string
+	svc.runVerifyCommand = func(_ context.Context, _ string, _ verifyTestDefinition, extraEnv map[string]string) verifyCommandRun {
+		gotEnv = make(map[string]string, len(extraEnv))
+		for key, value := range extraEnv {
+			gotEnv[key] = value
+		}
+		exitCode := 0
+		now := time.Now().UTC()
+		return verifyCommandRun{
+			ExitCode:   &exitCode,
+			Stdout:     "smoke ok\n",
+			StartedAt:  now,
+			FinishedAt: now.Add(100 * time.Millisecond),
+		}
+	}
+
+	result, apiErr := svc.Verify(context.Background(), v1.VerifyPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != v1.VerifyStatusPassed || !result.Passed {
+		t.Fatalf("unexpected verify result: %+v", result)
+	}
+	if gotEnv["ACM_RECEIPT_ID"] != "receipt.abc123" {
+		t.Fatalf("unexpected injected ACM_RECEIPT_ID: %+v", gotEnv)
+	}
+	if gotEnv["ACM_PLAN_KEY"] != "plan:receipt.abc123" {
+		t.Fatalf("unexpected derived ACM_PLAN_KEY: %+v", gotEnv)
 	}
 }
 
@@ -3362,7 +3438,10 @@ func TestRunVerifyCommand_AppliesCommandEnv(t *testing.T) {
 		},
 	}
 
-	run := runVerifyCommand(context.Background(), root, def)
+	run := runVerifyCommand(context.Background(), root, def, map[string]string{
+		"ACM_RECEIPT_ID": "receipt.abc123",
+		"ACM_PLAN_KEY":   "plan:receipt.abc123",
+	})
 	if run.Err != nil {
 		t.Fatalf("unexpected command error: %v\nstdout=%q\nstderr=%q", run.Err, run.Stdout, run.Stderr)
 	}
@@ -3377,6 +3456,14 @@ func TestRunVerifyCommandHelperProcess(t *testing.T) {
 	}
 	if got, want := os.Getenv("ACM_VERIFY_ENV_CHECK"), "expected-value"; got != want {
 		fmt.Fprintf(os.Stderr, "unexpected env: got %q want %q\n", got, want)
+		os.Exit(3)
+	}
+	if got, want := os.Getenv("ACM_RECEIPT_ID"), "receipt.abc123"; got != want {
+		fmt.Fprintf(os.Stderr, "unexpected receipt env: got %q want %q\n", got, want)
+		os.Exit(3)
+	}
+	if got, want := os.Getenv("ACM_PLAN_KEY"), "plan:receipt.abc123"; got != want {
+		fmt.Fprintf(os.Stderr, "unexpected plan env: got %q want %q\n", got, want)
 		os.Exit(3)
 	}
 	fmt.Fprintln(os.Stdout, "env ok")

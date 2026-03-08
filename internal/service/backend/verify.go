@@ -42,7 +42,7 @@ var (
 	verifyEnvKeyPattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 )
 
-type verifyRunnerFunc func(ctx context.Context, projectRoot string, def verifyTestDefinition) verifyCommandRun
+type verifyRunnerFunc func(ctx context.Context, projectRoot string, def verifyTestDefinition, extraEnv map[string]string) verifyCommandRun
 
 type verifyTestsSource struct {
 	SourcePath   string
@@ -177,6 +177,7 @@ func (s *Service) Verify(ctx context.Context, payload v1.VerifyPayload) (v1.Veri
 	if runner == nil {
 		runner = runVerifyCommand
 	}
+	commandEnv := verifyCommandEnvironment(selectionContext)
 
 	executedAt := time.Now().UTC()
 	results := make([]v1.VerifyTestResult, 0, len(selected))
@@ -184,7 +185,7 @@ func (s *Service) Verify(ctx context.Context, payload v1.VerifyPayload) (v1.Veri
 	allPassed := true
 
 	for _, selectedTest := range selected {
-		run := runner(ctx, projectRoot, selectedTest.Definition)
+		run := runner(ctx, projectRoot, selectedTest.Definition, commandEnv)
 		status := classifyVerifyCommandRun(run, selectedTest.Definition.ExpectedExitCode)
 		if status != v1.VerifyTestStatusPassed {
 			allPassed = false
@@ -655,8 +656,36 @@ func verifyGlobToRegexp(pattern string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
-func runVerifyCommand(ctx context.Context, projectRoot string, def verifyTestDefinition) verifyCommandRun {
-	return runConfiguredCommand(ctx, projectRoot, def.Argv, def.CWD, def.TimeoutSec, def.Env, nil)
+func verifyCommandEnvironment(selection verifySelectionContext) map[string]string {
+	receiptID := strings.TrimSpace(selection.ReceiptID)
+	planKey := strings.TrimSpace(selection.PlanKey)
+	if receiptID == "" && planKey != "" {
+		if derivedReceiptID, ok := parsePlanFetchKey(planKey); ok {
+			receiptID = derivedReceiptID
+		}
+	}
+	if planKey == "" && receiptID != "" {
+		planKey = "plan:" + receiptID
+	}
+
+	var extraEnv map[string]string
+	if receiptID != "" {
+		if extraEnv == nil {
+			extraEnv = map[string]string{}
+		}
+		extraEnv["ACM_RECEIPT_ID"] = receiptID
+	}
+	if planKey != "" {
+		if extraEnv == nil {
+			extraEnv = map[string]string{}
+		}
+		extraEnv["ACM_PLAN_KEY"] = planKey
+	}
+	return extraEnv
+}
+
+func runVerifyCommand(ctx context.Context, projectRoot string, def verifyTestDefinition, extraEnv map[string]string) verifyCommandRun {
+	return runConfiguredCommand(ctx, projectRoot, def.Argv, def.CWD, def.TimeoutSec, def.Env, extraEnv)
 }
 
 func classifyVerifyCommandRun(run verifyCommandRun, expectedExitCode int) v1.VerifyTestStatus {
