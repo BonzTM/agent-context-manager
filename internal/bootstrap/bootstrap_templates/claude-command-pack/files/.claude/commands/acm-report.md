@@ -11,7 +11,7 @@ Steps:
    - `files_changed[]`
    - `outcome`
 2. If code changed and executable verification has not been run yet, stop and run `/acm-verify` first. `report_completion` should come after `verify`, not before it.
-3. If the repo workflow requires an additional review task such as `review:cross-llm` and it has not been recorded yet, stop and run `/acm-review <receipt_id-or-plan_key> {"run":true}` when the task defines a runnable gate; otherwise publish a manual `/acm-review` or `/acm-work` update first.
+3. If the repo workflow requires an additional review task such as `review:cross-llm` and it has not been recorded yet, stop and run `/acm-review <receipt_id-or-plan_key> {"run":true}` when the task defines a runnable review gate; otherwise publish a manual `/acm-review` or `/acm-work` update first.
 4. Build valid `acm.v1` `report_completion` JSON.
 5. Validate:
    - `acm validate --in <request.json>`

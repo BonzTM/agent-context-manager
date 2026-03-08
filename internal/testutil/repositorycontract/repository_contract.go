@@ -38,6 +38,9 @@ func RunRepositoryParity(t *testing.T, cfg ContractConfig) {
 	t.Run("candidate_pointer_retrieval", func(t *testing.T) {
 		runCandidatePointerRetrieval(t, projectID+".candidates", cfg.Repo)
 	})
+	t.Run("candidate_pointer_ranking", func(t *testing.T) {
+		runCandidatePointerRanking(t, projectID+".candidate-ranking", cfg.Repo)
+	})
 	t.Run("lookup_round_trip", func(t *testing.T) {
 		runLookupRoundTrip(t, projectID+".lookup", cfg.Repo)
 	})
@@ -131,6 +134,161 @@ func runCandidatePointerRetrieval(t *testing.T, projectID string, repo ContractR
 	}
 	if got := candidateKeys(reviewRows); !reflect.DeepEqual(got, []string{"pointer.test.execute", "pointer.code.execute"}) {
 		t.Fatalf("unexpected review candidate order: got %v", got)
+	}
+}
+
+func runCandidatePointerRanking(t *testing.T, projectID string, repo ContractRepository) {
+	t.Helper()
+	ctx := context.Background()
+
+	stubs := []core.PointerStub{
+		{
+			PointerKey:  "pointer.doc.alpha",
+			Path:        "docs/alpha.md",
+			Kind:        "doc",
+			Label:       "Alpha guide",
+			Description: "Alpha guidance for review and planning",
+			Tags:        []string{"alpha", "focus"},
+		},
+		{
+			PointerKey:  "pointer.code.alpha",
+			Path:        "internal/alpha/runtime.go",
+			Kind:        "code",
+			Label:       "Alpha runtime",
+			Description: "Alpha execution handler",
+			Tags:        []string{"alpha", "focus"},
+		},
+		{
+			PointerKey:  "pointer.test.alpha",
+			Path:        "internal/alpha/runtime_test.go",
+			Kind:        "test",
+			Label:       "Alpha tests",
+			Description: "Alpha verification coverage",
+			Tags:        []string{"alpha", "focus"},
+		},
+		{
+			PointerKey:  "pointer.code.full",
+			Path:        "internal/ranking/full.go",
+			Kind:        "code",
+			Label:       "Alpha beta ranking",
+			Description: "Alpha beta retrieval ranking reference",
+			Tags:        []string{"focus", "ranking"},
+		},
+		{
+			PointerKey:  "pointer.code.tag",
+			Path:        "internal/ranking/tag.go",
+			Kind:        "code",
+			Label:       "Ranking tag signal",
+			Description: "Focus-only retrieval signal",
+			Tags:        []string{"focus"},
+		},
+		{
+			PointerKey:  "pointer.code.text",
+			Path:        "internal/ranking/text.go",
+			Kind:        "code",
+			Label:       "Alpha text signal",
+			Description: "Text-only retrieval signal",
+			Tags:        []string{"ranking"},
+		},
+	}
+	if _, err := repo.UpsertPointerStubs(ctx, projectID, stubs); err != nil {
+		t.Fatalf("seed ranking candidate pointers: %v", err)
+	}
+
+	executeRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
+		ProjectID: projectID,
+		TaskText:  "alpha",
+		Tags:      []string{"focus"},
+		Phase:     "execute",
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("fetch execute ranking candidates: %v", err)
+	}
+	if got := candidateKeys(executeRows); !reflect.DeepEqual(got, []string{
+		"pointer.code.alpha",
+		"pointer.code.full",
+		"pointer.code.tag",
+		"pointer.test.alpha",
+		"pointer.code.text",
+		"pointer.doc.alpha",
+	}) {
+		t.Fatalf("unexpected execute ranking order: got %v", got)
+	}
+
+	reviewRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
+		ProjectID: projectID,
+		TaskText:  "alpha",
+		Tags:      []string{"focus"},
+		Phase:     "review",
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("fetch review ranking candidates: %v", err)
+	}
+	if got := candidateKeys(reviewRows); !reflect.DeepEqual(got, []string{
+		"pointer.test.alpha",
+		"pointer.code.alpha",
+		"pointer.code.full",
+		"pointer.doc.alpha",
+		"pointer.code.tag",
+		"pointer.code.text",
+	}) {
+		t.Fatalf("unexpected review ranking order: got %v", got)
+	}
+
+	planRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
+		ProjectID: projectID,
+		TaskText:  "alpha",
+		Tags:      []string{"focus"},
+		Phase:     "plan",
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("fetch plan ranking candidates: %v", err)
+	}
+	if got := candidateKeys(planRows); !reflect.DeepEqual(got, []string{
+		"pointer.doc.alpha",
+		"pointer.code.alpha",
+		"pointer.code.full",
+		"pointer.test.alpha",
+		"pointer.code.tag",
+		"pointer.code.text",
+	}) {
+		t.Fatalf("unexpected plan ranking order: got %v", got)
+	}
+
+	signalRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
+		ProjectID: projectID,
+		TaskText:  "alpha beta",
+		Tags:      []string{"focus"},
+		Phase:     "execute",
+		Limit:     3,
+	})
+	if err != nil {
+		t.Fatalf("fetch signal ranking candidates: %v", err)
+	}
+	if got := candidateKeys(signalRows); !reflect.DeepEqual(got, []string{
+		"pointer.code.full",
+		"pointer.code.alpha",
+		"pointer.code.tag",
+	}) {
+		t.Fatalf("unexpected signal ranking order: got %v", got)
+	}
+
+	unboundedRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
+		ProjectID: projectID,
+		TaskText:  "alpha",
+		Tags:      []string{"focus"},
+		Phase:     "execute",
+		Unbounded: true,
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("fetch unbounded ranking candidates: %v", err)
+	}
+	if len(unboundedRows) != 6 {
+		t.Fatalf("expected six unbounded ranking candidates, got %d", len(unboundedRows))
 	}
 }
 
