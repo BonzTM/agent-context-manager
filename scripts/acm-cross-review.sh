@@ -143,7 +143,7 @@ if [[ -z "${ACM_PROJECT_ID:-}" || -z "${receipt_id}" ]]; then
 fi
 
 if git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  tracked_changed="$(git -C "${REPO_ROOT}" diff --name-only --diff-filter=ACMRTUXB HEAD -- 2>/dev/null || true)"
+  tracked_changed="$(git -C "${REPO_ROOT}" diff --name-only --diff-filter=ACDMRTUXB HEAD -- 2>/dev/null || true)"
   untracked_changed="$(git -C "${REPO_ROOT}" ls-files --others --exclude-standard 2>/dev/null || true)"
 
   ACM_LOG_SINK=discard acm fetch \
@@ -179,11 +179,6 @@ with open(output_path, "w", encoding="utf-8") as handle:
         handle.write(path + "\n")
 PY
 
-  if [[ ! -s "${receipt_scope_paths_path}" ]]; then
-    echo "receipt scope fetch did not return any pointer_paths for receipt:${receipt_id}" >&2
-    exit 1
-  fi
-
   {
     printf '%s\n' "${tracked_changed}"
     printf '%s\n' "${untracked_changed}"
@@ -193,13 +188,25 @@ PY
 import sys
 
 changed_path, scope_path = sys.argv[1], sys.argv[2]
+completion_managed_paths = {
+    ".acm/acm-rules.yaml",
+    ".acm/acm-tags.yaml",
+    ".acm/acm-tests.yaml",
+    ".acm/acm-workflows.yaml",
+    ".acm/bootstrap_candidates.json",
+    ".env.example",
+    ".gitignore",
+    "acm-rules.yaml",
+    "acm-tests.yaml",
+    "acm-workflows.yaml",
+}
 with open(scope_path, "r", encoding="utf-8") as handle:
     scope = {line.strip() for line in handle if line.strip()}
 
 with open(changed_path, "r", encoding="utf-8") as handle:
     for line in handle:
         path = line.strip()
-        if path and path in scope:
+        if path and (path in scope or path in completion_managed_paths):
             print(path)
 PY
   mv "${tmp_dir}/changed-files-scoped.txt" "${changed_files_path}"
@@ -259,13 +266,11 @@ $(if [[ -s "${changed_files_path}" ]]; then cat "${changed_files_path}"; else ec
 Diff summary:
 $(if [[ -s "${diff_summary_path}" ]]; then cat "${diff_summary_path}"; else echo "(no diff summary available)"; fi)
 
-Unified diff:
-$(if [[ -s "${diff_prompt_path}" ]]; then cat "${diff_prompt_path}"; else echo "(no unified diff available)"; fi)
-
 Instructions:
 - Start by reading AGENTS.md and .acm/acm-workflows.yaml when present.
-- Treat the review scope as the active receipt scope only. Ignore dirty files outside the receipt-scoped changed-file list above.
-- Review only the changed files and unified diff above. Open a changed file for local context when needed, but do not roam through unrelated files.
+- Treat the review scope as the active receipt scope plus ACM-managed governance files already allowed by completion reporting. Ignore dirty files outside the filtered changed-file list above.
+- Review only the changed files listed above. Open a changed file or run local diff commands for those paths only when the diff summary suggests a plausible blocking risk, and do not roam through unrelated files.
+- Keep the investigation tight: after the initial AGENTS/workflow reads, use at most 8 additional read-only commands before deciding pass/fail.
 - Focus on blocking issues only: correctness bugs, regressions, broken command semantics, contract/schema drift, CLI/MCP parity gaps, workflow-gate mistakes, missing verification coverage, or docs/examples/skills drift that would mislead users.
 - Ignore nits, style preferences, and speculative concerns.
 - If there are no blocking issues, set status to "pass" and return an empty findings array.

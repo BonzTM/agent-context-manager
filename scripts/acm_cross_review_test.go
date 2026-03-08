@@ -24,6 +24,103 @@ func TestACMCrossReviewUsesDefaultModelArgs(t *testing.T) {
 	assertArgSequence(t, args, "-c", `model_reasoning_effort="xhigh"`)
 }
 
+func TestACMCrossReviewIncludesManagedAndDeletedScopedFiles(t *testing.T) {
+	t.Parallel()
+
+	tempRoot := t.TempDir()
+	binDir := filepath.Join(tempRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+
+	capturePath := filepath.Join(tempRoot, "codex-args.txt")
+	promptPath := filepath.Join(tempRoot, "codex-prompt.txt")
+	writeExecutable(t, filepath.Join(binDir, "codex"), `#!/usr/bin/env bash
+set -euo pipefail
+capture_path="${ACM_TEST_CAPTURE:?}"
+prompt_path="${ACM_TEST_PROMPT:?}"
+printf '%s\n' "$@" >"${capture_path}"
+cat >"${prompt_path}"
+output_path=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output-last-message)
+      output_path="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '{"status":"pass","summary":"ok","findings":[]}\n' >"${output_path}"
+`)
+	writeExecutable(t, filepath.Join(binDir, "acm"), `#!/usr/bin/env bash
+set -euo pipefail
+cat <<'JSON'
+{"result":{"items":[{"content":"{\"pointer_paths\":[\"docs/deleted.md\"]}"}]}}
+JSON
+`)
+
+	projectRoot := filepath.Join(tempRoot, "project-root")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectRoot, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, ".acm", "acm-tests.yaml"), []byte("version: acm.tests.v1\n"), 0o644); err != nil {
+		t.Fatalf("write tests file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "docs", "deleted.md"), []byte("gone\n"), 0o644); err != nil {
+		t.Fatalf("write deleted file: %v", err)
+	}
+
+	runGit(t, projectRoot, "init")
+	runGit(t, projectRoot, "config", "user.email", "test@example.com")
+	runGit(t, projectRoot, "config", "user.name", "Test User")
+	runGit(t, projectRoot, "add", ".")
+	runGit(t, projectRoot, "commit", "-m", "initial state")
+
+	if err := os.Remove(filepath.Join(projectRoot, "docs", "deleted.md")); err != nil {
+		t.Fatalf("remove deleted file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, ".acm", "acm-tests.yaml"), []byte("version: acm.tests.v1\nsmoke: []\n"), 0o644); err != nil {
+		t.Fatalf("rewrite tests file: %v", err)
+	}
+
+	cmd := exec.Command("bash", "scripts/acm-cross-review.sh")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"ACM_PROJECT_ID=agent-context-manager",
+		"ACM_RECEIPT_ID=receipt-test",
+		"ACM_PROJECT_ROOT="+projectRoot,
+		"ACM_TEST_CAPTURE="+capturePath,
+		"ACM_TEST_PROMPT="+promptPath,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run cross-review script: %v\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "PASS: ok") {
+		t.Fatalf("unexpected script output: %s", string(output))
+	}
+
+	prompt, err := os.ReadFile(promptPath)
+	if err != nil {
+		t.Fatalf("read captured prompt: %v", err)
+	}
+	promptText := string(prompt)
+	if !strings.Contains(promptText, ".acm/acm-tests.yaml") {
+		t.Fatalf("expected managed completion file in prompt, got %s", promptText)
+	}
+	if !strings.Contains(promptText, "docs/deleted.md") {
+		t.Fatalf("expected deleted scoped file in prompt, got %s", promptText)
+	}
+}
+
 func runCrossReviewScript(t *testing.T, reviewArgs []string) []string {
 	t.Helper()
 
@@ -103,6 +200,17 @@ func writeExecutable(t *testing.T, path, content string) {
 
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
 	}
 }
 

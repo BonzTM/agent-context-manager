@@ -4,13 +4,13 @@ This folder provides Claude Code slash-command prompts that mirror the `acm-brok
 
 ## Commands
 
-- `/acm-get <task text>`
+- `/acm-get [phase] <task text>`
   - runs context retrieval first, surfaces hard rules, and treats code pointers as advisory.
   - includes a `fetch` step with `receipt_id` shorthand (or explicit keys when needed).
-- `/acm-work <receipt_id> <tasks-json> [plan-json]`
-  - publishes plan/task updates through `work`.
+- `/acm-work <receipt_id-or-plan_key> <tasks-json> [plan-json]`
+  - publishes plan/task updates through `work`; use `plan-json` when you need named-plan metadata such as `title` or `mode`.
 - `/acm-review <receipt_id-or-plan_key> [review-json]`
-  - records a single review gate through the thin `review` surface, defaulting to `review:cross-llm`; use `{"run":true}` when the repo workflow defines a runnable gate.
+  - records a single review gate through the thin `review` surface, defaulting to `review:cross-llm`; use `{"run":true}` when the repo workflow defines a runnable review gate.
 - `/acm-verify <receipt_id-or-plan_key> <comma-separated files> [phase]`
   - runs repo-defined executable verification and updates `verify:tests` when work context is available.
 - `/acm-report <receipt_id> <comma-separated files> <outcome summary>`

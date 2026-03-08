@@ -243,7 +243,7 @@ Run:
 acm-mcp invoke --tool review --in assets/requests/mcp_review.json
 ```
 
-`review` is intentionally thin. It lowers to one `work.tasks[]` merge update. Omitted `key`, `summary`, and `status` default to `review:cross-llm`, `Cross-LLM review`, and `complete`. Prefer `run=true` when the repo workflow defines a runnable gate. Use `status=blocked` plus `blocked_reason` when the review gate is waiting or failed, and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode. Put repo-local reviewer choices such as script arguments, model ids, or reasoning levels in the workflow `run.argv` block.
+`review` is intentionally thin. It lowers to one `work.tasks[]` merge update. Omitted `key`, `summary`, and `status` default to `review:cross-llm`, `Cross-LLM review`, and `complete`. Prefer `run=true` when the repo workflow defines a runnable review gate. Use `status=blocked` plus `blocked_reason` when the review gate is waiting or failed, and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode. Put repo-local reviewer choices such as script arguments, model ids, or reasoning levels in the workflow `run.argv` block.
 
 When work tasks are present, `report_completion.scope_mode` controls gate behavior: `strict` enforces configured completion tasks (defaulting to `verify:tests`), `warn` surfaces warnings.
 

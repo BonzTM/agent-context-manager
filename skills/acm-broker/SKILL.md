@@ -15,7 +15,7 @@ Use this skill when a task needs brokered context retrieval, hard rule complianc
 4. Call `fetch` for plan/work artifacts needed to execute accurately (or use `receipt_id` shorthand without explicit keys).
 5. Execute work; if context is insufficient or stale, refine task text and call `get_context` again.
 6. Call `work` with `receipt_id` (optionally without `plan_key`) to publish broader updates. Use `tasks` payloads and `verify:tests` as the built-in executable verification task key. `verify:diff-review` is optional if the repo wants an explicit manual review task, and `.acm/acm-workflows.yaml` may require additional task keys.
-7. Call `review` when you only need to record a single review-gate outcome. It lowers to one `work` task update; use `run=true` when the repo workflow defines a runnable gate, otherwise use the manual review fields. Runnable review gates are terminal checks: ACM may skip same-fingerprint reruns and only stop after the workflow's `max_attempts` when that cap is explicitly configured.
+7. Call `review` when you only need to record a single review-gate outcome. It lowers to one `work` task update; use `run=true` when the repo workflow defines a runnable review gate, otherwise use the manual review fields. Runnable review gates are terminal checks: ACM may skip same-fingerprint reruns and only stop after the workflow's `max_attempts` when that cap is explicitly configured.
 8. When code changes are involved, call `verify` before `report_completion`. Include `receipt_id` or `plan_key` when available so `verify` can update `verify:tests`.
 9. Call `report_completion` with files changed and outcome after verification is satisfied.
 10. Propose durable memory with `propose_memory` when appropriate.
