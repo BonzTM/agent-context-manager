@@ -63,7 +63,7 @@ acm bootstrap \
   --apply-template starter-contract \
   --apply-template verify-generic \
   --apply-template claude-command-pack \
-  --apply-template claude-receipt-guard \
+  --apply-template claude-hooks \
   --apply-template git-hooks-precommit
 ```
 
@@ -77,7 +77,12 @@ Starter verify profiles:
 - `verify-python` — Python-oriented `.acm/acm-tests.yaml`
 - `verify-rust` — Rust-oriented `.acm/acm-tests.yaml`
 
-- `claude-receipt-guard` — seeds Claude hooks that block edits until `/acm-get` succeeds in the session
+Planning profile:
+
+- `detailed-planning-enforcement` — seeds `docs/feature-plans.md` and `scripts/acm-feature-plan-validate.py`, and upgrades pristine `starter-contract` / `verify-generic` scaffolds to the richer feature-planning workflow
+
+- `claude-hooks` — seeds Claude hooks that inject the ACM loop at session start, block edits until `/acm-get` succeeds, require `/acm-work` before untracked multi-file edits, and block stop until edits are reported
+  The older `claude-receipt-guard` name is still accepted as a compatibility alias.
 - `git-hooks-precommit` — seeds `.githooks/pre-commit` for staged-file `acm verify` gating; enable with `git config core.hooksPath .githooks`
 
 ### 2. Fill in your seeded rules
@@ -117,7 +122,7 @@ Once connected, agents call acm operations automatically during tasks:
 
 1. `get_context` — retrieves a scoped receipt (rules, suggestions, memories, active plans from prior runs)
 2. `fetch` — pulls full content for pointer keys, plan keys, or task keys
-3. `work` — creates/updates structured plans with tasks (survives context compaction)
+3. `work` — creates/updates structured plans with tasks, stages, hierarchy, dependencies, and acceptance criteria (survives context compaction)
 4. `history_search` — lists or searches work, memory, receipt, and run history with targeted fetch keys
 5. `verify` — runs repo-defined executable checks and updates `verify:tests` when work context is present
 6. `review` — records a single review gate outcome through the existing `work` path; `--run` executes the matching workflow `run` block before auto-recording `complete` or `blocked`
@@ -188,6 +193,7 @@ Most list and text flags support inline values and `--*-file` alternatives (`-` 
 **Defaults** (when flags are omitted): `key=review:cross-llm`, `summary="Cross-LLM review"`, `status=complete`.
 
 **Run mode** (`--run` or `run=true`): acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists an append-only review-attempt record, and updates the work-task snapshot. Runnable gates are terminal-gate by default — same-fingerprint reruns are skipped, `max_attempts` is optional, and `report_completion` requires a fresh passing review when fingerprint dedupe is enabled. The scoped fingerprint covers receipt pointer paths plus ACM-managed governance files that completion reporting already allows outside pointer scope.
+If the repo has uncommitted changes but the current receipt scopes zero of them into the runnable review set, the review runner should block and tell you to refresh `get_context` rather than silently reviewing nothing.
 
 **Manual mode** (no `--run`): use `--status`, `--outcome`, `--blocked-reason`, and `--evidence` to record a review note directly. These fields are ignored in run mode.
 
@@ -203,13 +209,14 @@ Keep raw reviewer commands in repo-local scripts and workflow definitions, not m
 ```bash
 acm bootstrap     [--project <id>] [--project-root .] [--apply-template <id>]... [--persist-candidates] [--respect-gitignore] [--output-candidates-path <path>] [--rules-file <path>] [--tags-file <path>]
 acm sync          [--project <id>] --mode <changed|full|working_tree> [--git-range <range>] [--project-root <path>] [--insert-new-candidates] [--rules-file <path>] [--tags-file <path>]
-acm health        [--project <id>] [--include-details] [--max-findings-per-check <n>]
-acm health-fix    [--project <id>] --apply [--fixer <name>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]
+acm health        [--project <id>] [--include-details] [--max-findings-per-check <n>] | [--fix <name>]... [--dry-run|--apply] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]
 acm status        [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]
 acm coverage      [--project <id>] [--project-root .]
 acm eval          [--project <id>] (--eval-suite-path ./eval.json|--eval-suite-inline-file <path>|--eval-suite-inline-json <json>) [--minimum-recall <0..1>] [--tags-file <path>]
 acm verify        [--project <id>] [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]
 ```
+
+`acm health` is the only human CLI surface for repository health. Use it without `--fix` to inspect drift, add `--fix <name>` to apply a specific fixer by default, add `--dry-run` to preview without changing state, or use `--fix all` / `--apply` with no `--fix` values to run the default fixer set. Run `acm health --help` to see the available fixers and preview/apply examples.
 
 `acm status` is the preferred diagnostics surface. It reports the active project, runtime/backend details, loaded rules/tags/tests/workflows, installed bootstrap integrations, and missing setup. With `--task-text`, it also previews `get_context` selection reasoning. `acm doctor` is a CLI alias for the same command.
 
@@ -297,7 +304,7 @@ acm doesn't ship project rules or opinions. You author configuration in repo-loc
 
 ### Rules (`.acm/acm-rules.yaml`)
 
-Define behavioral constraints for agents. Hard rules are always included in receipts; soft rules are summary-only. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override auto-discovery.
+Define behavioral constraints for agents. Hard rules are always included in receipts; soft rules are summary-only. Use `--rules-file` on `sync`, `health --fix`, or `bootstrap` to override auto-discovery.
 
 ### Tags (`.acm/acm-tags.yaml`)
 
@@ -306,6 +313,12 @@ Repo-local canonical tag aliases that extend acm's embedded base dictionary. Mer
 ### Verification (`.acm/acm-tests.yaml`)
 
 Repo-defined executable checks for `verify`. v1 definitions are argv-only. Use `--tests-file` on `verify` to override auto-discovery.
+
+### Repo-Local Feature Plan Conventions
+
+ACM's built-in `work` schema already supports richer planning detail through `plan.stages`, `parent_task_key`, `depends_on`, and `acceptance_criteria`. Repos can layer a stricter feature-planning contract on top of those fields without changing ACM itself.
+
+This repo does that for net-new feature work: root plans use `kind=feature`, track `spec_outline` / `refined_spec` / `implementation_plan`, group work under top-level `stage:*` tasks, and treat leaf tasks with explicit `acceptance_criteria` as the atomic units of execution. `acm verify` enforces the contract through `scripts/acm-feature-plan-validate.py`. See [docs/feature-plans.md](docs/feature-plans.md).
 
 ### Workflows (`.acm/acm-workflows.yaml`)
 
@@ -318,25 +331,26 @@ Templates are seed-only — they create missing files but never overwrite edited
 | Template | What it seeds |
 |---|---|
 | `starter-contract` | `AGENTS.md`, `CLAUDE.md`, richer starter ruleset |
+| `detailed-planning-enforcement` | Richer feature-plan contract, `docs/feature-plans.md`, and `scripts/acm-feature-plan-validate.py` |
 | `verify-generic` | Language-agnostic `.acm/acm-tests.yaml` that works out of the box |
 | `verify-go` | Go-oriented `.acm/acm-tests.yaml` |
 | `verify-ts` | TypeScript-oriented `.acm/acm-tests.yaml` |
 | `verify-python` | Python-oriented `.acm/acm-tests.yaml` |
 | `verify-rust` | Rust-oriented `.acm/acm-tests.yaml` |
 | `claude-command-pack` | `.claude/commands/*`, `.claude/acm-broker/*` |
-| `claude-receipt-guard` | Claude hook settings and receipt guard scripts |
+| `claude-hooks` | Claude hook settings plus ACM process guard scripts |
 | `git-hooks-precommit` | `.githooks/pre-commit` |
 
-See [docs/examples/bootstrap-templates.md](docs/examples/bootstrap-templates.md) for usage examples. Format references: [acm-rules.yaml](docs/examples/acm-rules.yaml), [acm-tags.yaml](docs/examples/acm-tags.yaml), [acm-workflows.yaml](docs/examples/acm-workflows.yaml). Full authoring workflow: [Getting Started](docs/getting-started.md).
+See [docs/examples/bootstrap-templates.md](docs/examples/bootstrap-templates.md) for usage examples. Format references: [acm-rules.yaml](docs/examples/acm-rules.yaml), [acm-tags.yaml](docs/examples/acm-tags.yaml), [acm-workflows.yaml](docs/examples/acm-workflows.yaml). For a concrete richer planning contract layered on top of ACM's built-in schema, see [docs/feature-plans.md](docs/feature-plans.md). Full authoring workflow: [Getting Started](docs/getting-started.md).
 
-## Logging
+## Environment Variables
 
 ```bash
-export ACM_PROJECT_ID=my-cool-app        # optional stable project namespace
+export ACM_PROJECT_ID=my-cool-app      # optional stable project namespace
 export ACM_PROJECT_ROOT=/path/to/repo  # optional when running acm from another directory
-export ACM_UNBOUNDED=false  # true removes built-in retrieval/list caps for supported surfaces
-export ACM_LOG_LEVEL=debug   # debug|info|warn|error (default: info)
-export ACM_LOG_SINK=stderr   # stderr|stdout|discard (default: stderr)
+export ACM_UNBOUNDED=false             # true removes built-in retrieval/list caps for supported surfaces
+export ACM_LOG_LEVEL=debug             # debug|info|warn|error (default: info)
+export ACM_LOG_SINK=stderr             # stderr|stdout|discard (default: stderr)
 ```
 
 ## License

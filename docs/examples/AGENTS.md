@@ -45,10 +45,20 @@ Use `work` when any of the following are true:
 
 For code changes, include a `verify:tests` task. Add other task keys when they help resumption, coordination, or are required by `.acm/acm-workflows.yaml`. For single review-gate updates, `review` is the thinner convenience wrapper around `work`; use `review --run` for runnable workflow gates, and keep manual `status` / `outcome` / `evidence` fields for non-run mode.
 
+## Optional Feature Plans
+
+If the repo wants stricter planning for net-new feature work:
+
+- require root plans with `kind=feature`, explicit scope metadata, and `plan.stages.spec_outline` / `refined_spec` / `implementation_plan`
+- require top-level `stage:*` tasks with child tasks linked through `parent_task_key`
+- treat leaf tasks as the atomic tasks and require `acceptance_criteria` on those leaves
+- use `kind=feature_stream` plus `parent_plan_key` for parallel execution streams
+- enforce the schema through a repo-local `verify` script selected from `.acm/acm-tests.yaml`
+
 ## Ruleset Maintenance
 
 1. Edit the canonical rules, tags, tests, or workflow files.
-2. Run `sync` or `health-fix --apply`.
+2. Run `sync` or `health --apply`.
 3. Run `health` and resolve blocking findings.
 
 ## Tool-Specific Companions

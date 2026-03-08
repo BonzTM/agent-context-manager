@@ -36,8 +36,11 @@ After any compaction, reset, or handoff, re-read `AGENTS.md` and restart the ACM
 - Storage changes must preserve Postgres/SQLite parity.
 - Onboarding changes must preserve the clean bootstrap path for this repo and other ACM-managed repos.
 - Workflow or behavior changes must update repo docs, examples, and broker assets in the same change.
+- Net-new feature work must use the repo-local feature plan contract in `docs/feature-plans.md`: `kind=feature`, explicit scope metadata, `plan.stages`, top-level `stage:*` tasks, and leaf-task `acceptance_criteria`. `acm verify` runs `scripts/acm-feature-plan-validate.py` when relevant.
 - Verification coverage is currently anchored by:
   - `smoke` on every run
+  - `acm-feature-plan-help` when feature-plan governance surfaces change
+  - `acm-feature-plan-validate` when feature-relevant work is active; non-feature or unmaterialized receipt plans should skip cleanly
   - `cli-build` for `cmd/**`, `internal/**`, `go.mod`, and `go.sum` changes in `execute` or `review`
   - `full-go-suite` in `review` for broader product-surface changes
 

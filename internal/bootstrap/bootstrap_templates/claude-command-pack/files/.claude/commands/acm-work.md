@@ -25,3 +25,4 @@ Constraints:
 - Use `verify:tests` as the executable verification task key.
 - `verify:diff-review` is optional if the repo tracks a separate manual diff review step.
 - Add other task keys when `.acm/acm-workflows.yaml` requires them for completion.
+- If the repo defines a richer feature-plan contract, populate `plan.stages`, top-level `stage:*` tasks, `parent_task_key`, and leaf-task `acceptance_criteria` here instead of leaving that structure only in prose.

@@ -49,3 +49,24 @@ tests:
       changed_paths_any: ["cmd/**", "internal/**", "pkg/**", "go.mod", "go.sum"]
     expected:
       exit_code: 0
+
+# Optional stricter feature-plan validation:
+#   - id: feature-plan-help
+#     summary: Ensure the repo-local feature-plan validator exposes help
+#     command:
+#       argv: ["python3", "scripts/acm-feature-plan-validate.py", "--help"]
+#     select:
+#       phases: ["execute", "review"]
+#       changed_paths_any: ["AGENTS.md", "CLAUDE.md", ".acm/**", "README.md", "docs/**", "scripts/**", "skills/**"]
+#     expected:
+#       exit_code: 0
+#
+#   - id: feature-plan-validate
+#     summary: Validate the repo-local feature plan schema for active feature work
+#     command:
+#       argv: ["python3", "scripts/acm-feature-plan-validate.py"]
+#     select:
+#       phases: ["execute", "review"]
+#       changed_paths_any: ["cmd/**", "internal/**", "docs/**", "scripts/**", ".acm/**"]
+#     expected:
+#       exit_code: 0

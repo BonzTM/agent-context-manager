@@ -67,6 +67,8 @@ Each plan has:
   Each stage has its own status (`pending`, `in_progress`, `complete`, `blocked`).
 - **Scope** — in-scope/out-of-scope/constraints lists
 
+The stage fields are intentionally generic so repos can define richer planning contracts on top of them. A common pattern is to require root `kind=feature` plans, mirror stage status with top-level `stage:*` tasks, and treat leaf tasks with `acceptance_criteria` as the atomic units of work. This repo documents that pattern in `docs/feature-plans.md`.
+
 Plans are created and updated via the `work` command. Updates can use `merge` mode (default, upserts tasks by key) or `replace` mode (replaces all tasks).
 
 ## Task
@@ -81,7 +83,7 @@ A task is a unit of work within a plan. Tasks have:
 - **Outcome** — what happened (filled on completion)
 - **Evidence** — references supporting the outcome
 
-Tasks can reference a `parent_task_key` for grouping, and can be fetched individually via `fetch --key task:plan:<receipt-id>#<task-key>`.
+Tasks can reference a `parent_task_key` for grouping, and can be fetched individually via `fetch --key task:plan:<receipt-id>#<task-key>`. Repos that want stricter atomic-task planning can enforce parent/child structure and leaf-task acceptance criteria through repo-local `verify` checks.
 
 Special task keys with built-in meaning:
 
@@ -150,7 +152,7 @@ Used in `report_completion` to validate that changed files were within the recei
 
 ## Canonical Ruleset
 
-The human-authored YAML file where you define your rules. acm discovers it automatically at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override with an explicit path. If you maintain a repo-local tag dictionary separately, use `--tags-file` on `get-context`, `propose-memory`, `report-completion`, `sync`, `health-fix`, `eval`, `verify`, or `bootstrap` to supply it explicitly for canonical tag normalization. Format:
+The human-authored YAML file where you define your rules. acm discovers it automatically at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root. Use `--rules-file` on `sync`, `health --fix`, or `bootstrap` to override with an explicit path. If you maintain a repo-local tag dictionary separately, use `--tags-file` on `get-context`, `propose-memory`, `report-completion`, `sync`, `health --fix`, `eval`, `verify`, or `bootstrap` to supply it explicitly for canonical tag normalization. Format:
 
 ```yaml
 version: acm.rules.v1
@@ -162,7 +164,7 @@ rules:
     tags: [tag1, tag2] (optional)
 ```
 
-acm reads this file during `sync` or `health-fix --fixer sync_ruleset` and upserts the rules as pointers. The canonical ruleset is the source of truth — acm stores and delivers, the file defines.
+acm reads this file during `sync` or `acm health --fix sync_ruleset` and upserts the rules as pointers. The canonical ruleset is the source of truth — acm stores and delivers, the file defines.
 
 ## Executable Verification Definitions
 

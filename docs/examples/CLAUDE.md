@@ -28,8 +28,10 @@ If you need runtime or setup diagnostics, use direct CLI `acm status`; `acm doct
 - If the receipt looks stale or too narrow, re-run `/acm-get` with a better task description instead of guessing.
 - Do not claim success when `/acm-verify` failed or was skipped for code changes.
 - `/acm-review` stays thin. Use `{"run":true}` for runnable workflow gates and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode.
+- If `/acm-review {"run":true}` reports repo changes but zero scoped review files, the receipt is too narrow. Re-run `/acm-get` with the broader task before retrying review.
+- If the repo defines a richer feature-plan contract, populate the required `plan.stages`, `stage:*` tasks, `parent_task_key`, and leaf `acceptance_criteria` before implementation, then let `verify` enforce it.
 - When blocked on a missing product or architectural decision, surface the decision instead of improvising it.
 
 ## Ruleset Maintenance
 
-When `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, `.acm/acm-tests.yaml`, or `.acm/acm-workflows.yaml` changes, refresh broker state with `sync` or `health-fix --apply`, then run `health`.
+When `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, `.acm/acm-tests.yaml`, or `.acm/acm-workflows.yaml` changes, refresh broker state with `sync` or `health --apply`, then run `health`.

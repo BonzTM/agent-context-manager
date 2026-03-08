@@ -39,10 +39,10 @@ func TestClaudeCommandPackTemplateMatchesSkillPack(t *testing.T) {
 	}
 }
 
-func TestClaudeReceiptMarkHookCoversGetContextJSONFlow(t *testing.T) {
+func TestClaudeHooksReceiptMarkHookCoversGetContextJSONFlow(t *testing.T) {
 	t.Parallel()
 
-	raw, err := bootstrapTemplateFS.ReadFile("bootstrap_templates/claude-receipt-guard/files/.claude/hooks/acm-receipt-mark.sh")
+	raw, err := bootstrapTemplateFS.ReadFile("bootstrap_templates/claude-hooks/files/.claude/hooks/acm-receipt-mark.sh")
 	if err != nil {
 		t.Fatalf("read receipt mark hook: %v", err)
 	}
@@ -53,13 +53,99 @@ func TestClaudeReceiptMarkHookCoversGetContextJSONFlow(t *testing.T) {
 		"(-h|--help)",
 		"acm[[:space:]]+run",
 		"extract_acm_input_path",
-		"request_declares_get_context",
-		`"command"[[:space:]]*:[[:space:]]*"get_context"`,
+		"request_declares_command",
+		`request_declares_command "$INPUT_PATH" "get_context"`,
+		`request_declares_command "$INPUT_PATH" "work"`,
+		`request_declares_command "$INPUT_PATH" "verify"`,
+		`request_declares_command "$INPUT_PATH" "report_completion"`,
+		"acm-mcp[[:space:]]+invoke",
+		"report-completion",
 	}
 	for _, snippet := range requiredSnippets {
 		if !strings.Contains(content, snippet) {
 			t.Fatalf("receipt mark hook is missing snippet %q", snippet)
 		}
+	}
+}
+
+func TestClaudeHooksSettingsIncludeProcessHooks(t *testing.T) {
+	t.Parallel()
+
+	raw, err := bootstrapTemplateFS.ReadFile("bootstrap_templates/claude-hooks/files/.claude/settings.json")
+	if err != nil {
+		t.Fatalf("read Claude settings template: %v", err)
+	}
+	content := string(raw)
+	requiredSnippets := []string{
+		`"SessionStart"`,
+		`"UserPromptSubmit"`,
+		`"Stop"`,
+		"Edit|MultiEdit|Write|NotebookEdit",
+		"acm-session-context.sh",
+		"acm-edit-state.sh",
+		"acm-stop-guard.sh",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("Claude hook settings are missing snippet %q", snippet)
+		}
+	}
+}
+
+func TestClaudeProcessHooksTrackWorkflowState(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string][]string{
+		"bootstrap_templates/claude-hooks/files/.claude/hooks/acm-receipt-guard.sh": {
+			"files.txt",
+			"/acm-work",
+			"multi-file",
+		},
+		"bootstrap_templates/claude-hooks/files/.claude/hooks/acm-edit-state.sh": {
+			"files.txt",
+			`"${STATE_DIR}/verified"`,
+			`"${STATE_DIR}/reported"`,
+		},
+		"bootstrap_templates/claude-hooks/files/.claude/hooks/acm-session-context.sh": {
+			"AGENTS.md",
+			"/acm-get",
+			"/acm-report",
+			"/acm-memory",
+		},
+		"bootstrap_templates/claude-hooks/files/.claude/hooks/acm-stop-guard.sh": {
+			`"Stop"`,
+			`decision: "block"`,
+			"/acm-verify",
+			"/acm-report",
+		},
+	}
+
+	for path, snippets := range cases {
+		raw, err := bootstrapTemplateFS.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read hook asset %s: %v", path, err)
+		}
+		content := string(raw)
+		for _, snippet := range snippets {
+			if !strings.Contains(content, snippet) {
+				t.Fatalf("hook asset %s is missing snippet %q", path, snippet)
+			}
+		}
+	}
+}
+
+func TestResolveTemplatesMapsClaudeReceiptGuardAlias(t *testing.T) {
+	t.Parallel()
+
+	templates, err := ResolveTemplates([]string{"claude-receipt-guard", "claude-hooks"})
+	if err != nil {
+		t.Fatalf("resolve templates: %v", err)
+	}
+	if len(templates) != 1 {
+		t.Fatalf("expected alias and canonical template ids to dedupe, got %d entries", len(templates))
+	}
+	if templates[0].ID != "claude-hooks" {
+		t.Fatalf("expected canonical template id claude-hooks, got %q", templates[0].ID)
 	}
 }
 

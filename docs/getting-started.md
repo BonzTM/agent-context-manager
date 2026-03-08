@@ -69,7 +69,7 @@ Bootstrap automatically:
 
 Use `--persist-candidates` to save the enumerated file list to `.acm/bootstrap_candidates.json`.
 
-Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `claude-command-pack`, `claude-receipt-guard`, `git-hooks-precommit`.
+Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `detailed-planning-enforcement`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `claude-command-pack`, `claude-hooks`, `git-hooks-precommit`.
 
 Check what was indexed:
 
@@ -136,6 +136,7 @@ For a starter verify profile, rerun bootstrap with one of:
 - `acm bootstrap --apply-template verify-ts` for TypeScript repos
 - `acm bootstrap --apply-template verify-python` for Python repos
 - `acm bootstrap --apply-template verify-rust` for Rust repos
+- `acm bootstrap --apply-template detailed-planning-enforcement` for the richer feature-plan contract; it can be applied directly or after `starter-contract` + `verify-generic`, and it upgrades those pristine files when present
 
 ### Workflow gates
 
@@ -256,6 +257,20 @@ acm work --receipt-id <receipt-id> --mode merge \
 ```
 
 `tasks` are the canonical payload for tracking. If you only need to record a single review-gate outcome, use `review` instead.
+
+#### Optional richer feature plans
+
+ACM's built-in `work` schema already includes `plan.stages`, `parent_task_key`, `depends_on`, and `acceptance_criteria`. A repo can use those fields to define a stricter feature-plan contract for net-new feature work without changing ACM itself.
+
+Typical pattern:
+
+- use a root plan with `kind=feature` plus explicit scope metadata
+- mirror `plan.stages.spec_outline` / `refined_spec` / `implementation_plan` with top-level `stage:*` tasks
+- treat leaf tasks as the atomic tasks and require `acceptance_criteria` on those leaves
+- use child plans with `kind=feature_stream` and `parent_plan_key` for parallel execution streams
+- run a repo-local validator from `verify`; `ACM_PLAN_KEY` and `ACM_RECEIPT_ID` are injected into verify commands automatically
+
+This repo uses that pattern in [feature-plans.md](feature-plans.md) and enforces it with `scripts/acm-feature-plan-validate.py`.
 
 ### review
 
@@ -386,11 +401,11 @@ If you prefer to seed the same files directly through bootstrap, rerun:
 ```bash
 acm bootstrap \
   --apply-template claude-command-pack \
-  --apply-template claude-receipt-guard \
+  --apply-template claude-hooks \
   --apply-template git-hooks-precommit
 ```
 
-`claude-receipt-guard` is additive and opt-in. It seeds `.claude/settings.json` plus hook scripts that keep edits blocked until `/acm-get` or an equivalent `get_context` request succeeds in the current Claude session.
+`claude-hooks` is additive and opt-in. It seeds `.claude/settings.json` plus hook scripts that re-inject the ACM loop on Claude session start/compaction, keep edits blocked until `/acm-get` or an equivalent `get_context` request succeeds in the current session, nudge `/acm-work` once edits span files, and block stop until edited work is closed with `acm report-completion`. The older `claude-receipt-guard` template name still works as a compatibility alias.
 
 `git-hooks-precommit` seeds `.githooks/pre-commit`, which forwards staged additions, modifications, renames, type changes, and deletions into `acm verify --phase review`. Enable it with:
 
@@ -448,7 +463,7 @@ acm sync --mode working_tree
 2. Run `acm sync --mode working_tree`
 3. Run `acm health` to verify
 
-`sync` re-syncs both file pointers and canonical rules. Use `--insert-new-candidates` to auto-index any uncovered files during sync. To sync rules only (without touching file pointers), use `acm health-fix --apply --fixer sync_ruleset`.
+`sync` re-syncs both file pointers and canonical rules. Use `--insert-new-candidates` to auto-index any uncovered files during sync. To sync rules only (without touching file pointers), use `acm health --fix sync_ruleset`.
 
 If your ruleset or tag dictionary is in a non-standard location, pass `--rules-file` and/or `--tags-file`:
 
@@ -467,13 +482,23 @@ Reports stale pointers, orphan relations, unknown tags, and other drift.
 ### Fix issues automatically
 
 ```bash
-acm health-fix --apply
+acm health --fix all
 ```
 
+Run `acm health --help` to list fixers directly in the CLI.
+
 Available fixers:
+- `all` — run the default fixer set (`sync_working_tree`, `index_uncovered_files`, `sync_ruleset`)
 - `sync_working_tree` — re-sync file hashes from disk
 - `index_uncovered_files` — add missing files to the index
 - `sync_ruleset` — re-sync rules from canonical ruleset
+
+Use `--dry-run` when you want a preview without changing state:
+
+```bash
+acm health --fix all --dry-run
+acm health --fix sync_ruleset --dry-run
+```
 
 ### Run eval and verify checks
 
@@ -564,6 +589,9 @@ completion:
 Bootstrap seeds the thin `required_tasks: []` skeleton by default. Adding gates like `review:cross-llm` is an opt-in repo policy choice.
 
 When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM skips same-fingerprint reruns and only enforces retry limits when `max_attempts` is set. The scoped fingerprint covers receipt pointer paths plus ACM-managed governance files that completion reporting already allows outside pointer scope. Without `run`, agents can use manual `review` fields or a direct `work` update. Repo-local reviewer choices such as a Codex model or reasoning effort belong in the workflow `run.argv`.
+If the working tree is dirty but the active receipt scopes zero of those changes into the runnable review set, the runner should fail fast and tell the agent to rerun `get_context` with a broader task. Runnable review output should also surface the total repo-changed versus scoped-changed file counts for quick diagnosis.
+
+Keep richer plan-shape enforcement in `verify`, not `completion.required_tasks`, unless you truly need an additional final gate. Workflow selectors operate on phase, tags, paths, and pointers; they do not currently distinguish thin plans from `kind=feature` plans by themselves.
 
 ## Storage
 

@@ -12,6 +12,12 @@ rules:
     enforcement: hard
     tags: [work, planning]
 
+  - id: rule_plan_before_code
+    summary: Plan multi-step implementation work before writing code.
+    content: For tasks with more than one implementation step, create ACM work with explicit steps and acceptance criteria before writing implementation code. Single-file, single-purpose fixes are exempt.
+    enforcement: hard
+    tags: [planning, workflow]
+
   - id: rule_contract_schema_lockstep
     summary: Keep v1 contracts and schema files in lockstep.
     content: Any change to payloads, results, validation, or command semantics must update internal/contracts/v1, spec/v1 schemas, and the corresponding tests together.
@@ -41,6 +47,12 @@ rules:
     content: User-facing install, help, command, or onboarding changes must update README, docs/getting-started, docs/examples, and skill-pack assets in the same change.
     enforcement: hard
     tags: [docs, skills]
+
+  - id: rule_feature_plan_schema
+    summary: Use the repo-local ACM feature plan schema for net-new feature work.
+    content: For net-new feature work and large capability expansions, create a root ACM plan with `kind=feature`, explicit scope metadata, `spec_outline` / `refined_spec` / `implementation_plan` stage statuses, top-level `stage:*` tasks, and leaf-task acceptance criteria. When a feature splits into multiple execution streams, use `kind=feature_stream` plus `parent_plan_key`, and let `acm verify` enforce the schema through `scripts/acm-feature-plan-validate.py`.
+    enforcement: hard
+    tags: [planning, workflow, docs]
 
   - id: rule_workflow_gates_sync
     summary: Keep workflow gate definitions aligned with completion behavior.

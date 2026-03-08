@@ -14,7 +14,7 @@ Use this skill when a task needs brokered context retrieval, hard rule complianc
 3. Treat code/doc/test pointers as advisory suggestions for where to start.
 4. Call `fetch` for plan/work artifacts needed to execute accurately (or use `receipt_id` shorthand without explicit keys).
 5. Execute work; if context is insufficient or stale, refine task text and call `get_context` again.
-6. Call `work` with `receipt_id` (optionally without `plan_key`) to publish broader updates. Use `tasks` payloads and `verify:tests` as the built-in executable verification task key. `verify:diff-review` is optional if the repo wants an explicit manual review task, and `.acm/acm-workflows.yaml` may require additional task keys.
+6. Call `work` with `receipt_id` (optionally without `plan_key`) to publish broader updates. Use `tasks` payloads and `verify:tests` as the built-in executable verification task key. `verify:diff-review` is optional if the repo wants an explicit manual review task, and `.acm/acm-workflows.yaml` may require additional task keys. If the repo defines a richer feature-plan contract, populate the required `plan.stages`, top-level `stage:*` tasks, `parent_task_key`, and leaf `acceptance_criteria` before implementation; `verify` may enforce that schema.
 7. Call `review` when you only need to record a single review-gate outcome. It lowers to one `work` task update; use `run=true` when the repo workflow defines a runnable review gate, otherwise use the manual review fields. Runnable review gates are terminal checks: ACM may skip same-fingerprint reruns and only stop after the workflow's `max_attempts` when that cap is explicitly configured.
 8. When code changes are involved, call `verify` before `report_completion`. Include `receipt_id` or `plan_key` when available so `verify` can update `verify:tests`.
 9. Call `report_completion` with files changed and outcome after verification is satisfied.
@@ -59,6 +59,7 @@ Use templates from `references/templates.md` and `assets/requests/*.json`.
 - Runnable review gates may return a skipped result when the current scoped fingerprint was already assessed or an explicitly configured `max_attempts` budget is exhausted.
 - When `work.tasks` is non-empty, include `verify:tests` for executable verification tracking.
 - `verify:diff-review` is optional workflow metadata, not a built-in acm completion gate.
+- Some repos use `verify` to enforce richer feature-plan schemas built on `kind=feature`, stage tasks, task hierarchy, and leaf-task acceptance criteria. Follow the repo-local contract when it exists.
 - For code changes, run `verify` before `report_completion` unless the repo rules explicitly allow otherwise.
 - For `report_completion`, `scope_mode=strict` blocks on incomplete required completion tasks (defaulting to `verify:tests` when no workflow gates are configured); `scope_mode=warn` surfaces warnings.
 - If suggested pointers are insufficient, refine/re-run `get_context` before forcing progress.

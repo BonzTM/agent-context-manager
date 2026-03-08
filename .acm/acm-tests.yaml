@@ -12,6 +12,26 @@ tests:
     expected:
       exit_code: 0
 
+  - id: acm-feature-plan-help
+    summary: Ensure the repo-local ACM feature-plan validator exposes help
+    command:
+      argv: ["python3", "scripts/acm-feature-plan-validate.py", "--help"]
+    select:
+      phases: ["execute", "review"]
+      changed_paths_any: ["AGENTS.md", "CLAUDE.md", ".acm/**", "README.md", "docs/**", "internal/bootstrap/**", "scripts/**", "skills/**"]
+    expected:
+      exit_code: 0
+
+  - id: acm-feature-plan-validate
+    summary: Validate the repo-local ACM feature plan schema for active feature work
+    command:
+      argv: ["python3", "scripts/acm-feature-plan-validate.py"]
+    select:
+      phases: ["execute", "review"]
+      changed_paths_any: ["AGENTS.md", "CLAUDE.md", ".acm/**", "README.md", "cmd/**", "docs/**", "go.mod", "go.sum", "internal/**", "scripts/**", "skills/**", "spec/**"]
+    expected:
+      exit_code: 0
+
   - id: cli-build
     summary: Ensure both CLI entrypoints still build
     command:

@@ -17,6 +17,11 @@ Example payloads show explicit `project_id` values for clarity. In live usage yo
 10. Run `propose_memory` when the result should persist.
 11. When resuming or auditing prior work, use `history_search` or the CLI `work list`, `work search`, `history search --entity all`, or `history search --entity memory`, then `fetch` the returned `fetch_keys`.
 
+Maintenance note:
+- `acm health --fix <name>` applies the selected fixer by default.
+- Add `--dry-run` to preview health fixes without changing state.
+- Use `acm health --fix all` to run the default fixer set explicitly.
+
 ## CLI `get_context` request
 
 ```json
@@ -170,6 +175,69 @@ Run:
 acm validate --in assets/requests/work.json
 acm run --in assets/requests/work.json
 ```
+
+If the repo defines a richer feature-plan contract, use the same `work` surface with explicit stages and grouping tasks instead of inventing a separate planning system:
+
+```json
+{
+  "version": "acm.v1",
+  "command": "work",
+  "request_id": "req-work-feature-001",
+  "payload": {
+    "project_id": "customer-portal",
+    "receipt_id": "replace-from-get-context-receipt",
+    "mode": "merge",
+    "plan": {
+      "title": "Offline downloads",
+      "kind": "feature",
+      "objective": "Ship bounded offline downloads across backend and frontend surfaces.",
+      "status": "in_progress",
+      "stages": {
+        "spec_outline": "complete",
+        "refined_spec": "complete",
+        "implementation_plan": "in_progress"
+      }
+    },
+    "tasks": [
+      {
+        "key": "stage:spec-outline",
+        "summary": "Spec outline",
+        "status": "complete"
+      },
+      {
+        "key": "spec:capabilities",
+        "summary": "Define required capabilities",
+        "status": "complete",
+        "parent_task_key": "stage:spec-outline",
+        "acceptance_criteria": [
+          "Capabilities cover UX, backend, and operator impact"
+        ]
+      },
+      {
+        "key": "stage:implementation-plan",
+        "summary": "Implementation plan",
+        "status": "in_progress"
+      },
+      {
+        "key": "impl:backend-contract",
+        "summary": "Implement the backend contract",
+        "status": "in_progress",
+        "parent_task_key": "stage:implementation-plan",
+        "acceptance_criteria": [
+          "Backend behavior and regression coverage are explicit"
+        ]
+      },
+      {
+        "key": "verify:tests",
+        "summary": "Run verification for feature work",
+        "status": "pending"
+      }
+    ]
+  }
+}
+```
+
+Repos can enforce that schema through a repo-local `verify` script that inspects the active plan via `ACM_PLAN_KEY` and `ACM_RECEIPT_ID`.
 
 ## MCP `work` input
 

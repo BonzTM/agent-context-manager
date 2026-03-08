@@ -1,0 +1,45 @@
+version: acm.bootstrap-template.v1
+id: detailed-planning-enforcement
+summary: Seed a richer feature-planning contract and validator, and upgrade pristine starter scaffolds.
+operations:
+  - type: create_or_replace_if_pristine
+    target: AGENTS.md
+    source: files/AGENTS.md
+    pristine:
+      - starter_contract_agents_v1
+  - type: create_or_replace_if_pristine
+    target: CLAUDE.md
+    source: files/CLAUDE.md
+    pristine:
+      - starter_contract_claude_v1
+  - type: replace_if_pristine
+    target: .acm/acm-rules.yaml
+    source: files/.acm/acm-rules.yaml
+    pristine:
+      - blank_rules_v1
+      - starter_contract_rules_v1
+  - type: replace_if_pristine
+    target: acm-rules.yaml
+    source: files/.acm/acm-rules.yaml
+    pristine:
+      - blank_rules_v1
+      - starter_contract_rules_v1
+  - type: replace_if_pristine
+    target: .acm/acm-tests.yaml
+    source: files/.acm/acm-tests.yaml
+    pristine:
+      - blank_tests_v1
+      - verify_generic_tests_v1
+  - type: replace_if_pristine
+    target: acm-tests.yaml
+    source: files/.acm/acm-tests.yaml
+    pristine:
+      - blank_tests_v1
+      - verify_generic_tests_v1
+  - type: create_if_missing
+    target: docs/feature-plans.md
+    source: files/docs/feature-plans.md
+  - type: create_if_missing
+    target: scripts/acm-feature-plan-validate.py
+    source: files/scripts/acm-feature-plan-validate.py
+    mode: "0755"

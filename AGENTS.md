@@ -75,6 +75,20 @@ Create or update `work` when any of the following are true:
 For code or behavior changes, include `verify:tests`. Add other tasks only when they help execution or resumption.
 For single review-gate updates, `review` is the thinner convenience wrapper around `work`; use `review --run` for runnable workflow gates and reserve manual `status` / `outcome` / `evidence` fields for non-run mode.
 
+## Feature Plans
+
+Use the richer ACM feature plan contract for net-new feature work and large capability expansions in this repo.
+
+- Create a root ACM plan with `kind=feature` before implementation.
+- Root feature plans must include `objective`, `in_scope`, `out_of_scope`, `constraints`, `references`, and stage statuses for `spec_outline`, `refined_spec`, and `implementation_plan`.
+- Root feature plans must include top-level `stage:spec-outline`, `stage:refined-spec`, and `stage:implementation-plan` tasks. Put concrete child tasks beneath them with `parent_task_key`.
+- Atomic tasks in this contract are leaf tasks: tasks with no children. Leaf tasks must carry explicit `acceptance_criteria`.
+- If a feature splits into multiple execution streams, create child plans with `kind=feature_stream` and `parent_plan_key=<root plan key>`.
+- Feature and feature-stream plans must carry `verify:tests`.
+- `acm verify` selects `acm-feature-plan-validate` for feature-relevant work and runs `scripts/acm-feature-plan-validate.py` with the active receipt or plan context.
+- The validator enforces the schema for `kind=feature` and `kind=feature_stream` plans and exits cleanly for other plan kinds or receipt contexts that do not materialize a concrete plan.
+- See `docs/feature-plans.md` for examples and command shapes.
+
 ## Verification Expectations
 
 - `.acm/acm-tests.yaml` is the repo-local verification contract.
@@ -95,7 +109,7 @@ When changing ACM governance, onboarding, or tool-surface behavior:
 3. Run `acm health --project agent-context-manager --include-details`.
 4. Update docs and skill-pack assets in the same change when behavior or workflow changed.
 
-When rules, tags, or tests changed but you only need to refresh ACM-managed state, `acm health-fix --project agent-context-manager --apply` is also acceptable if it covers the needed fixers. Re-run `acm health` afterward.
+When rules, tags, or tests changed but you only need to refresh ACM-managed state, `acm health --project agent-context-manager --apply` is also acceptable if it covers the needed fixers. Re-run `acm health` afterward.
 
 When changing rules, tags, or tests specifically, keep these files coherent:
 

@@ -53,8 +53,7 @@ Convenience subcommands (build v1 envelopes internally):
 - `acm work list` / `acm work search` -> work plan history
 - `acm history search` -> `history_search(project_id, entity?, query?, limit?)`
 - `acm sync` -> pointer/hash upkeep from git diff
-- `acm health` / `acm health-check` -> integrity and drift report
-- `acm health-fix` -> apply safe remediations (sync_working_tree, index_uncovered_files, sync_ruleset)
+- `acm health` -> integrity and drift report, or targeted remediations when `--fix` / `--apply` is supplied
 - `acm eval` -> retrieval evaluation suite
 - `acm verify` -> repo-defined executable verification
 - `acm bootstrap` -> initial pointer candidate generation (respects .gitignore, optional candidate persistence)
@@ -346,7 +345,7 @@ Rules:
 - Insert candidates for new files by conventions.
 - Keep deleted pointers but mark stale.
 
-### `acm health-check`
+### `acm health`
 
 Reports:
 
@@ -358,11 +357,11 @@ Reports:
 - weak/unsupported memories
 - pending quarantines
 
-### `acm health_fix apply`
+### `health_fix` / `acm health --fix`
 
 - Apply safe remediations for health findings after canonical rule updates.
 - Use when add/remove/update operations leave drift that can be auto-corrected.
-- Re-run `acm health-check` after apply to confirm final state.
+- Re-run `acm health` after apply to confirm final state.
 
 ### `acm eval`
 
@@ -386,10 +385,10 @@ Use these starter examples when bootstrapping downstream repos with canonical ru
 - `docs/examples/AGENTS.md`
 - `docs/examples/CLAUDE.md`
 
-Canonical ruleset files are discovered at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root and must declare `version: acm.rules.v1`. Use `--rules-file` on `sync`, `health-fix`, or `bootstrap` to override discovery with an explicit path. The runtime normalization surface accepts `--tags-file` / `tags_file` on `get_context`, `propose_memory`, `report_completion`, `sync`, `health_fix`, `eval`, `verify`, and `bootstrap` for a repo-local tag dictionary override.
+Canonical ruleset files are discovered at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root and must declare `version: acm.rules.v1`. Use `--rules-file` on `sync`, `acm health --fix`, or `bootstrap` to override discovery with an explicit path. The runtime normalization surface accepts `--tags-file` / `tags_file` on `get_context`, `propose_memory`, `report_completion`, `sync`, `health --fix`, `eval`, `verify`, and `bootstrap` for a repo-local tag dictionary override.
 
 `CLAUDE.md` should remain a thin companion that maps to `AGENTS.md` as source of truth.
-Rule maintenance flow is add/remove/update, then run `sync` or `health_fix apply`, then verify with `health_check`.
+Rule maintenance flow is add/remove/update, then run `sync` or `acm health --fix sync_ruleset --apply`, then verify with `acm health`.
 
 ## Always-Load Core Packet
 

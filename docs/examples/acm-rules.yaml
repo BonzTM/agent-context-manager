@@ -52,6 +52,19 @@ rules:
     enforcement: hard
     tags: [escalation, safety]
 
+# Optional stricter feature-planning rules:
+#   - id: rule_plan_before_code
+#     summary: Plan multi-step implementation work before writing code.
+#     content: For tasks with more than one implementation step, create work with explicit steps and acceptance criteria before implementation. Single-file, single-purpose fixes are exempt.
+#     enforcement: hard
+#     tags: [planning, workflow]
+#
+#   - id: rule_feature_plan_schema
+#     summary: Use a repo-local feature plan schema for net-new feature work.
+#     content: Require root `kind=feature` plans with scope metadata, `plan.stages`, top-level `stage:*` tasks, and leaf-task acceptance criteria. Use `kind=feature_stream` plus `parent_plan_key` for split execution streams, and enforce the schema through a repo-local verify script.
+#     enforcement: hard
+#     tags: [planning, workflow]
+
 # Field notes:
 # - id: optional; when omitted, acm generates a deterministic stable id.
 # - summary: required (title or content may substitute, but summary is preferred).
@@ -61,5 +74,5 @@ rules:
 
 # Maintenance flow:
 # 1) Add/remove/update entries under rules.
-# 2) Run sync OR health-fix --apply.
+# 2) Run sync OR acm health --fix sync_ruleset.
 # 3) Run health and resolve blocking findings.

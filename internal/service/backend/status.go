@@ -16,7 +16,8 @@ import (
 
 var statusTemplateIDs = []string{
 	"claude-command-pack",
-	"claude-receipt-guard",
+	"claude-hooks",
+	"detailed-planning-enforcement",
 	"git-hooks-precommit",
 	"starter-contract",
 	"verify-generic",

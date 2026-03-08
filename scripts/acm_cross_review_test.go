@@ -119,6 +119,78 @@ JSON
 	if !strings.Contains(promptText, "docs/deleted.md") {
 		t.Fatalf("expected deleted scoped file in prompt, got %s", promptText)
 	}
+	if !strings.Contains(promptText, "- repo_changed: 2") || !strings.Contains(promptText, "- scoped_changed: 2") {
+		t.Fatalf("expected scope counts in prompt, got %s", promptText)
+	}
+	if !strings.Contains(string(output), "scoped 2/2 changed files") {
+		t.Fatalf("expected scope counts in output, got %s", string(output))
+	}
+}
+
+func TestACMCrossReviewFailsWhenRepoChangesExistButScopedSetIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	tempRoot := t.TempDir()
+	binDir := filepath.Join(tempRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+
+	capturePath := filepath.Join(tempRoot, "codex-args.txt")
+	writeExecutable(t, filepath.Join(binDir, "codex"), `#!/usr/bin/env bash
+set -euo pipefail
+capture_path="${ACM_TEST_CAPTURE:?}"
+printf '%s\n' "$@" >"${capture_path}"
+exit 0
+`)
+	writeExecutable(t, filepath.Join(binDir, "acm"), `#!/usr/bin/env bash
+set -euo pipefail
+cat <<'JSON'
+{"result":{"items":[{"content":"{\"pointer_paths\":[\"docs/in-scope.md\"]}"}]}}
+JSON
+`)
+
+	projectRoot := filepath.Join(tempRoot, "project-root")
+	if err := os.MkdirAll(filepath.Join(projectRoot, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "docs", "outside-scope.md"), []byte("draft\n"), 0o644); err != nil {
+		t.Fatalf("write changed file: %v", err)
+	}
+
+	runGit(t, projectRoot, "init")
+	runGit(t, projectRoot, "config", "user.email", "test@example.com")
+	runGit(t, projectRoot, "config", "user.name", "Test User")
+	runGit(t, projectRoot, "add", ".")
+	runGit(t, projectRoot, "commit", "-m", "initial state")
+
+	if err := os.WriteFile(filepath.Join(projectRoot, "docs", "outside-scope.md"), []byte("updated draft\n"), 0o644); err != nil {
+		t.Fatalf("rewrite changed file: %v", err)
+	}
+
+	cmd := exec.Command("bash", "scripts/acm-cross-review.sh")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"ACM_PROJECT_ID=agent-context-manager",
+		"ACM_RECEIPT_ID=receipt-test",
+		"ACM_PROJECT_ROOT="+projectRoot,
+		"ACM_TEST_CAPTURE="+capturePath,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected cross-review script to fail when scoped set is empty, output=%s", string(output))
+	}
+	if !strings.Contains(string(output), "Review gate blocked before model execution") {
+		t.Fatalf("expected empty-scope failure message, got %s", string(output))
+	}
+	if !strings.Contains(string(output), "1 repo change(s), 0 scoped change(s)") {
+		t.Fatalf("expected repo/scoped counts in failure output, got %s", string(output))
+	}
+	if _, statErr := os.Stat(capturePath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected codex not to run on empty scoped review, stat err=%v", statErr)
+	}
 }
 
 func runCrossReviewScript(t *testing.T, reviewArgs []string) []string {
