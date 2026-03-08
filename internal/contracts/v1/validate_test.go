@@ -513,7 +513,7 @@ func TestDecodeAndValidateCommand_WorkSuccess(t *testing.T) {
 			"plan_key":"plan:receipt-1234",
 			"plan_title":"Release readiness",
 			"receipt_id":"receipt-1234",
-			"items":[
+			"tasks":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"in_progress"},
 				{"key":"docs/runtime.md","summary":"finalize docs","status":"complete","outcome":"done"}
 			]
@@ -527,11 +527,11 @@ func TestDecodeAndValidateCommand_WorkSuccess(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.ProjectID != "my-cool-app" || p.PlanKey != "plan:receipt-1234" || len(p.Items) != 2 {
+	if p.ProjectID != "my-cool-app" || p.PlanKey != "plan:receipt-1234" || len(p.Tasks) != 2 {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
-	if p.Items[1].Status != WorkItemStatusComplete {
-		t.Fatalf("unexpected item status: %+v", p.Items[1])
+	if p.Tasks[1].Status != WorkItemStatusComplete {
+		t.Fatalf("unexpected task status: %+v", p.Tasks[1])
 	}
 }
 
@@ -632,7 +632,7 @@ func TestDecodeAndValidateCommand_WorkRejectsInvalidStatus(t *testing.T) {
 		"payload":{
 			"project_id":"my-cool-app",
 			"plan_key":"plan:receipt-1234",
-			"items":[
+			"tasks":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"completed"}
 			]
 		}
@@ -654,7 +654,7 @@ func TestDecodeAndValidateCommand_WorkRejectsEmptyPlanKey(t *testing.T) {
 		"payload":{
 			"project_id":"my-cool-app",
 			"plan_key":"   ",
-			"items":[
+			"tasks":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
 			]
 		}
@@ -668,7 +668,7 @@ func TestDecodeAndValidateCommand_WorkRejectsEmptyPlanKey(t *testing.T) {
 	}
 }
 
-func TestDecodeAndValidateCommand_WorkRejectsEmptyItemKey(t *testing.T) {
+func TestDecodeAndValidateCommand_WorkRejectsEmptyTaskKey(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
 		"command":"work",
@@ -676,7 +676,7 @@ func TestDecodeAndValidateCommand_WorkRejectsEmptyItemKey(t *testing.T) {
 		"payload":{
 			"project_id":"my-cool-app",
 			"plan_key":"plan:receipt-1234",
-			"items":[
+			"tasks":[
 				{"key":"   ","summary":"wire dispatch","status":"pending"}
 			]
 		}
@@ -698,7 +698,7 @@ func TestDecodeAndValidateCommand_WorkRejectsInvalidPlanKeyFormat(t *testing.T) 
 		"payload":{
 			"project_id":"my-cool-app",
 			"plan_key":"plan.release.v1",
-			"items":[
+			"tasks":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
 			]
 		}
@@ -720,7 +720,7 @@ func TestDecodeAndValidateCommand_WorkRejectsMixedCasePlanKeyPrefix(t *testing.T
 		"payload":{
 			"project_id":"my-cool-app",
 			"plan_key":"PLAN:receipt-1234",
-			"items":[
+			"tasks":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
 			]
 		}
@@ -742,7 +742,7 @@ func TestDecodeAndValidateCommand_WorkRejectsWhitespacePaddedPlanKey(t *testing.
 		"payload":{
 			"project_id":"my-cool-app",
 			"plan_key":" plan:receipt-1234 ",
-			"items":[
+			"tasks":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
 			]
 		}
@@ -764,7 +764,7 @@ func TestDecodeAndValidateCommand_WorkRejectsShortPlanReceiptID(t *testing.T) {
 		"payload":{
 			"project_id":"my-cool-app",
 			"plan_key":"plan:short",
-			"items":[
+			"tasks":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
 			]
 		}
@@ -787,7 +787,7 @@ func TestDecodeAndValidateCommand_WorkRejectsPlanKeyReceiptMismatch(t *testing.T
 			"project_id":"my-cool-app",
 			"plan_key":"plan:receipt-1234",
 			"receipt_id":"receipt-9999",
-			"items":[
+			"tasks":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
 			]
 		}
@@ -901,12 +901,12 @@ func TestDecodeAndValidateCommand_WorkReceiptOnlySuccess(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if p.PlanKey != "" || p.ReceiptID != "receipt-1234" || len(p.Items) != 0 {
+	if p.PlanKey != "" || p.ReceiptID != "receipt-1234" || len(p.Tasks) != 0 {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 }
 
-func TestDecodeAndValidateCommand_WorkReceiptOnlyAllowsEmptyItems(t *testing.T) {
+func TestDecodeAndValidateCommand_WorkReceiptOnlyAllowsEmptyTasks(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
 		"command":"work",
@@ -914,7 +914,7 @@ func TestDecodeAndValidateCommand_WorkReceiptOnlyAllowsEmptyItems(t *testing.T) 
 		"payload":{
 			"project_id":"my-cool-app",
 			"receipt_id":"receipt-1234",
-			"items":[]
+			"tasks":[]
 		}
 	}`
 	_, payload, errp := DecodeAndValidateCommand([]byte(json))
@@ -925,7 +925,7 @@ func TestDecodeAndValidateCommand_WorkReceiptOnlyAllowsEmptyItems(t *testing.T) 
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
-	if len(p.Items) != 0 {
+	if len(p.Tasks) != 0 {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 }
@@ -937,7 +937,7 @@ func TestDecodeAndValidateCommand_WorkRejectsMissingPlanKeyAndReceiptID(t *testi
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
-			"items":[
+			"tasks":[
 				{"key":"src/main.go","summary":"wire dispatch","status":"pending"}
 			]
 		}

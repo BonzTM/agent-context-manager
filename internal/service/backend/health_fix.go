@@ -1,4 +1,4 @@
-package postgres
+package backend
 
 import (
 	"context"
@@ -17,7 +17,7 @@ var defaultHealthFixers = []v1.HealthFixer{
 
 func (s *Service) HealthFix(ctx context.Context, payload v1.HealthFixPayload) (v1.HealthFixResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.HealthFixResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
+		return v1.HealthFixResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
 	}
 
 	projectID := strings.TrimSpace(payload.ProjectID)

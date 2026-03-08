@@ -1,4 +1,4 @@
-package postgres
+package backend
 
 import (
 	"context"
@@ -29,7 +29,7 @@ type reviewPlanState struct {
 
 func (s *Service) Review(ctx context.Context, payload v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.ReviewResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
+		return v1.ReviewResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
 	}
 
 	normalized := v1.NormalizeReviewPayload(payload)
@@ -281,8 +281,8 @@ func (s *Service) loadReviewPlanState(ctx context.Context, projectID, planKey, r
 		PlanStatus: core.PlanStatusPending,
 	}
 
-	if planRepo, ok := s.repo.(core.WorkPlanRepository); ok && normalizedPlanKey != "" {
-		plan, err := planRepo.LookupWorkPlan(ctx, core.WorkPlanLookupQuery{
+	if s.planRepo != nil && normalizedPlanKey != "" {
+		plan, err := s.planRepo.LookupWorkPlan(ctx, core.WorkPlanLookupQuery{
 			ProjectID: strings.TrimSpace(projectID),
 			PlanKey:   normalizedPlanKey,
 			ReceiptID: normalizedReceiptID,
@@ -376,7 +376,7 @@ func (s *Service) listReviewAttempts(ctx context.Context, projectID, receiptID, 
 
 func computeReviewFingerprint(projectRoot, projectID, receiptID, reviewKey, workflowSourcePath string, command workflowRunDefinition, scope core.ReceiptScope) (string, *core.APIError) {
 	hasher := sha256.New()
-	writeFingerprintPart(hasher, "acm.review.fingerprint.v1")
+	writeFingerprintPart(hasher, "acm.review.fingerprint.v2")
 	writeFingerprintPart(hasher, strings.TrimSpace(projectID))
 	writeFingerprintPart(hasher, strings.TrimSpace(receiptID))
 	writeFingerprintPart(hasher, strings.TrimSpace(reviewKey))
@@ -402,7 +402,7 @@ func computeReviewFingerprint(projectRoot, projectID, receiptID, reviewKey, work
 		writeFingerprintPart(hasher, runnerHash)
 	}
 
-	paths := normalizeCompletionPaths(scope.PointerPaths)
+	paths := normalizeCompletionPaths(append(append([]string(nil), scope.PointerPaths...), completionScopeManagedPaths()...))
 	sort.Strings(paths)
 	for _, relativePath := range paths {
 		writeFingerprintPart(hasher, relativePath)

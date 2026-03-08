@@ -56,6 +56,14 @@ func TestEnsureProjectScaffoldAndWriteCandidates(t *testing.T) {
 		}
 	}
 
+	gitignoreRaw, err := os.ReadFile(filepath.Join(projectRoot, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read scaffolded .gitignore: %v", err)
+	}
+	if got := string(gitignoreRaw); got != ".acm/context.db\n.acm/context.db-shm\n.acm/context.db-wal\n" {
+		t.Fatalf("unexpected scaffolded .gitignore: %q", got)
+	}
+
 	outputPath := filepath.Join(projectRoot, "out", "candidates.json")
 	if err := WriteCandidates(outputPath, []string{"README.md", "internal/bootstrap/scaffold.go"}); err != nil {
 		t.Fatalf("write candidates: %v", err)

@@ -225,7 +225,7 @@
     {
       "name": "work",
       "title": "Submit Completion Work",
-      "description": "Submit plan-scoped work item updates with status and optional outcomes.",
+      "description": "Submit plan-scoped work task updates with status and optional outcomes.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/workPayload"

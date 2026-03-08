@@ -95,38 +95,11 @@ func runConvenienceWithDeps(
 }
 
 func buildConvenienceEnvelope(subcommand string, args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-	switch subcommand {
-	case "get-context":
-		return buildGetContextEnvelope(args, now)
-	case "fetch":
-		return buildFetchEnvelope(args, now)
-	case "propose-memory":
-		return buildProposeMemoryEnvelope(args, now)
-	case "work":
-		return buildWorkEnvelope(args, now)
-	case "work-list", "work-search", "history-search":
-		return buildHistorySearchEnvelope(subcommand, args, now)
-	case "report-completion":
-		return buildReportCompletionEnvelope(args, now)
-	case "review":
-		return buildReviewEnvelope(args, now)
-	case "sync":
-		return buildSyncEnvelope(args, now)
-	case "health", "health-check":
-		return buildHealthCheckEnvelope(args, now)
-	case "health-fix":
-		return buildHealthFixEnvelope(args, now)
-	case "coverage":
-		return buildCoverageEnvelope(args, now)
-	case "eval":
-		return buildEvalEnvelope(args, now)
-	case "verify":
-		return buildVerifyEnvelope(args, now)
-	case "bootstrap":
-		return buildBootstrapEnvelope(args, now)
-	default:
+	route, ok := lookupRouteSpec(subcommand)
+	if !ok {
 		return v1.CommandEnvelope{}, fmt.Errorf("unknown subcommand: %s", subcommand)
 	}
+	return route.Build(args, now)
 }
 
 func buildGetContextEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
@@ -436,7 +409,7 @@ func buildProposeMemoryEnvelope(args []string, now func() time.Time) (v1.Command
 func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"work",
-		"acm work [--project <id>] [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>] [--items-file <path>|--items-json <json>]",
+		"acm work [--project <id>] [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>]",
 		"acm work --receipt-id req-12345678 --tasks-json '[{\"key\":\"verify:tests\",\"summary\":\"Run tests\",\"status\":\"pending\"}]'",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
@@ -448,8 +421,6 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 	planJSON := fs.String("plan-json", "", "inline JSON object containing work plan metadata")
 	tasksFile := fs.String("tasks-file", "", "JSON file containing an array of plan tasks")
 	tasksJSON := fs.String("tasks-json", "", "inline JSON array containing plan tasks")
-	itemsFile := fs.String("items-file", "", "JSON file containing an array of work items")
-	itemsJSON := fs.String("items-json", "", "inline JSON array of work items")
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
@@ -485,15 +456,6 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 	if trimmedTasksFile != "" && trimmedTasksJSON != "" {
 		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --tasks-file or --tasks-json")
 	}
-
-	trimmedItemsFile := strings.TrimSpace(*itemsFile)
-	trimmedItemsJSON := strings.TrimSpace(*itemsJSON)
-	if trimmedItemsFile != "" && trimmedItemsJSON != "" {
-		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --items-file or --items-json")
-	}
-	if (trimmedTasksFile != "" || trimmedTasksJSON != "") && (trimmedItemsFile != "" || trimmedItemsJSON != "") {
-		return v1.CommandEnvelope{}, fmt.Errorf("use tasks flags or items flags, not both")
-	}
 	if trimmedTasksFile != "" {
 		tasks, err := readWorkTasksFromFile(trimmedTasksFile)
 		if err != nil {
@@ -507,20 +469,6 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 			return v1.CommandEnvelope{}, err
 		}
 		payload.Tasks = tasks
-	}
-	if trimmedItemsFile != "" {
-		items, err := readWorkItemsFromFile(trimmedItemsFile)
-		if err != nil {
-			return v1.CommandEnvelope{}, err
-		}
-		payload.Items = items
-	}
-	if trimmedItemsJSON != "" {
-		items, err := readWorkItemsFromJSON(trimmedItemsJSON)
-		if err != nil {
-			return v1.CommandEnvelope{}, err
-		}
-		payload.Items = items
 	}
 
 	return buildEnvelope(v1.CommandWork, *requestID, payload, now)
@@ -942,7 +890,7 @@ func buildVerifyEnvelope(args []string, now func() time.Time) (v1.CommandEnvelop
 	fs := newCommandFlagSet(
 		"verify",
 		"acm verify [--project <id>] [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]",
-		"acm verify --phase review --file-changed internal/service/postgres/service.go --dry-run",
+		"acm verify --phase review --file-changed internal/service/backend/service.go --dry-run",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	receiptID := fs.String("receipt-id", "", "receipt ID")
@@ -1155,14 +1103,6 @@ func readTextFile(path string) (string, error) {
 	return string(blob), nil
 }
 
-func readWorkItemsFromFile(path string) ([]v1.WorkItemPayload, error) {
-	var items []v1.WorkItemPayload
-	if err := readJSONFileStrict(path, &items); err != nil {
-		return nil, fmt.Errorf("read --items-file %s: %w", path, err)
-	}
-	return items, nil
-}
-
 func readWorkPlanFromFile(path string) (v1.WorkPlanPayload, error) {
 	var plan v1.WorkPlanPayload
 	if err := readJSONFileStrict(path, &plan); err != nil {
@@ -1193,14 +1133,6 @@ func readWorkTasksFromJSON(raw string) ([]v1.WorkTaskPayload, error) {
 		return nil, fmt.Errorf("read --tasks-json: %w", err)
 	}
 	return tasks, nil
-}
-
-func readWorkItemsFromJSON(raw string) ([]v1.WorkItemPayload, error) {
-	var items []v1.WorkItemPayload
-	if err := readJSONInlineStrict(raw, &items); err != nil {
-		return nil, fmt.Errorf("read --items-json: %w", err)
-	}
-	return items, nil
 }
 
 func readEvalCasesFromFile(path string) ([]v1.EvalCase, error) {

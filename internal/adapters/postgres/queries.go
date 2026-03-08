@@ -2,12 +2,12 @@ package postgres
 
 import (
 	"fmt"
-	"path"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/core"
+	storagedomain "github.com/bonztm/agent-context-manager/internal/storage/domain"
 )
 
 const (
@@ -807,16 +807,7 @@ func isValidCandidateStatus(status string) bool {
 }
 
 func normalizePhase(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "plan":
-		return "plan"
-	case "review":
-		return "review"
-	case "execute":
-		return "execute"
-	default:
-		return defaultPhase
-	}
+	return storagedomain.NormalizePhase(value)
 }
 
 func normalizeLimit(v int, fallback int) int {
@@ -830,43 +821,11 @@ func normalizeLimit(v int, fallback int) int {
 }
 
 func normalizeStringList(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, raw := range values {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			continue
-		}
-		if _, ok := seen[trimmed]; ok {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		out = append(out, trimmed)
-	}
-	sort.Strings(out)
-	return out
+	return storagedomain.NormalizeStringList(values)
 }
 
 func normalizeInt64List(values []int64) []int64 {
-	if len(values) == 0 {
-		return nil
-	}
-
-	seen := make(map[int64]struct{}, len(values))
-	out := make([]int64, 0, len(values))
-	for _, v := range values {
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-	return out
+	return storagedomain.NormalizeInt64List(values)
 }
 
 func normalizeStaleBefore(t *time.Time) *time.Time {
@@ -959,78 +918,6 @@ func normalizeSyncPathRows(paths []core.SyncPath, requireHash bool) ([]core.Sync
 	return out, nil
 }
 
-func normalizeWorkItems(items []core.WorkItem) ([]core.WorkItem, error) {
-	if len(items) == 0 {
-		return nil, nil
-	}
-
-	priority := map[string]int{
-		workItemStatusComplete:   0,
-		workItemStatusCompleted:  0,
-		workItemStatusPending:    1,
-		workItemStatusInProgress: 2,
-		workItemStatusBlocked:    3,
-	}
-
-	byKey := make(map[string]core.WorkItem, len(items))
-	for _, raw := range items {
-		itemKey := normalizeSyncPath(raw.ItemKey)
-		if itemKey == "" {
-			return nil, fmt.Errorf("work item key is required")
-		}
-		status := normalizeWorkItemStatus(raw.Status)
-
-		current, exists := byKey[itemKey]
-		if !exists || priority[status] >= priority[current.Status] {
-			byKey[itemKey] = core.WorkItem{ItemKey: itemKey, Status: status}
-		}
-	}
-
-	keys := make([]string, 0, len(byKey))
-	for key := range byKey {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	out := make([]core.WorkItem, 0, len(keys))
-	for _, key := range keys {
-		out = append(out, byKey[key])
-	}
-
-	return out, nil
-}
-
-func storageWorkItemStatus(raw string) string {
-	switch normalizeWorkItemStatus(raw) {
-	case workItemStatusComplete:
-		return workItemStatusCompleted
-	default:
-		return normalizeWorkItemStatus(raw)
-	}
-}
-
-func normalizeWorkItemStatus(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case workItemStatusComplete, workItemStatusCompleted:
-		return workItemStatusComplete
-	case workItemStatusInProgress:
-		return workItemStatusInProgress
-	case workItemStatusBlocked:
-		return workItemStatusBlocked
-	default:
-		return workItemStatusPending
-	}
-}
-
 func normalizeSyncPath(raw string) string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return ""
-	}
-	withSlashes := strings.ReplaceAll(trimmed, `\`, "/")
-	cleaned := path.Clean(withSlashes)
-	if cleaned == "." {
-		return ""
-	}
-	return cleaned
+	return storagedomain.NormalizeRepoPath(raw)
 }

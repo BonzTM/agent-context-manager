@@ -135,13 +135,6 @@ const (
 	WorkItemStatusBlocked    WorkItemStatus = "blocked"
 )
 
-type WorkItemPayload struct {
-	Key     string         `json:"key"`
-	Summary string         `json:"summary"`
-	Status  WorkItemStatus `json:"status"`
-	Outcome string         `json:"outcome,omitempty"`
-}
-
 type WorkPlanMode string
 
 const (
@@ -191,7 +184,6 @@ type WorkPayload struct {
 	Mode      WorkPlanMode      `json:"mode,omitempty"`
 	Plan      *WorkPlanPayload  `json:"plan,omitempty"`
 	Tasks     []WorkTaskPayload `json:"tasks,omitempty"`
-	Items     []WorkItemPayload `json:"items,omitempty"` // legacy alias for task updates
 }
 
 type HistoryScope string

@@ -273,7 +273,7 @@ CREATE TABLE acm_work_plan_tasks (
 
 ## Canonical Tags
 
-acm ships an embedded canonical tag base in `internal/service/postgres/canonical_tags.json` and merges repo-local overrides from `.acm/acm-tags.yaml` on every runtime normalization path. Use `--tags-file` / `tags_file` to override discovery with a non-default YAML file.
+acm ships an embedded canonical tag base in `internal/service/backend/canonical_tags.json` and merges repo-local overrides from `.acm/acm-tags.yaml` on every runtime normalization path. Use `--tags-file` / `tags_file` to override discovery with a non-default YAML file.
 
 Repo-local dictionary shape:
 
@@ -321,7 +321,7 @@ Rules:
 2. Allow configured generated-file exceptions.
 3. Violations default to advisory warnings (`scope_mode=warn`).
 4. `scope_mode=strict` can enforce rejection and require re-retrieval; CI repeats strict scope checks and blocks merge on violation.
-5. When work items are present, repo-defined completion task keys from `.acm/acm-workflows.yaml` or `acm-workflows.yaml` are enforced in `strict` mode and surfaced as warnings in `warn` mode. When no workflow gates are configured, acm falls back to `verify:tests`. `verify:diff-review` remains optional workflow metadata unless a repo explicitly requires it.
+5. When work tasks are present, repo-defined completion task keys from `.acm/acm-workflows.yaml` or `acm-workflows.yaml` are enforced in `strict` mode and surfaced as warnings in `warn` mode. When no workflow gates are configured, acm falls back to `verify:tests`. `verify:diff-review` remains optional workflow metadata unless a repo explicitly requires it.
 
 ## Memory Ingestion Contract
 

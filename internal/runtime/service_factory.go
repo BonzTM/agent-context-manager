@@ -8,8 +8,7 @@ import (
 	sqliteadapter "github.com/bonztm/agent-context-manager/internal/adapters/sqlite"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
-	postgressvc "github.com/bonztm/agent-context-manager/internal/service/postgres"
-	"github.com/bonztm/agent-context-manager/internal/workspace"
+	backendsvc "github.com/bonztm/agent-context-manager/internal/service/backend"
 )
 
 type CleanupFunc func()
@@ -35,7 +34,7 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 			return nil, nil, fmt.Errorf("initialize postgres repository: %w", err)
 		}
 
-		svc, err := postgressvc.NewWithProjectRoot(repo, cfg.ProjectRoot)
+		svc, err := backendsvc.NewWithProjectRoot(repo, cfg.ProjectRoot)
 		if err != nil {
 			repo.Close()
 			return nil, nil, fmt.Errorf("initialize postgres service: %w", err)
@@ -46,10 +45,6 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 		}, nil
 	}
 
-	if err := ensureImplicitSQLiteGitIgnore(cfg); err != nil {
-		return nil, nil, fmt.Errorf("ensure sqlite gitignore entry: %w", err)
-	}
-
 	sqliteRepo, err := sqliteadapter.New(ctx, sqliteadapter.Config{
 		Path: cfg.EffectiveSQLitePath(),
 	})
@@ -57,7 +52,7 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 		return nil, nil, fmt.Errorf("initialize sqlite repository: %w", err)
 	}
 
-	svc, err := postgressvc.NewWithProjectRoot(sqliteRepo, cfg.ProjectRoot)
+	svc, err := backendsvc.NewWithProjectRoot(sqliteRepo, cfg.ProjectRoot)
 	if err != nil {
 		_ = sqliteRepo.Close()
 		return nil, nil, fmt.Errorf("initialize sqlite service: %w", err)
@@ -66,17 +61,4 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 	return core.WithLogging(svc, logger), func() {
 		_ = sqliteRepo.Close()
 	}, nil
-}
-
-func ensureImplicitSQLiteGitIgnore(cfg Config) error {
-	if !cfg.UsesImplicitSQLitePath() || !cfg.ProjectIsRepo {
-		return nil
-	}
-
-	relativePath := workspace.RelativePathWithinRoot(cfg.ProjectRoot, cfg.EffectiveSQLitePath())
-	if relativePath == "" {
-		return nil
-	}
-
-	return workspace.EnsureGitIgnoreContains(cfg.ProjectRoot, workspace.SQLiteGitIgnoreEntries(relativePath)...)
 }

@@ -54,7 +54,7 @@ The MCP flow is index-first:
 - `report_completion` can enforce repo-defined completion task keys from `.acm/acm-workflows.yaml` or `acm-workflows.yaml`; runnable review gates may also require a fresh passing attempt for the current scoped fingerprint when fingerprint dedupe is enabled. When no workflow gates are configured, acm falls back to `verify:tests`.
 - `propose_memory` and `report_completion` remain receipt-scoped write operations.
 
-`get_context.caps.word_budget_limit` defaults to `1200` and is reported as accounting metadata in `_meta.budget`; it is not a truncation cutoff. `report_completion.scope_mode` defaults to `warn` when omitted. When work items are present, `scope_mode=strict` enforces configured completion checks and `scope_mode=warn` surfaces warnings.
+`get_context.caps.word_budget_limit` defaults to `1200` and is reported as accounting metadata in `_meta.budget`; it is not a truncation cutoff. `report_completion.scope_mode` defaults to `warn` when omitted. When work tasks are present, `scope_mode=strict` enforces configured completion checks and `scope_mode=warn` surfaces warnings.
 
 ## Notes
 

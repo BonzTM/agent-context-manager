@@ -1,4 +1,4 @@
-package postgres
+package backend
 
 import (
 	"context"
@@ -522,11 +522,11 @@ func TestGetContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 	repo := &fakeRepository{
 		candidateResults: [][]core.CandidatePointer{{
 			candidate("rule:startup", "AGENTS.md", true, []string{"governance"}),
-			candidate("code:service", "internal/service/postgres/get_context.go", false, []string{"backend"}),
+			candidate("code:service", "internal/service/backend/get_context.go", false, []string{"backend"}),
 			candidate("doc:spec", "spec/v1/README.md", false, []string{"docs"}),
 		}},
 		hopResults: [][]core.HopPointer{{
-			hop("code:service", 1, candidate("test:get-context", "internal/service/postgres/service_test.go", false, []string{"tests"})),
+			hop("code:service", 1, candidate("test:get-context", "internal/service/backend/service_test.go", false, []string{"tests"})),
 		}},
 		memoryResults: [][]core.ActiveMemory{{
 			memory(101, "Default caps behavior", "schema defaults apply when caps omitted", []string{"backend"}, []string{"code:service"}),
@@ -664,11 +664,11 @@ func TestGetContext_FiltersManagedProjectPointersFromRetrieval(t *testing.T) {
 			candidate("rule:startup", "AGENTS.md", true, []string{"governance"}),
 			candidate("managed:gitignore", ".gitignore", false, []string{"config"}),
 			candidate("managed:dbwal", ".acm/context.db-wal", false, []string{"config"}),
-			candidate("code:service", "internal/service/postgres/get_context.go", false, []string{"backend"}),
+			candidate("code:service", "internal/service/backend/get_context.go", false, []string{"backend"}),
 		}},
 		hopResults: [][]core.HopPointer{{
 			hop("code:service", 1, candidate("managed:tests", ".acm/acm-tests.yaml", false, []string{"config"})),
-			hop("code:service", 1, candidate("test:get-context", "internal/service/postgres/service_test.go", false, []string{"tests"})),
+			hop("code:service", 1, candidate("test:get-context", "internal/service/backend/service_test.go", false, []string{"tests"})),
 		}},
 		memoryResults: [][]core.ActiveMemory{{}},
 	}
@@ -715,7 +715,7 @@ func TestGetContext_AllowsCanonicalRulesFromManagedPaths(t *testing.T) {
 			candidate("rule:root", "acm-rules.yaml", true, []string{"governance", "enforcement-soft"}),
 			candidate("managed:tests", ".acm/acm-tests.yaml", false, []string{"config"}),
 			candidate("managed:tags", ".acm/acm-tags.yaml", false, []string{"config"}),
-			candidate("code:service", "internal/service/postgres/get_context.go", false, []string{"backend"}),
+			candidate("code:service", "internal/service/backend/get_context.go", false, []string{"backend"}),
 		}},
 		hopResults: [][]core.HopPointer{{
 			hop("code:service", 1, candidate("rule:hop", ".acm/acm-rules.yaml", true, []string{"governance", "enforcement-hard"})),
@@ -759,7 +759,7 @@ func TestGetContext_MaxRulePointersZeroMeansUncapped(t *testing.T) {
 		candidateResults: [][]core.CandidatePointer{{
 			candidate("rule:alpha", ".acm/acm-rules.yaml", true, []string{"governance"}),
 			candidate("rule:beta", ".acm/acm-rules.yaml", true, []string{"governance"}),
-			candidate("code:service", "internal/service/postgres/get_context.go", false, []string{"backend"}),
+			candidate("code:service", "internal/service/backend/get_context.go", false, []string{"backend"}),
 		}},
 		memoryResults: [][]core.ActiveMemory{{}},
 	}
@@ -934,7 +934,7 @@ func TestGetContext_PhaseAndCanonicalTagsThreadedToRetrieval(t *testing.T) {
 	repo := &fakeRepository{
 		candidateResults: [][]core.CandidatePointer{{
 			candidate("rule:a", "AGENTS.md", true, []string{"Rules"}),
-			candidate("code:svc", "internal/service/postgres/get_context.go", false, []string{"API"}),
+			candidate("code:svc", "internal/service/backend/get_context.go", false, []string{"API"}),
 		}},
 		memoryResults: [][]core.ActiveMemory{{}},
 	}
@@ -1602,7 +1602,7 @@ func TestReportCompletion_AcceptsInScopeAndPersistsSummary(t *testing.T) {
 			ResolvedTags: []string{"backend"},
 			PointerKeys:  []string{"code:repo"},
 			MemoryIDs:    []int64{7},
-			PointerPaths: []string{"internal/service/postgres/service.go", "internal/core/repository.go"},
+			PointerPaths: []string{"internal/service/backend/service.go", "internal/core/repository.go"},
 		}},
 		saveResult: core.RunReceiptIDs{RunID: 42, ReceiptID: "receipt.abc123"},
 	}
@@ -1655,7 +1655,7 @@ func TestReportCompletion_StrictModeRejectsOutOfScopeWithoutPersistence(t *testi
 		scopeResults: []core.ReceiptScope{{
 			ProjectID:    "project.alpha",
 			ReceiptID:    "receipt.abc123",
-			PointerPaths: []string{"internal/service/postgres/service.go"},
+			PointerPaths: []string{"internal/service/backend/service.go"},
 		}},
 	}
 	svc, err := New(repo)
@@ -1666,7 +1666,7 @@ func TestReportCompletion_StrictModeRejectsOutOfScopeWithoutPersistence(t *testi
 	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
 		ProjectID:    "project.alpha",
 		ReceiptID:    "receipt.abc123",
-		FilesChanged: []string{"README.md", "internal/service/postgres/service.go"},
+		FilesChanged: []string{"README.md", "internal/service/backend/service.go"},
 		Outcome:      "completed",
 		ScopeMode:    v1.ScopeModeStrict,
 	})
@@ -2705,7 +2705,7 @@ func TestHealthCheck_EmptyIndexFlagsUnindexedFiles(t *testing.T) {
 		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
 			t.Fatalf("unexpected git args: %v", args)
 		}
-		return "README.md\ninternal/service/postgres/service.go\n", nil
+		return "README.md\ninternal/service/backend/service.go\n", nil
 	}
 
 	result, apiErr := svc.HealthCheck(context.Background(), v1.HealthCheckPayload{
@@ -2942,7 +2942,7 @@ tests:
 		ProjectID:    "project.alpha",
 		ReceiptID:    "receipt.abc123",
 		Phase:        v1.PhaseReview,
-		FilesChanged: []string{"internal/service/postgres/service.go"},
+		FilesChanged: []string{"internal/service/backend/service.go"},
 		DryRun:       true,
 	})
 	if apiErr != nil {
@@ -3079,7 +3079,7 @@ tests:
 		PlanKey:   "plan:receipt.abc123",
 		Phase:     v1.PhaseReview,
 		FilesChanged: []string{
-			"internal/service/postgres/service.go",
+			"internal/service/backend/service.go",
 		},
 	})
 	if apiErr != nil {
@@ -4993,7 +4993,7 @@ func TestFetch_ReceiptAndRunKeysReturnStructuredHistoryContent(t *testing.T) {
 			TaskText:     "Trace onboarding history",
 			Phase:        string(v1.PhaseExecute),
 			Status:       "accepted",
-			FilesChanged: []string{"internal/service/postgres/service.go"},
+			FilesChanged: []string{"internal/service/backend/service.go"},
 			Outcome:      "Captured receipt and run history",
 			UpdatedAt:    time.Date(2026, 3, 6, 18, 4, 5, 0, time.UTC),
 		}},
@@ -5016,7 +5016,7 @@ func TestFetch_ReceiptAndRunKeysReturnStructuredHistoryContent(t *testing.T) {
 	if result.Items[0].Type != "receipt" || !strings.Contains(result.Items[0].Content, "\"receipt_id\":\"receipt.abc123\"") || !strings.Contains(result.Items[0].Content, "\"memory_keys\":[\"mem:42\"]") {
 		t.Fatalf("unexpected receipt fetch item: %+v", result.Items[0])
 	}
-	if result.Items[1].Type != "run" || !strings.Contains(result.Items[1].Content, "\"run_id\":17") || !strings.Contains(result.Items[1].Content, "\"files_changed\":[\"internal/service/postgres/service.go\"]") {
+	if result.Items[1].Type != "run" || !strings.Contains(result.Items[1].Content, "\"run_id\":17") || !strings.Contains(result.Items[1].Content, "\"files_changed\":[\"internal/service/backend/service.go\"]") {
 		t.Fatalf("unexpected run fetch item: %+v", result.Items[1])
 	}
 }
@@ -5378,7 +5378,7 @@ func TestWork_PersistsCompletedWorkItemsAndDerivesPlanStatus(t *testing.T) {
 		ProjectID: "project.alpha",
 		PlanKey:   "plan:receipt.abc123",
 		ReceiptID: "receipt.abc123",
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: "src/b.go", Status: v1.WorkItemStatusComplete},
 			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
 			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
@@ -5427,7 +5427,7 @@ func TestWork_DerivesReceiptIDFromPlanKeyWhenReceiptIDOmitted(t *testing.T) {
 	result, apiErr := svc.Work(context.Background(), v1.WorkPayload{
 		ProjectID: "project.alpha",
 		PlanKey:   "plan:receipt.abc123",
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: "src/a.go", Status: v1.WorkItemStatusInProgress},
 		},
 	})
@@ -5498,7 +5498,7 @@ func TestWork_MissingPlanAndReceiptReturnsInvalidInput(t *testing.T) {
 
 	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
 		ProjectID: "project.alpha",
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
 		},
 	})
@@ -5533,7 +5533,7 @@ func TestWork_InvalidPlanKeyFormatReturnsInvalidInput(t *testing.T) {
 	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
 		ProjectID: "project.alpha",
 		PlanKey:   "plan.release.v1",
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: "src/a.go", Summary: "update", Status: v1.WorkItemStatusComplete},
 		},
 	})
@@ -5558,7 +5558,7 @@ func TestWork_PlanKeyWhitespaceReturnsInvalidInput(t *testing.T) {
 	_, apiErr := svc.Work(context.Background(), v1.WorkPayload{
 		ProjectID: "project.alpha",
 		PlanKey:   " plan:receipt.abc123 ",
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: "src/a.go", Summary: "update", Status: v1.WorkItemStatusComplete},
 		},
 	})
@@ -5584,7 +5584,7 @@ func TestWork_PlanKeyReceiptMismatchReturnsInvalidInput(t *testing.T) {
 		ProjectID: "project.alpha",
 		PlanKey:   "plan:receipt.abc123",
 		ReceiptID: "receipt.other",
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: "src/a.go", Summary: "update", Status: v1.WorkItemStatusComplete},
 		},
 	})
@@ -5612,7 +5612,7 @@ func TestWork_UpsertPlanErrorMapsInternalError(t *testing.T) {
 		ProjectID: "project.alpha",
 		PlanKey:   "plan:receipt.abc123",
 		ReceiptID: "receipt.abc123",
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
 		},
 	})
@@ -5649,7 +5649,7 @@ func TestWork_UpsertErrorMapsInternalError(t *testing.T) {
 		ProjectID: "project.alpha",
 		PlanKey:   "plan:receipt.abc123",
 		ReceiptID: "receipt.abc123",
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
 		},
 	})
@@ -5681,7 +5681,7 @@ func TestWork_ListErrorsAreIgnoredWhenPlanRepositoryAvailable(t *testing.T) {
 		ProjectID: "project.alpha",
 		PlanKey:   "plan:receipt.abc123",
 		ReceiptID: "receipt.abc123",
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: "src/a.go", Status: v1.WorkItemStatusComplete},
 		},
 	})
@@ -5696,16 +5696,16 @@ func TestWork_ListErrorsAreIgnoredWhenPlanRepositoryAvailable(t *testing.T) {
 	}
 }
 
-func TestWorkPayloadItems_UsesPayloadStatuses(t *testing.T) {
+func TestWorkPayloadTasks_UsesPayloadStatuses(t *testing.T) {
 	payload := v1.WorkPayload{
-		Items: []v1.WorkItemPayload{
+		Tasks: []v1.WorkTaskPayload{
 			{Key: " src/a.go ", Summary: "implement", Status: v1.WorkItemStatusInProgress, Outcome: "started"},
 			{Key: "src/a.go", Summary: "blocked by dependency", Status: v1.WorkItemStatusBlocked, Outcome: "waiting"},
 			{Key: "src/b.go", Summary: "verify", Status: v1.WorkItemStatusComplete, Outcome: "done"},
 		},
 	}
 
-	items := workPayloadItems(payload)
+	items := workPayloadTasks(payload)
 	want := []core.WorkItem{
 		{ItemKey: "src/a.go", Summary: "blocked by dependency", Status: core.WorkItemStatusBlocked, Outcome: "waiting"},
 		{ItemKey: "src/b.go", Summary: "verify", Status: core.WorkItemStatusComplete, Outcome: "done"},
@@ -6566,6 +6566,35 @@ func TestReview_RunSkipsDuplicateFingerprintWithoutExecutingRunner(t *testing.T)
 	}
 }
 
+func TestComputeReviewFingerprintIncludesCompletionManagedPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), []byte("version: acm.tests.v1\n"), 0o644); err != nil {
+		t.Fatalf("write tests file: %v", err)
+	}
+
+	command := workflowRunDefinition{
+		Argv:       []string{"scripts/acm-cross-review.sh"},
+		TimeoutSec: 300,
+	}
+	first, apiErr := computeReviewFingerprint(root, "project.alpha", "receipt.abc123", v1.DefaultReviewTaskKey, ".acm/acm-workflows.yaml", command, core.ReceiptScope{})
+	if apiErr != nil {
+		t.Fatalf("compute first fingerprint: %+v", apiErr)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), []byte("version: acm.tests.v1\nsmoke: []\n"), 0o644); err != nil {
+		t.Fatalf("rewrite tests file: %v", err)
+	}
+	second, apiErr := computeReviewFingerprint(root, "project.alpha", "receipt.abc123", v1.DefaultReviewTaskKey, ".acm/acm-workflows.yaml", command, core.ReceiptScope{})
+	if apiErr != nil {
+		t.Fatalf("compute second fingerprint: %+v", apiErr)
+	}
+	if first == second {
+		t.Fatalf("expected managed completion files to affect fingerprint, got %q", first)
+	}
+}
+
 func TestReview_RunBlocksWhenMaxAttemptsAreExhausted(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
@@ -6680,6 +6709,81 @@ func TestReportCompletionFlagsStaleReviewForCurrentFingerprint(t *testing.T) {
 	}
 	if result.Accepted {
 		t.Fatalf("expected stale review to block strict report completion: %+v", result)
+	}
+	if len(result.DefinitionOfDoneIssues) != 1 || !strings.Contains(result.DefinitionOfDoneIssues[0], "stale for the current scoped fingerprint") {
+		t.Fatalf("unexpected definition_of_done_issues: %+v", result.DefinitionOfDoneIssues)
+	}
+}
+
+func TestReportCompletionFlagsStaleReviewForManagedGovernanceFileCurrentFingerprint(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), []byte("version: acm.tests.v1\n"), 0o644); err != nil {
+		t.Fatalf("write tests file: %v", err)
+	}
+	workflowsYAML := "version: acm.workflows.v1\ncompletion:\n  required_tasks:\n    - key: review:cross-llm\n      select:\n        phases: [\"review\"]\n        changed_paths_any: [\".acm/**\"]\n      run:\n        argv: [\"scripts/acm-cross-review.sh\"]\n"
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-workflows.yaml"), []byte(workflowsYAML), 0o644); err != nil {
+		t.Fatalf("write workflows file: %v", err)
+	}
+
+	scope := core.ReceiptScope{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		Phase:     "review",
+	}
+	command := workflowRunDefinition{
+		Argv:       []string{"scripts/acm-cross-review.sh"},
+		TimeoutSec: 300,
+	}
+	staleFingerprint, apiErr := computeReviewFingerprint(root, "project.alpha", "receipt.abc123", v1.DefaultReviewTaskKey, ".acm/acm-workflows.yaml", command, scope)
+	if apiErr != nil {
+		t.Fatalf("compute stale fingerprint: %+v", apiErr)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tests.yaml"), []byte("version: acm.tests.v1\nsmoke: []\n"), 0o644); err != nil {
+		t.Fatalf("rewrite tests file: %v", err)
+	}
+
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{scope},
+		workListResults: [][]core.WorkItem{{
+			{
+				ItemKey: v1.DefaultReviewTaskKey,
+				Status:  string(v1.WorkItemStatusComplete),
+				Outcome: "Review gate passed",
+			},
+		}},
+		reviewAttemptResults: [][]core.ReviewAttempt{{
+			{
+				AttemptID:   1,
+				ProjectID:   "project.alpha",
+				ReceiptID:   "receipt.abc123",
+				ReviewKey:   v1.DefaultReviewTaskKey,
+				Fingerprint: staleFingerprint,
+				Status:      "passed",
+				Passed:      true,
+				Outcome:     "Review gate passed",
+			},
+		}},
+	}
+	svc, err := NewWithProjectRoot(repo, root)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.ReportCompletion(context.Background(), v1.ReportCompletionPayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{".acm/acm-tests.yaml"},
+		Outcome:      "done",
+		ScopeMode:    v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Accepted {
+		t.Fatalf("expected stale managed governance review to block strict report completion: %+v", result)
 	}
 	if len(result.DefinitionOfDoneIssues) != 1 || !strings.Contains(result.DefinitionOfDoneIssues[0], "stale for the current scoped fingerprint") {
 		t.Fatalf("unexpected definition_of_done_issues: %+v", result.DefinitionOfDoneIssues)

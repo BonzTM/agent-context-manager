@@ -158,7 +158,7 @@ func TestInvoke_FetchAndWork(t *testing.T) {
 		t.Fatalf("unexpected fetch result type: %T", fetchResult)
 	}
 
-	workPayload := []byte(`{"project_id":"my-cool-app","plan_key":"plan:receipt-1234","items":[{"key":"x.go","summary":"x","status":"pending"}]}`)
+	workPayload := []byte(`{"project_id":"my-cool-app","plan_key":"plan:receipt-1234","tasks":[{"key":"x.go","summary":"x","status":"pending"}]}`)
 	workResult, workErr := Invoke(context.Background(), fakeService{}, toolWork, workPayload)
 	if workErr != nil {
 		t.Fatalf("unexpected work error: %v", workErr)

@@ -37,7 +37,8 @@ func DecodeAndValidateCommandWithDefaults(data []byte, defaults ValidationDefaul
 	if env.Version != Version {
 		return CommandEnvelope{}, nil, validationError("INVALID_VERSION", "version must be acm.v1")
 	}
-	if !isValidCommand(env.Command) {
+	spec, ok := LookupCommand(env.Command)
+	if !ok {
 		return CommandEnvelope{}, nil, validationError("INVALID_COMMAND", "command is not recognized")
 	}
 	if !requestIDRe.MatchString(env.RequestID) {
@@ -47,205 +48,12 @@ func DecodeAndValidateCommandWithDefaults(data []byte, defaults ValidationDefaul
 		return CommandEnvelope{}, nil, validationError("INVALID_PAYLOAD", "payload is required")
 	}
 
-	payload, errp := decodePayload(env.Command, env.Payload, normalizeValidationDefaults(defaults))
+	payload, errp := spec.Decode(env.Payload, normalizeValidationDefaults(defaults))
 	if errp != nil {
 		return CommandEnvelope{}, nil, errp
 	}
 
 	return env, payload, nil
-}
-
-func decodePayload(command Command, raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
-	switch command {
-	case CommandGetContext:
-		var p GetContextPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		if err := validateGetContextPayload(&p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandFetch:
-		var p FetchPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		fields, err := decodeObjectFields(raw)
-		if err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		if err := validateFetchPayload(&p, fields); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandProposeMemory:
-		var p ProposeMemoryPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		if err := validateProposeMemoryPayload(&p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandReportCompletion:
-		var p ReportCompletionPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		fields, err := decodeObjectFields(raw)
-		if err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		if err := validateReportCompletionPayload(&p, fields); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandReview:
-		var p ReviewPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		fields, err := decodeObjectFields(raw)
-		if err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		if err := validateReviewPayload(&p, fields); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandWork:
-		var p WorkPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		if err := validateWorkPayload(&p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandHistorySearch:
-		var p HistorySearchPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		if err := validateHistorySearchPayload(&p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandSync:
-		var p SyncPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
-		if err := validateSyncPayload(&p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandHealthCheck:
-		var p HealthCheckPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		if err := validateHealthCheckPayload(&p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandHealthFix:
-		var p HealthFixPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
-		fields, err := decodeObjectFields(raw)
-		if err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		if err := validateHealthFixPayload(&p, fields); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandCoverage:
-		var p CoveragePayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
-		if err := validateCoveragePayload(&p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandEval:
-		var p EvalPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		if err := validateEvalPayload(&p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandVerify:
-		var p VerifyPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-		fields, err := decodeObjectFields(raw)
-		if err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		if err := validateVerifyPayload(&p, fields); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	case CommandBootstrap:
-		var p BootstrapPayload
-		if err := decodeStrict(raw, &p); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
-		fields, err := decodeObjectFields(raw)
-		if err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		if err := validateBootstrapPayload(&p, fields); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
-		}
-		return p, nil
-	default:
-		return nil, validationError("INVALID_COMMAND", "command is not recognized")
-	}
-}
-
-func isValidCommand(command Command) bool {
-	switch command {
-	case CommandGetContext,
-		CommandFetch,
-		CommandProposeMemory,
-		CommandReportCompletion,
-		CommandReview,
-		CommandWork,
-		CommandHistorySearch,
-		CommandSync,
-		CommandHealthCheck,
-		CommandHealthFix,
-		CommandCoverage,
-		CommandEval,
-		CommandVerify,
-		CommandBootstrap:
-		return true
-	default:
-		return false
-	}
 }
 
 func validateGetContextPayload(p *GetContextPayload) error {
@@ -493,9 +301,6 @@ func validateWorkPayload(p *WorkPayload) error {
 	if p.Mode != "" && p.Mode != WorkPlanModeMerge && p.Mode != WorkPlanModeReplace {
 		return fmt.Errorf("mode must be merge|replace")
 	}
-	if len(p.Tasks) > 0 && len(p.Items) > 0 {
-		return fmt.Errorf("use only one of tasks or items")
-	}
 	if p.Plan != nil {
 		if p.Plan.Title != "" {
 			trimmed := strings.TrimSpace(p.Plan.Title)
@@ -603,26 +408,6 @@ func validateWorkPayload(p *WorkPayload) error {
 		}
 		if err := validateStringList(task.Evidence, 128, 1600, prefix+".evidence"); err != nil {
 			return err
-		}
-	}
-	if len(p.Items) > 256 {
-		return fmt.Errorf("items may include at most 256 entries")
-	}
-	for i, item := range p.Items {
-		if err := validateBoundedKey(item.Key, 512); err != nil {
-			return fmt.Errorf("items[%d].key %w", i, err)
-		}
-		if strings.TrimSpace(item.Summary) == "" || len(item.Summary) > 600 {
-			return fmt.Errorf("items[%d].summary must be 1..600 chars", i)
-		}
-		if err := validateWorkItemStatusValue(item.Status, fmt.Sprintf("items[%d].status", i)); err != nil {
-			return err
-		}
-		if item.Outcome != "" {
-			trimmedOutcome := strings.TrimSpace(item.Outcome)
-			if trimmedOutcome == "" || len(trimmedOutcome) > 1600 {
-				return fmt.Errorf("items[%d].outcome must be 1..1600 chars when provided", i)
-			}
 		}
 	}
 	return nil

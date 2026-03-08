@@ -208,7 +208,7 @@ func decoratorOperationCases() []decoratorOperationCase {
 				_, apiErr := svc.Work(ctx, v1.WorkPayload{
 					ProjectID: "project.alpha",
 					PlanKey:   "plan.alpha",
-					Items: []v1.WorkItemPayload{
+					Tasks: []v1.WorkTaskPayload{
 						{Key: "docs/runtime.md", Summary: "x", Status: v1.WorkItemStatusPending},
 					},
 				})

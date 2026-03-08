@@ -1,4 +1,4 @@
-package postgres
+package backend
 
 import (
 	"context"
@@ -60,7 +60,7 @@ type pointerSelection struct {
 
 func (s *Service) GetContext(ctx context.Context, payload v1.GetContextPayload) (v1.GetContextResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.GetContextResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
+		return v1.GetContextResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
 	}
 
 	tagNormalizer, err := s.loadCanonicalTagNormalizer(s.defaultProjectRoot(), payload.TagsFile)
@@ -495,36 +495,34 @@ func makeContextMemories(memories []core.ActiveMemory) []v1.ContextMemory {
 }
 
 func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID string, unbounded bool) []v1.ContextPlan {
-	if s != nil && s.repo != nil {
-		if planRepo, ok := s.repo.(core.WorkPlanRepository); ok {
-			planRows, err := planRepo.ListWorkPlans(ctx, core.WorkPlanListQuery{
-				ProjectID: strings.TrimSpace(projectID),
-				Scope:     string(v1.HistoryScopeCurrent),
-				Limit:     8,
-				Unbounded: unbounded,
-			})
-			if err == nil && len(planRows) > 0 {
-				plans := make([]v1.ContextPlan, 0, len(planRows))
-				for _, row := range planRows {
-					planKey := strings.TrimSpace(row.PlanKey)
-					if planKey == "" {
-						continue
-					}
-					status := normalizePlanStatus(row.Status)
-					summary := strings.TrimSpace(row.Summary)
-					if summary == "" {
-						summary = fmt.Sprintf("Plan %s is %s", planKey, status)
-					}
-					plans = append(plans, v1.ContextPlan{
-						Key:       planKey,
-						Summary:   summary,
-						Status:    v1.WorkItemStatus(status),
-						FetchKeys: contextPlanFetchKeys(planKey),
-					})
+	if s != nil && s.planRepo != nil {
+		planRows, err := s.planRepo.ListWorkPlans(ctx, core.WorkPlanListQuery{
+			ProjectID: strings.TrimSpace(projectID),
+			Scope:     string(v1.HistoryScopeCurrent),
+			Limit:     8,
+			Unbounded: unbounded,
+		})
+		if err == nil && len(planRows) > 0 {
+			plans := make([]v1.ContextPlan, 0, len(planRows))
+			for _, row := range planRows {
+				planKey := strings.TrimSpace(row.PlanKey)
+				if planKey == "" {
+					continue
 				}
-				if len(plans) > 0 {
-					return plans
+				status := normalizePlanStatus(row.Status)
+				summary := strings.TrimSpace(row.Summary)
+				if summary == "" {
+					summary = fmt.Sprintf("Plan %s is %s", planKey, status)
 				}
+				plans = append(plans, v1.ContextPlan{
+					Key:       planKey,
+					Summary:   summary,
+					Status:    v1.WorkItemStatus(status),
+					FetchKeys: contextPlanFetchKeys(planKey),
+				})
+			}
+			if len(plans) > 0 {
+				return plans
 			}
 		}
 	}

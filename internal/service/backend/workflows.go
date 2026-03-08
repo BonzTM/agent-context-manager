@@ -1,4 +1,4 @@
-package postgres
+package backend
 
 import (
 	"errors"

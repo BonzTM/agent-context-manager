@@ -16,23 +16,7 @@
       "const": "acm.v1"
     },
     "command": {
-      "type": "string",
-      "enum": [
-        "get_context",
-        "propose_memory",
-        "report_completion",
-        "review",
-        "history_search",
-        "sync",
-        "health_check",
-        "health_fix",
-        "eval",
-        "verify",
-        "bootstrap",
-        "coverage",
-        "fetch",
-        "work"
-      ]
+      "$ref": "shared.schema.json#/$defs/commandName"
     },
     "request_id": {
       "$ref": "shared.schema.json#/$defs/requestId"

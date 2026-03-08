@@ -72,7 +72,7 @@ func TestNewServiceWithLogger_PostgresDSNTakesPrecedenceOverSQLite(t *testing.T)
 	}
 }
 
-func TestNewServiceWithLogger_ImplicitRepoSQLiteAddsGitIgnoreEntry(t *testing.T) {
+func TestNewServiceWithLogger_ImplicitRepoSQLiteDoesNotMutateGitIgnore(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
@@ -97,12 +97,8 @@ func TestNewServiceWithLogger_ImplicitRepoSQLiteAddsGitIgnoreEntry(t *testing.T)
 		t.Fatalf("unexpected summary: %+v", result.Summary)
 	}
 
-	gitignoreRaw, err := os.ReadFile(filepath.Join(root, ".gitignore"))
-	if err != nil {
-		t.Fatalf("read .gitignore: %v", err)
-	}
-	if got := strings.TrimSpace(string(gitignoreRaw)); got != ".acm/context.db\n.acm/context.db-shm\n.acm/context.db-wal" {
-		t.Fatalf("unexpected .gitignore contents: %q", got)
+	if _, err := os.Stat(filepath.Join(root, ".gitignore")); !os.IsNotExist(err) {
+		t.Fatalf("expected runtime service construction to leave .gitignore alone, stat err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".acm", "context.db")); err != nil {
 		t.Fatalf("expected default sqlite file: %v", err)

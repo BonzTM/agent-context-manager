@@ -100,7 +100,7 @@ Tags are flat labels used to scope pointers, rules, and memories. Examples: `bac
 acm normalizes tags through a canonical dictionary that maps aliases to a single form (e.g., `api` and `server` both map to `backend`). When you call `get_context`, your task text is decomposed into 3-6 canonical tags, and acm uses those to find relevant pointers.
 
 The tag dictionary has two layers:
-- **Embedded base** — ships with acm (`internal/service/postgres/canonical_tags.json`), covers common aliases
+- **Embedded base** — ships with acm (`internal/service/backend/canonical_tags.json`), covers common aliases
 - **Repo-local overrides** — `.acm/acm-tags.yaml` (auto-discovered), adds project-specific tags and aliases on top of the base
 
 Use `--tags-file` on any command that does tag normalization to override discovery with an explicit path.
@@ -232,7 +232,7 @@ completion:
         timeout_sec: 1800
 ```
 
-Runnable review gates are terminal checks, not inner-loop retries. ACM persists append-only review attempts, skips same-fingerprint reruns when `rerun_requires_new_fingerprint: true`, and only enforces retry caps when `max_attempts` is set.
+Runnable review gates are terminal checks, not inner-loop retries. ACM persists append-only review attempts, skips same-fingerprint reruns when `rerun_requires_new_fingerprint: true`, and only enforces retry caps when `max_attempts` is set. The scoped fingerprint covers receipt pointer paths plus ACM-managed governance files that completion reporting already allows outside pointer scope.
 
 Selectors use the same shape as `verify` selection: `phases`, `tags_any`, `changed_paths_any`, `pointer_keys_any`, `always_run`.
 
@@ -257,7 +257,6 @@ Most CLI commands that accept text or list values support inline flags and file-
 | `--expect` (repeatable) | `--expected-versions-json` | `--expected-versions-file` | JSON object (`{"key": "version"}`) |
 | - | `--plan-json` | `--plan-file` | JSON object (work plan metadata) |
 | - | `--tasks-json` | `--tasks-file` | JSON array of work tasks |
-| - | `--items-json` | `--items-file` | JSON array of alternate work items |
 | - | `--eval-suite-inline-json` | `--eval-suite-inline-file` | JSON array of eval cases |
 
 All file flags accept `-` for stdin.

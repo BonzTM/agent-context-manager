@@ -211,7 +211,7 @@ v1 executes selected tests sequentially.
     {
       "test_id": "go-unit",
       "summary": "Run Go unit tests for ACM packages",
-      "selection_reasons": ["phase=review", "changed_paths_any matched internal/service/postgres/service.go"]
+      "selection_reasons": ["phase=review", "changed_paths_any matched internal/service/backend/service.go"]
     }
   ],
   "passed": false,

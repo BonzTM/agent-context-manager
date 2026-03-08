@@ -18,7 +18,7 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/logging"
 	"github.com/bonztm/agent-context-manager/internal/runtime"
-	postgressvc "github.com/bonztm/agent-context-manager/internal/service/postgres"
+	backendsvc "github.com/bonztm/agent-context-manager/internal/service/backend"
 )
 
 const (
@@ -59,7 +59,7 @@ func TestRuntimePostgresIntegration_Step10Evidence(t *testing.T) {
 		},
 		{
 			Key:         "pointer.service.report",
-			Path:        "internal/service/postgres/service.go",
+			Path:        "internal/service/backend/service.go",
 			Label:       "Report completion write path",
 			Description: "Report completion persists run summaries tied to receipt scope",
 			Tags:        []string{"postgres", "report_completion", "integration"},
@@ -91,8 +91,8 @@ func TestRuntimePostgresIntegration_Step10Evidence(t *testing.T) {
 	if getResult.Receipt == nil {
 		t.Fatal("expected non-nil receipt")
 	}
-	if got := getResult.Receipt.Meta.RetrievalVersion; got != postgressvc.RetrievalVersion {
-		t.Fatalf("expected retrieval version %q, got %q", postgressvc.RetrievalVersion, got)
+	if got := getResult.Receipt.Meta.RetrievalVersion; got != backendsvc.RetrievalVersion {
+		t.Fatalf("expected retrieval version %q, got %q", backendsvc.RetrievalVersion, got)
 	}
 
 	pointerKeys := receiptPointerKeys(getResult.Receipt)

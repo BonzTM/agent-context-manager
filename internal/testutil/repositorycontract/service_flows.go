@@ -1,0 +1,253 @@
+package repositorycontract
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"sort"
+	"testing"
+	"time"
+
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	backendsvc "github.com/bonztm/agent-context-manager/internal/service/backend"
+)
+
+type ServiceFlowConfig struct {
+	BackendLabel string
+	ProjectID    string
+	Repo         core.Repository
+}
+
+func RunServiceFlows(t *testing.T, cfg ServiceFlowConfig) {
+	t.Helper()
+
+	ctx := context.Background()
+	projectID := cfg.ProjectID
+	if projectID == "" {
+		projectID = "project." + cfg.BackendLabel + "." + time.Now().UTC().Format("20060102150405.000000000")
+	}
+
+	if _, err := cfg.Repo.UpsertPointerStubs(ctx, projectID, []core.PointerStub{{
+		PointerKey:  "pointer.runtime.default",
+		Path:        "docs/runtime.md",
+		Kind:        "doc",
+		Label:       "Runtime default backend",
+		Description: "Runtime default backend path",
+		Tags:        []string{"runtime", cfg.BackendLabel},
+	}}); err != nil {
+		t.Fatalf("seed runtime pointer: %v", err)
+	}
+
+	svc, err := backendsvc.New(cfg.Repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	getContextResult, apiErr := svc.GetContext(ctx, v1.GetContextPayload{
+		ProjectID: projectID,
+		TaskText:  "verify " + cfg.BackendLabel + " runtime backend path",
+		Phase:     v1.PhaseExecute,
+		Caps: &v1.RetrievalCaps{
+			MinPointerCount: 1,
+			MaxMemories:     2,
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("get_context API error: %+v", apiErr)
+	}
+	if getContextResult.Status != "ok" || getContextResult.Receipt == nil {
+		t.Fatalf("unexpected get_context result: %+v", getContextResult)
+	}
+	if getContextResult.Receipt.Meta.RetrievalVersion != backendsvc.RetrievalVersion {
+		t.Fatalf("unexpected retrieval version: got %q want %q", getContextResult.Receipt.Meta.RetrievalVersion, backendsvc.RetrievalVersion)
+	}
+
+	receipt := getContextResult.Receipt
+	pointerKeys := receiptPointerKeys(receipt)
+	if len(pointerKeys) == 0 {
+		t.Fatal("expected receipt to contain pointer keys")
+	}
+
+	_, err = cfg.Repo.SaveRunReceiptSummary(ctx, core.RunReceiptSummary{
+		ProjectID:    projectID,
+		ReceiptID:    receipt.Meta.ReceiptID,
+		TaskText:     receipt.Meta.TaskText,
+		Phase:        string(receipt.Meta.Phase),
+		Status:       "accepted",
+		ResolvedTags: append([]string(nil), receipt.Meta.ResolvedTags...),
+		PointerKeys:  pointerKeys,
+	})
+	if err != nil {
+		t.Fatalf("save receipt scope summary: %v", err)
+	}
+
+	autoPromote := false
+	proposeResult, apiErr := svc.ProposeMemory(ctx, v1.ProposeMemoryPayload{
+		ProjectID:   projectID,
+		ReceiptID:   receipt.Meta.ReceiptID,
+		AutoPromote: &autoPromote,
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             cfg.BackendLabel + " default backend enabled",
+			Content:             "Runtime defaults to " + cfg.BackendLabel + " when configured.",
+			RelatedPointerKeys:  []string{pointerKeys[0]},
+			Tags:                []string{"runtime", cfg.BackendLabel},
+			Confidence:          4,
+			EvidencePointerKeys: []string{pointerKeys[0]},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("propose_memory API error: %+v", apiErr)
+	}
+	if proposeResult.CandidateID <= 0 || proposeResult.Status != "pending" {
+		t.Fatalf("unexpected propose_memory result: %+v", proposeResult)
+	}
+	if !proposeResult.Validation.HardPassed || !proposeResult.Validation.SoftPassed {
+		t.Fatalf("unexpected propose validation: %+v", proposeResult.Validation)
+	}
+
+	reportResult, apiErr := svc.ReportCompletion(ctx, v1.ReportCompletionPayload{
+		ProjectID:    projectID,
+		ReceiptID:    receipt.Meta.ReceiptID,
+		FilesChanged: []string{"docs/runtime.md"},
+		Outcome:      cfg.BackendLabel + " flow accepted",
+	})
+	if apiErr != nil {
+		t.Fatalf("report_completion API error: %+v", apiErr)
+	}
+	if !reportResult.Accepted || reportResult.RunID <= 0 {
+		t.Fatalf("unexpected report_completion result: %+v", reportResult)
+	}
+
+	workResult, apiErr := svc.Work(ctx, v1.WorkPayload{
+		ProjectID: projectID,
+		PlanKey:   "plan:" + receipt.Meta.ReceiptID,
+		ReceiptID: receipt.Meta.ReceiptID,
+		Tasks: []v1.WorkTaskPayload{
+			{Key: "docs/runtime.md", Summary: "Confirm runtime pointer flow", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("work API error: %+v", apiErr)
+	}
+	if workResult.PlanKey != "plan:"+receipt.Meta.ReceiptID || workResult.PlanStatus != string(core.PlanStatusComplete) || workResult.Updated != 1 {
+		t.Fatalf("unexpected work result: %+v", workResult)
+	}
+
+	workItems, err := cfg.Repo.ListWorkItems(ctx, core.FetchLookupQuery{
+		ProjectID: projectID,
+		ReceiptID: receipt.Meta.ReceiptID,
+	})
+	if err != nil {
+		t.Fatalf("list work items: %v", err)
+	}
+	if len(workItems) != 1 {
+		t.Fatalf("expected one work item, got %+v", workItems)
+	}
+	if workItems[0].ItemKey != "docs/runtime.md" || workItems[0].Status != core.WorkItemStatusComplete {
+		t.Fatalf("unexpected persisted work item: %+v", workItems[0])
+	}
+
+	fetchLookup, err := cfg.Repo.LookupFetchState(ctx, core.FetchLookupQuery{
+		ProjectID: projectID,
+		ReceiptID: receipt.Meta.ReceiptID,
+	})
+	if err != nil {
+		t.Fatalf("lookup fetch state: %v", err)
+	}
+	if fetchLookup.PlanStatus != core.PlanStatusComplete {
+		t.Fatalf("unexpected plan status: %q", fetchLookup.PlanStatus)
+	}
+	if fetchLookup.RunID != int64(reportResult.RunID) {
+		t.Fatalf("expected fetch lookup to return latest report_completion run_id %d, got %d", reportResult.RunID, fetchLookup.RunID)
+	}
+
+	projectRoot := setupGitRepo(t, map[string]string{
+		"docs/runtime.md": "runtime pointer content",
+		"docs/new.md":     "new pointer candidate",
+	})
+	syncResult, apiErr := svc.Sync(ctx, v1.SyncPayload{
+		ProjectID:   projectID,
+		Mode:        "full",
+		ProjectRoot: projectRoot,
+	})
+	if apiErr != nil {
+		t.Fatalf("sync API error: %+v", apiErr)
+	}
+
+	wantProcessed := []string{"docs/new.md", "docs/runtime.md"}
+	if !reflect.DeepEqual(syncResult.ProcessedPaths, wantProcessed) {
+		t.Fatalf("unexpected processed paths: got %v want %v", syncResult.ProcessedPaths, wantProcessed)
+	}
+	if syncResult.Updated != 1 {
+		t.Fatalf("unexpected sync updated count: got %d want 1", syncResult.Updated)
+	}
+	if syncResult.NewCandidates != 1 {
+		t.Fatalf("unexpected sync new_candidates count: got %d want 1", syncResult.NewCandidates)
+	}
+	if syncResult.MarkedStale != 0 || syncResult.DeletedMarkedStale != 0 {
+		t.Fatalf("unexpected stale counters: %+v", syncResult)
+	}
+}
+
+func receiptPointerKeys(receipt *v1.ContextReceipt) []string {
+	pointerKeySet := make(map[string]struct{}, len(receipt.Rules)+len(receipt.Suggestions))
+	for _, rule := range receipt.Rules {
+		if rule.Key != "" {
+			pointerKeySet[rule.Key] = struct{}{}
+		}
+	}
+	for _, suggestion := range receipt.Suggestions {
+		if suggestion.Key != "" {
+			pointerKeySet[suggestion.Key] = struct{}{}
+		}
+	}
+	pointerKeys := make([]string, 0, len(pointerKeySet))
+	for key := range pointerKeySet {
+		pointerKeys = append(pointerKeys, key)
+	}
+	sort.Strings(pointerKeys)
+	return pointerKeys
+}
+
+func setupGitRepo(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	root := t.TempDir()
+	runCommand(t, root, "git", "init")
+	runCommand(t, root, "git", "config", "user.email", "repository-contract@example.com")
+	runCommand(t, root, "git", "config", "user.name", "Repository Contract")
+
+	paths := make([]string, 0, len(files))
+	for p := range files {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		abs := filepath.Join(root, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", abs, err)
+		}
+		if err := os.WriteFile(abs, []byte(files[p]), 0o644); err != nil {
+			t.Fatalf("write file %q: %v", abs, err)
+		}
+	}
+
+	runCommand(t, root, "git", "add", ".")
+	runCommand(t, root, "git", "commit", "-m", "seed")
+	return root
+}
+
+func runCommand(t *testing.T, dir string, name string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run %s %v: %v\n%s", name, args, err, string(out))
+	}
+}

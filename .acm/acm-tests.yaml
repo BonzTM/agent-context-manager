@@ -6,7 +6,7 @@ tests:
   - id: smoke
     summary: Run critical CLI, runtime, and service tests on every verification pass
     command:
-      argv: ["go", "test", "./cmd/acm", "./cmd/acm-mcp", "./internal/runtime", "./internal/service/postgres", "-count=1"]
+      argv: ["go", "test", "./cmd/acm", "./cmd/acm-mcp", "./internal/runtime", "./internal/service/backend", "-count=1"]
     select:
       always_run: true
     expected:

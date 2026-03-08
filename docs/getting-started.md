@@ -249,7 +249,7 @@ acm work --receipt-id <receipt-id> --mode merge \
   --tasks-json '[{"key":"add-validation","summary":"Add input validation logic","status":"in_progress"},{"key":"verify:tests","summary":"Run tests for changed behavior","status":"pending"}]'
 ```
 
-`tasks` are the canonical payload for tracking. Legacy `items` are accepted for compatibility. If you only need to record a single review-gate outcome, use `review` instead.
+`tasks` are the canonical payload for tracking. If you only need to record a single review-gate outcome, use `review` instead.
 
 ### review
 
@@ -263,7 +263,7 @@ acm review \
 
 `review` is intentionally thin — it lowers to a single `work.tasks[]` merge update.
 
-- **Run mode**: acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists a review-attempt record, and updates the work-task snapshot. Same-fingerprint reruns are skipped; `report_completion` requires a fresh passing review when fingerprint dedupe is enabled.
+- **Run mode**: acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists a review-attempt record, and updates the work-task snapshot. Same-fingerprint reruns are skipped; `report_completion` requires a fresh passing review when fingerprint dedupe is enabled. The scoped fingerprint covers receipt pointer paths plus ACM-managed governance files that completion reporting already allows outside pointer scope.
 - **Defaults**: `key=review:cross-llm`, `summary="Cross-LLM review"`.
 - Use `--plan-key` instead of `--receipt-id` when resuming from a plan, or `--key` if your workflow uses a different task key.
 
@@ -547,7 +547,7 @@ completion:
 
 Bootstrap seeds the thin `required_tasks: []` skeleton by default. Adding gates like `review:cross-llm` is an opt-in repo policy choice.
 
-When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM skips same-fingerprint reruns and only enforces retry limits when `max_attempts` is set. Without `run`, agents can use manual `review` fields or a direct `work` update. Repo-local reviewer choices such as a Codex model or reasoning effort belong in the workflow `run.argv`.
+When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM skips same-fingerprint reruns and only enforces retry limits when `max_attempts` is set. The scoped fingerprint covers receipt pointer paths plus ACM-managed governance files that completion reporting already allows outside pointer scope. Without `run`, agents can use manual `review` fields or a direct `work` update. Repo-local reviewer choices such as a Codex model or reasoning effort belong in the workflow `run.argv`.
 
 ## Storage
 

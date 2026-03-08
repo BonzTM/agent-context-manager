@@ -1,4 +1,4 @@
-package postgres
+package backend
 
 import (
 	"bytes"
@@ -130,11 +130,10 @@ type verifyCommandRun struct {
 
 func (s *Service) Verify(ctx context.Context, payload v1.VerifyPayload) (v1.VerifyResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.VerifyResult{}, core.NewError("INTERNAL_ERROR", "postgres service repository is not configured", nil)
+		return v1.VerifyResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
 	}
 
-	verifyRepo, ok := s.repo.(core.VerificationRepository)
-	if !ok {
+	if s.verifyRepo == nil {
 		return v1.VerifyResult{}, core.NewError("INTERNAL_ERROR", "verification storage is not configured", nil)
 	}
 
@@ -251,7 +250,7 @@ func (s *Service) Verify(ctx context.Context, payload v1.VerifyPayload) (v1.Veri
 		Results:         records,
 		CreatedAt:       executedAt,
 	}
-	if err := verifyRepo.SaveVerificationBatch(ctx, batch); err != nil {
+	if err := s.verifyRepo.SaveVerificationBatch(ctx, batch); err != nil {
 		return v1.VerifyResult{}, verifyInternalError("save_verification_batch", err, batchRunID)
 	}
 

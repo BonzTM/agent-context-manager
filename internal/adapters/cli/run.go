@@ -4,10 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"reflect"
-	"strings"
 	"time"
 
+	"github.com/bonztm/agent-context-manager/internal/commands"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
@@ -15,8 +14,8 @@ import (
 )
 
 const (
-	commandFetch = v1.Command("fetch")
-	commandWork  = v1.Command("work")
+	commandFetch = v1.CommandFetch
+	commandWork  = v1.CommandWork
 )
 
 func Run(ctx context.Context, svc core.Service, in io.Reader, out io.Writer, now func() time.Time) int {
@@ -123,38 +122,7 @@ func validationDefaultsFromRuntime() v1.ValidationDefaults {
 }
 
 func dispatch(ctx context.Context, svc core.Service, command v1.Command, payload any) (any, *core.APIError) {
-	switch command {
-	case v1.CommandGetContext:
-		return svc.GetContext(ctx, payload.(v1.GetContextPayload))
-	case commandFetch:
-		return svc.Fetch(ctx, payload.(v1.FetchPayload))
-	case v1.CommandProposeMemory:
-		return svc.ProposeMemory(ctx, payload.(v1.ProposeMemoryPayload))
-	case commandWork:
-		return svc.Work(ctx, payload.(v1.WorkPayload))
-	case v1.CommandReview:
-		return svc.Review(ctx, payload.(v1.ReviewPayload))
-	case v1.CommandHistorySearch:
-		return svc.HistorySearch(ctx, payload.(v1.HistorySearchPayload))
-	case v1.CommandReportCompletion:
-		return svc.ReportCompletion(ctx, payload.(v1.ReportCompletionPayload))
-	case v1.CommandSync:
-		return svc.Sync(ctx, payload.(v1.SyncPayload))
-	case v1.CommandHealthCheck:
-		return svc.HealthCheck(ctx, payload.(v1.HealthCheckPayload))
-	case v1.CommandHealthFix:
-		return svc.HealthFix(ctx, payload.(v1.HealthFixPayload))
-	case v1.CommandCoverage:
-		return svc.Coverage(ctx, payload.(v1.CoveragePayload))
-	case v1.CommandEval:
-		return svc.Eval(ctx, payload.(v1.EvalPayload))
-	case v1.CommandVerify:
-		return svc.Verify(ctx, payload.(v1.VerifyPayload))
-	case v1.CommandBootstrap:
-		return svc.Bootstrap(ctx, payload.(v1.BootstrapPayload))
-	default:
-		return nil, core.NewError("INVALID_COMMAND", "command is not recognized", nil)
-	}
+	return commands.Dispatch(ctx, svc, command, payload)
 }
 
 func writeEnvelope(out io.Writer, env v1.ResultEnvelope) {
@@ -164,71 +132,5 @@ func writeEnvelope(out io.Writer, env v1.ResultEnvelope) {
 }
 
 func projectIDFromPayload(payload any) string {
-	switch p := payload.(type) {
-	case v1.GetContextPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.FetchPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.ProposeMemoryPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.ReportCompletionPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.ReviewPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.WorkPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.HistorySearchPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.SyncPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.HealthCheckPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.HealthFixPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.CoveragePayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.EvalPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.VerifyPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case v1.BootstrapPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case map[string]any:
-		return projectIDFromMap(p)
-	default:
-		return projectIDFromStruct(payload)
-	}
-}
-
-func projectIDFromMap(payload map[string]any) string {
-	value, ok := payload["project_id"]
-	if !ok {
-		return ""
-	}
-	projectID, ok := value.(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(projectID)
-}
-
-func projectIDFromStruct(payload any) string {
-	value := reflect.ValueOf(payload)
-	if !value.IsValid() {
-		return ""
-	}
-	if value.Kind() == reflect.Pointer {
-		if value.IsNil() {
-			return ""
-		}
-		value = value.Elem()
-	}
-	if value.Kind() != reflect.Struct {
-		return ""
-	}
-	projectField := value.FieldByName("ProjectID")
-	if !projectField.IsValid() || projectField.Kind() != reflect.String {
-		return ""
-	}
-	return strings.TrimSpace(projectField.String())
+	return commands.ProjectIDFromPayload(payload)
 }

@@ -300,7 +300,7 @@ func TestDispatch_RoutesFetchWorkAndHistorySearch(t *testing.T) {
 		{
 			name:    "work",
 			command: commandWork,
-			payload: v1.WorkPayload{ProjectID: "my-cool-app", PlanKey: "plan.alpha", Items: []v1.WorkItemPayload{{Key: "x.go", Summary: "x", Status: v1.WorkItemStatusPending}}},
+			payload: v1.WorkPayload{ProjectID: "my-cool-app", PlanKey: "plan.alpha", Tasks: []v1.WorkTaskPayload{{Key: "x.go", Summary: "x", Status: v1.WorkItemStatusPending}}},
 		},
 		{
 			name:    "review",

@@ -794,6 +794,7 @@
         "report_completion",
         "review",
         "work",
+        "history_search",
         "sync",
         "health_check",
         "health_fix",

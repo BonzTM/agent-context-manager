@@ -78,7 +78,7 @@ func invokeWithDeps(ctx context.Context, logger logging.Logger, args []string, s
 
 	fs := flag.NewFlagSet("invoke", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	tool := fs.String("tool", "", "tool name: get_context|fetch|propose_memory|report_completion|review|work|history_search|sync|health_check|health_fix|coverage|eval|verify|bootstrap")
+	tool := fs.String("tool", "", "tool name: "+strings.Join(toolNames(), "|"))
 	in := fs.String("in", "-", "tool input JSON file or '-' for stdin")
 	if err := fs.Parse(args); err != nil {
 		logger.Error(ctx, logging.EventACMMCP, "stage", "parse_flags", "subcommand", "invoke", "ok", false, "error_code", "INVALID_FLAGS")
@@ -180,38 +180,16 @@ func wantsHelp(args []string) bool {
 }
 
 func commandForTool(tool string) (v1.Command, bool) {
-	switch strings.TrimSpace(tool) {
-	case string(v1.CommandGetContext):
-		return v1.CommandGetContext, true
-	case string(v1.CommandFetch):
-		return v1.CommandFetch, true
-	case string(v1.CommandProposeMemory):
-		return v1.CommandProposeMemory, true
-	case string(v1.CommandReportCompletion):
-		return v1.CommandReportCompletion, true
-	case string(v1.CommandReview):
-		return v1.CommandReview, true
-	case string(v1.CommandWork):
-		return v1.CommandWork, true
-	case string(v1.CommandHistorySearch):
-		return v1.CommandHistorySearch, true
-	case string(v1.CommandSync):
-		return v1.CommandSync, true
-	case string(v1.CommandHealthCheck):
-		return v1.CommandHealthCheck, true
-	case string(v1.CommandHealthFix):
-		return v1.CommandHealthFix, true
-	case string(v1.CommandCoverage):
-		return v1.CommandCoverage, true
-	case string(v1.CommandEval):
-		return v1.CommandEval, true
-	case string(v1.CommandVerify):
-		return v1.CommandVerify, true
-	case string(v1.CommandBootstrap):
-		return v1.CommandBootstrap, true
-	default:
-		return "", false
+	return v1.CommandFromToolName(tool)
+}
+
+func toolNames() []string {
+	defs := mcp.ToolDefinitions()
+	names := make([]string, 0, len(defs))
+	for _, def := range defs {
+		names = append(names, def.Name)
 	}
+	return names
 }
 
 func usage() {
@@ -230,8 +208,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  acm-mcp --version | -v")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "MCP v1 tools:")
-	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, review, work, history_search")
-	fmt.Fprintln(w, "  sync, health_check, health_fix, coverage, eval, verify, bootstrap")
+	printToolNameLines(w, toolNames())
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Config Resolution:")
 	fmt.Fprintln(w, "  1. Process environment (`ACM_*`) wins.")
@@ -262,6 +239,33 @@ func invokeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  --in <path>     JSON input file or '-' for stdin (default: -)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Tool names:")
-	fmt.Fprintln(w, "  get_context, fetch, propose_memory, report_completion, review, work, history_search")
-	fmt.Fprintln(w, "  sync, health_check, health_fix, coverage, eval, verify, bootstrap")
+	printToolNameLines(w, toolNames())
+}
+
+func printToolNameLines(w io.Writer, names []string) {
+	if len(names) == 0 {
+		return
+	}
+	const maxLineLen = 72
+	var line []string
+	lineLen := 2
+	flush := func() {
+		if len(line) == 0 {
+			return
+		}
+		fmt.Fprintf(w, "  %s\n", strings.Join(line, ", "))
+		line = nil
+		lineLen = 2
+	}
+	for _, name := range names {
+		if len(line) > 0 && lineLen+2+len(name) > maxLineLen {
+			flush()
+		}
+		if len(line) > 0 {
+			lineLen += 2
+		}
+		line = append(line, name)
+		lineLen += len(name)
+	}
+	flush()
 }

@@ -5,7 +5,7 @@ acm manages the context pipeline between you and your LLM agents.
 - **You define what matters** — index your codebase, write your rules, scope what agents see.
 - **acm delivers it** — task-scoped retrieval returns only relevant rules, code pointers, memories, and work state. Context windows stay light.
 - **Agents follow it** — rules are delivered as hard constraints, not suggestions buried in a long file. Scope violations are caught on completion.
-- **Everything persists** — memories, work items, and run history are stored outside any model's memory. They survive context compaction, session boundaries, and model switches.
+- **Everything persists** — memories, work plans/tasks, and run history are stored outside any model's memory. They survive context compaction, session boundaries, and model switches.
 
 acm is infrastructure, not opinions. It doesn't ship default rules or enforce a workflow. You define the rules, you seed the index, acm enforces and delivers.
 
@@ -48,7 +48,7 @@ acm bootstrap
 Bootstrap respects `.gitignore` by default. It also:
 
 - Seeds `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, `.acm/acm-tests.yaml`, and `.acm/acm-workflows.yaml` when missing
-- Appends `.acm/context.db` to `.gitignore`
+- Appends `.acm/context.db`, `.acm/context.db-shm`, and `.acm/context.db-wal` to `.gitignore`
 - Creates or extends `.env.example`
 - Auto-indexes discovered repo files into pointer stubs so `get_context` works immediately
 
@@ -162,7 +162,7 @@ All commands support `--help` for full flag documentation.
 ```bash
 acm get-context    [--project <id>] (--task-text <text>|--task-file <path>) --phase <plan|execute|review> [--tags-file <path>] [--unbounded]
 acm fetch          [--project <id>] [--key <key>]... [--keys-file <path>|--keys-json <json>] [--expect <key=version>]... [--expected-versions-file <path>|--expected-versions-json <json>] [--receipt-id <id>]
-acm work           [--project <id>] [--plan-key <key>|--receipt-id <id>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>] [--items-file <path>|--items-json <json>]
+acm work           [--project <id>] [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>]
 acm work list      [--project <id>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
 acm work search    [--project <id>] (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
 acm review         [--project <id>] (--receipt-id <id>|--plan-key <key>) [--run] [--key <task-key>] [--summary <text>] [--status <pending|in_progress|complete|blocked>] [--outcome <text>|--outcome-file <path>] [--blocked-reason <text>] [--evidence <text>]... [--evidence-file <path>|--evidence-json <json>] [--tags-file <path>]
@@ -179,7 +179,7 @@ Most list and text flags support inline values and `--*-file` alternatives (`-` 
 
 **Defaults** (when flags are omitted): `key=review:cross-llm`, `summary="Cross-LLM review"`, `status=complete`.
 
-**Run mode** (`--run` or `run=true`): acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists an append-only review-attempt record, and updates the work-task snapshot. Runnable gates are terminal-gate by default — same-fingerprint reruns are skipped, `max_attempts` is optional, and `report_completion` requires a fresh passing review when fingerprint dedupe is enabled.
+**Run mode** (`--run` or `run=true`): acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists an append-only review-attempt record, and updates the work-task snapshot. Runnable gates are terminal-gate by default — same-fingerprint reruns are skipped, `max_attempts` is optional, and `report_completion` requires a fresh passing review when fingerprint dedupe is enabled. The scoped fingerprint covers receipt pointer paths plus ACM-managed governance files that completion reporting already allows outside pointer scope.
 
 **Manual mode** (no `--run`): use `--status`, `--outcome`, `--blocked-reason`, and `--evidence` to record a review note directly. These fields are ignored in run mode.
 
@@ -247,7 +247,7 @@ SQLite is zero-config by default. acm resolves config in this order:
 6. If `ACM_PG_DSN` is set, Postgres is used
 7. Otherwise SQLite defaults to `<repo-root>/.acm/context.db`
 
-When acm chooses that implicit repo-local SQLite path, it also ensures `.gitignore` contains `.acm/context.db`, `.acm/context.db-shm`, and `.acm/context.db-wal`.
+Bootstrap scaffolding is responsible for adding the implicit SQLite files to `.gitignore` when you want repo-local setup materialized.
 
 Set `ACM_PG_DSN` for Postgres when you need write concurrency.
 

@@ -153,9 +153,9 @@ func TestBuildFetchEnvelope_ReceiptShorthandOmitsEmptyKeys(t *testing.T) {
 	}
 }
 
-func TestBuildWorkEnvelope_LoadsItemsFile(t *testing.T) {
-	itemsPath := filepath.Join(t.TempDir(), "items.json")
-	if err := os.WriteFile(itemsPath, []byte(`[
+func TestBuildWorkEnvelope_LoadsTasksFile(t *testing.T) {
+	tasksPath := filepath.Join(t.TempDir(), "tasks.json")
+	if err := os.WriteFile(tasksPath, []byte(`[
 		{"key":"verify:tests","summary":"Run tests","status":"pending"},
 		{"key":"verify:diff-review","summary":"Review diff","status":"complete","outcome":"No regressions"}
 	]`), 0o644); err != nil {
@@ -166,7 +166,7 @@ func TestBuildWorkEnvelope_LoadsItemsFile(t *testing.T) {
 		"--project", "myproject",
 		"--request", "req-12345678",
 		"--receipt-id", "req-87654321",
-		"--items-file", itemsPath,
+		"--tasks-file", tasksPath,
 	}, fixedNow)
 	if err != nil {
 		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
@@ -182,20 +182,20 @@ func TestBuildWorkEnvelope_LoadsItemsFile(t *testing.T) {
 	if payload.ReceiptID != "req-87654321" {
 		t.Fatalf("unexpected receipt id: %s", payload.ReceiptID)
 	}
-	if len(payload.Items) != 2 {
-		t.Fatalf("expected 2 work items, got %d", len(payload.Items))
+	if len(payload.Tasks) != 2 {
+		t.Fatalf("expected 2 work tasks, got %d", len(payload.Tasks))
 	}
-	if payload.Items[0].Key != "verify:tests" {
-		t.Fatalf("unexpected first item key: %q", payload.Items[0].Key)
+	if payload.Tasks[0].Key != "verify:tests" {
+		t.Fatalf("unexpected first task key: %q", payload.Tasks[0].Key)
 	}
 }
 
-func TestBuildWorkEnvelope_LoadsItemsJSON(t *testing.T) {
+func TestBuildWorkEnvelope_LoadsTasksJSON(t *testing.T) {
 	env, err := buildConvenienceEnvelope("work", []string{
 		"--project", "myproject",
 		"--request", "req-12345678",
 		"--receipt-id", "req-87654321",
-		"--items-json", `[{"key":"verify:tests","summary":"Run tests","status":"pending"}]`,
+		"--tasks-json", `[{"key":"verify:tests","summary":"Run tests","status":"pending"}]`,
 	}, fixedNow)
 	if err != nil {
 		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
@@ -205,29 +205,29 @@ func TestBuildWorkEnvelope_LoadsItemsJSON(t *testing.T) {
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
-	if len(payload.Items) != 1 {
-		t.Fatalf("expected 1 work item, got %d", len(payload.Items))
+	if len(payload.Tasks) != 1 {
+		t.Fatalf("expected 1 work task, got %d", len(payload.Tasks))
 	}
-	if payload.Items[0].Key != "verify:tests" {
-		t.Fatalf("unexpected item key: %q", payload.Items[0].Key)
+	if payload.Tasks[0].Key != "verify:tests" {
+		t.Fatalf("unexpected task key: %q", payload.Tasks[0].Key)
 	}
 }
 
-func TestBuildWorkEnvelope_ItemsJSONConflict(t *testing.T) {
-	itemsPath := filepath.Join(t.TempDir(), "items.json")
-	if err := os.WriteFile(itemsPath, []byte(`[]`), 0o644); err != nil {
+func TestBuildWorkEnvelope_TasksJSONConflict(t *testing.T) {
+	tasksPath := filepath.Join(t.TempDir(), "tasks.json")
+	if err := os.WriteFile(tasksPath, []byte(`[]`), 0o644); err != nil {
 		t.Fatalf("failed to write test fixture: %v", err)
 	}
 
 	_, err := buildConvenienceEnvelope("work", []string{
 		"--project", "myproject",
-		"--items-file", itemsPath,
-		"--items-json", `[]`,
+		"--tasks-file", tasksPath,
+		"--tasks-json", `[]`,
 	}, fixedNow)
 	if err == nil {
 		t.Fatal("expected conflict error, got nil")
 	}
-	if !strings.Contains(err.Error(), "use only one of --items-file or --items-json") {
+	if !strings.Contains(err.Error(), "use only one of --tasks-file or --tasks-json") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -248,7 +248,7 @@ func TestBuildWorkEnvelope_LoadsPlanAndTasksJSON(t *testing.T) {
 				"refined_spec":"in_progress",
 				"implementation_plan":"pending"
 			},
-			"in_scope":["internal/service/postgres","cmd/acm"],
+			"in_scope":["internal/service/backend","cmd/acm"],
 			"out_of_scope":["release automation"],
 			"constraints":["no breaking APIs"],
 			"references":["docs/getting-started.md"]
@@ -290,9 +290,6 @@ func TestBuildWorkEnvelope_LoadsPlanAndTasksJSON(t *testing.T) {
 	}
 	if payload.Tasks[0].Key != "task.bootstrap" || payload.Tasks[0].Status != v1.WorkItemStatusInProgress {
 		t.Fatalf("unexpected task payload: %+v", payload.Tasks[0])
-	}
-	if len(payload.Items) != 0 {
-		t.Fatalf("expected legacy items to be empty when tasks are provided, got %+v", payload.Items)
 	}
 }
 
@@ -503,20 +500,6 @@ func TestBuildVerifyEnvelope_RequiresSelectionContext(t *testing.T) {
 		t.Fatal("expected error for missing verify selection context")
 	}
 	if !strings.Contains(err.Error(), "verify requires --test-id or selection context") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestBuildWorkEnvelope_TasksItemsConflict(t *testing.T) {
-	_, err := buildConvenienceEnvelope("work", []string{
-		"--project", "myproject",
-		"--tasks-json", `[{"key":"task.1","summary":"Task","status":"pending"}]`,
-		"--items-json", `[{"key":"verify:tests","summary":"Run tests","status":"pending"}]`,
-	}, fixedNow)
-	if err == nil {
-		t.Fatal("expected conflict error, got nil")
-	}
-	if !strings.Contains(err.Error(), "use tasks flags or items flags, not both") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

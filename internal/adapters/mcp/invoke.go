@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bonztm/agent-context-manager/internal/commands"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
@@ -13,17 +14,17 @@ import (
 )
 
 const (
-	toolFetch         = "fetch"
-	toolReview        = "review"
-	toolWork          = "work"
-	toolHistorySearch = "history_search"
-	toolSync          = "sync"
-	toolHealthCheck   = "health_check"
-	toolHealthFix     = "health_fix"
-	toolCoverage      = "coverage"
-	toolEval          = "eval"
-	toolVerify        = "verify"
-	toolBootstrap     = "bootstrap"
+	toolFetch         = string(v1.CommandFetch)
+	toolReview        = string(v1.CommandReview)
+	toolWork          = string(v1.CommandWork)
+	toolHistorySearch = string(v1.CommandHistorySearch)
+	toolSync          = string(v1.CommandSync)
+	toolHealthCheck   = string(v1.CommandHealthCheck)
+	toolHealthFix     = string(v1.CommandHealthFix)
+	toolCoverage      = string(v1.CommandCoverage)
+	toolEval          = string(v1.CommandEval)
+	toolVerify        = string(v1.CommandVerify)
+	toolBootstrap     = string(v1.CommandBootstrap)
 )
 
 type ToolDef struct {
@@ -35,106 +36,18 @@ type ToolDef struct {
 }
 
 func ToolDefinitions() []ToolDef {
-	return []ToolDef{
-		{
-			Name:         string(v1.CommandGetContext),
-			Title:        "Get Task Context",
-			Description:  "Deterministically resolve task-scoped pointers, rules, and memories.",
-			InputSchema:  schemaRef(commandSchemaID, "getContextPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "getContextResult"),
-		},
-		{
-			Name:         toolFetch,
-			Title:        "Fetch Task Context",
-			Description:  "Fetch deterministic task context by pointer keys and optional expected versions.",
-			InputSchema:  schemaRef(commandSchemaID, "fetchPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "fetchResult"),
-		},
-		{
-			Name:         string(v1.CommandProposeMemory),
-			Title:        "Propose Durable Memory",
-			Description:  "Submit a memory candidate tied to evidence and receipt scope.",
-			InputSchema:  schemaRef(commandSchemaID, "proposeMemoryPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "proposeMemoryResult"),
-		},
-		{
-			Name:         string(v1.CommandReportCompletion),
-			Title:        "Report Task Completion",
-			Description:  "Validate changed files against the active receipt and persist run summary.",
-			InputSchema:  schemaRef(commandSchemaID, "reportCompletionPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "reportCompletionResult"),
-		},
-		{
-			Name:         toolReview,
-			Title:        "Record Review Gate",
-			Description:  "Record or execute a single review task gate such as review:cross-llm through the work tracker.",
-			InputSchema:  schemaRef(commandSchemaID, "reviewPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "reviewResult"),
-		},
-		{
-			Name:         toolWork,
-			Title:        "Submit Completion Work",
-			Description:  "Submit plan-scoped work item updates with status and optional outcomes.",
-			InputSchema:  schemaRef(commandSchemaID, "workPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "workResult"),
-		},
-		{
-			Name:         toolHistorySearch,
-			Title:        "Search History",
-			Description:  "List or search work plans, memories, receipts, and runs without direct database access.",
-			InputSchema:  schemaRef(commandSchemaID, "historySearchPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "historySearchResult"),
-		},
-		{
-			Name:         toolSync,
-			Title:        "Sync Project Inventory",
-			Description:  "Refresh indexed repository pointers from git or the working tree.",
-			InputSchema:  schemaRef(commandSchemaID, "syncPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "syncResult"),
-		},
-		{
-			Name:         toolHealthCheck,
-			Title:        "Check Project Health",
-			Description:  "Inspect ACM repository health and return findings without making changes.",
-			InputSchema:  schemaRef(commandSchemaID, "healthCheckPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "healthCheckResult"),
-		},
-		{
-			Name:         toolHealthFix,
-			Title:        "Fix Project Health",
-			Description:  "Plan or apply ACM health fixes such as ruleset sync and working tree repair.",
-			InputSchema:  schemaRef(commandSchemaID, "healthFixPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "healthFixResult"),
-		},
-		{
-			Name:         toolCoverage,
-			Title:        "Measure Coverage",
-			Description:  "Report repository indexing coverage against the current project tree.",
-			InputSchema:  schemaRef(commandSchemaID, "coveragePayload"),
-			OutputSchema: schemaRef(resultSchemaID, "coverageResult"),
-		},
-		{
-			Name:         toolEval,
-			Title:        "Run Retrieval Evaluation",
-			Description:  "Run retrieval evaluation cases against ACM context selection behavior.",
-			InputSchema:  schemaRef(commandSchemaID, "evalPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "evalResult"),
-		},
-		{
-			Name:         toolVerify,
-			Title:        "Run Executable Verification",
-			Description:  "Select and execute repo-defined verification checks from acm test definitions.",
-			InputSchema:  schemaRef(commandSchemaID, "verifyPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "verifyResult"),
-		},
-		{
-			Name:         toolBootstrap,
-			Title:        "Bootstrap Repository",
-			Description:  "Scan a repository, seed ACM files, and optionally apply additive bootstrap templates.",
-			InputSchema:  schemaRef(commandSchemaID, "bootstrapPayload"),
-			OutputSchema: schemaRef(resultSchemaID, "bootstrapResult"),
-		},
+	specs := v1.CommandSpecs()
+	defs := make([]ToolDef, 0, len(specs))
+	for _, spec := range specs {
+		defs = append(defs, ToolDef{
+			Name:         string(spec.Command),
+			Title:        spec.ToolTitle,
+			Description:  spec.ToolDescription,
+			InputSchema:  schemaRef(commandSchemaID, spec.InputSchemaDef),
+			OutputSchema: schemaRef(resultSchemaID, spec.ResultSchemaDef),
+		})
 	}
+	return defs
 }
 
 const (
@@ -158,101 +71,14 @@ func InvokeWithLogger(ctx context.Context, svc core.Service, tool string, input 
 	logger = logging.Normalize(logger)
 	logger.Info(ctx, logging.EventMCPIngressRead, "ok", true, "tool", tool, "bytes", len(input))
 
-	switch tool {
-	case string(v1.CommandGetContext):
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.GetContextPayload) string {
-			return p.ProjectID
-		}, func(p v1.GetContextPayload) (v1.GetContextResult, *core.APIError) {
-			return svc.GetContext(ctx, p)
-		})
-	case toolFetch:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.FetchPayload) string {
-			return p.ProjectID
-		}, func(p v1.FetchPayload) (v1.FetchResult, *core.APIError) {
-			return svc.Fetch(ctx, p)
-		})
-	case string(v1.CommandProposeMemory):
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.ProposeMemoryPayload) string {
-			return p.ProjectID
-		}, func(p v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *core.APIError) {
-			return svc.ProposeMemory(ctx, p)
-		})
-	case string(v1.CommandReportCompletion):
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.ReportCompletionPayload) string {
-			return p.ProjectID
-		}, func(p v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
-			return svc.ReportCompletion(ctx, p)
-		})
-	case toolReview:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.ReviewPayload) string {
-			return p.ProjectID
-		}, func(p v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
-			return svc.Review(ctx, p)
-		})
-	case toolWork:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.WorkPayload) string {
-			return p.ProjectID
-		}, func(p v1.WorkPayload) (v1.WorkResult, *core.APIError) {
-			return svc.Work(ctx, p)
-		})
-	case toolHistorySearch:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.HistorySearchPayload) string {
-			return p.ProjectID
-		}, func(p v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
-			return svc.HistorySearch(ctx, p)
-		})
-	case toolSync:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.SyncPayload) string {
-			return p.ProjectID
-		}, func(p v1.SyncPayload) (v1.SyncResult, *core.APIError) {
-			return svc.Sync(ctx, p)
-		})
-	case toolHealthCheck:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.HealthCheckPayload) string {
-			return p.ProjectID
-		}, func(p v1.HealthCheckPayload) (v1.HealthCheckResult, *core.APIError) {
-			return svc.HealthCheck(ctx, p)
-		})
-	case toolHealthFix:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.HealthFixPayload) string {
-			return p.ProjectID
-		}, func(p v1.HealthFixPayload) (v1.HealthFixResult, *core.APIError) {
-			return svc.HealthFix(ctx, p)
-		})
-	case toolCoverage:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.CoveragePayload) string {
-			return p.ProjectID
-		}, func(p v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {
-			return svc.Coverage(ctx, p)
-		})
-	case toolEval:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.EvalPayload) string {
-			return p.ProjectID
-		}, func(p v1.EvalPayload) (v1.EvalResult, *core.APIError) {
-			return svc.Eval(ctx, p)
-		})
-	case toolVerify:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.VerifyPayload) string {
-			return p.ProjectID
-		}, func(p v1.VerifyPayload) (v1.VerifyResult, *core.APIError) {
-			return svc.Verify(ctx, p)
-		})
-	case toolBootstrap:
-		return invokeTypedTool(ctx, logger, tool, input, func(p v1.BootstrapPayload) string {
-			return p.ProjectID
-		}, func(p v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {
-			return svc.Bootstrap(ctx, p)
-		})
-	default:
+	command, ok := v1.CommandFromToolName(tool)
+	if !ok {
 		err := core.NewError("UNKNOWN_TOOL", "tool is not supported in v1", map[string]any{"tool": tool})
 		logger.Error(ctx, logging.EventMCPIngressValidate, "ok", false, "tool", tool, "error_code", err.Code)
 		logger.Error(ctx, logging.EventMCPFailure, "stage", "validate", "tool", tool, "error_code", err.Code)
 		logger.Info(ctx, logging.EventMCPResult, "ok", false, "tool", tool, "error_code", err.Code)
 		return nil, err
 	}
-}
-
-func invokeTypedTool[Payload any, Result any](ctx context.Context, logger logging.Logger, tool string, input []byte, projectID func(Payload) string, run func(Payload) (Result, *core.APIError)) (any, *core.APIError) {
 	rawProjectID := projectIDFromRawToolInput(input)
 	defaults := validationDefaultsFromRuntime()
 	effectiveProjectID := rawProjectID
@@ -260,19 +86,19 @@ func invokeTypedTool[Payload any, Result any](ctx context.Context, logger loggin
 		effectiveProjectID = defaults.ProjectID
 	}
 
-	payload, err := decodeValidatedToolPayload[Payload](tool, json.RawMessage(input), defaults)
+	payload, err := decodeValidatedToolPayload(command, json.RawMessage(input), defaults)
 	if err != nil {
 		return mcpToolInputError(ctx, logger, tool, effectiveProjectID, err)
 	}
 
-	normalizedProjectID := strings.TrimSpace(projectID(payload))
+	normalizedProjectID := commands.ProjectIDFromPayload(payload)
 	if normalizedProjectID == "" {
 		normalizedProjectID = effectiveProjectID
 	}
 	logMCPValidateSuccess(ctx, logger, tool, normalizedProjectID)
 	logMCPDispatchStart(ctx, logger, tool, normalizedProjectID)
 
-	result, apiErr := run(payload)
+	result, apiErr := commands.Dispatch(ctx, svc, command, payload)
 	if apiErr != nil {
 		return mcpDispatchError(ctx, logger, tool, normalizedProjectID, apiErr)
 	}
@@ -282,27 +108,16 @@ func invokeTypedTool[Payload any, Result any](ctx context.Context, logger loggin
 	return result, nil
 }
 
-func decodeValidatedToolPayload[Payload any](tool string, raw json.RawMessage, defaults v1.ValidationDefaults) (Payload, error) {
-	var zero Payload
-	wrapped := map[string]any{
-		"version":    v1.Version,
-		"command":    tool,
-		"request_id": "mcp.invoke",
-		"payload":    raw,
-	}
-	blob, err := json.Marshal(wrapped)
+func decodeValidatedToolPayload(command v1.Command, raw json.RawMessage, defaults v1.ValidationDefaults) (any, error) {
+	blob, err := v1.BuildEnvelopeForCommand(command, "mcp.invoke", raw)
 	if err != nil {
-		return zero, err
+		return nil, err
 	}
 	_, payload, valErr := v1.DecodeAndValidateCommandWithDefaults(blob, defaults)
 	if valErr != nil {
-		return zero, fmt.Errorf("%s: %s", valErr.Code, valErr.Message)
+		return nil, fmt.Errorf("%s: %s", valErr.Code, valErr.Message)
 	}
-	typed, ok := payload.(Payload)
-	if !ok {
-		return zero, fmt.Errorf("validated payload type mismatch for tool %s", tool)
-	}
-	return typed, nil
+	return payload, nil
 }
 
 func validationDefaultsFromRuntime() v1.ValidationDefaults {
