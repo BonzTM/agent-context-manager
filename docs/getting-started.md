@@ -297,6 +297,16 @@ Two surfaces:
 
 Results are compact and include `fetch_keys`, so agents can search first and then `fetch` the exact payloads they need.
 
+### status
+
+Use `status` when you need one command to explain the current ACM setup before debugging a workflow:
+
+```bash
+acm status --task-text "why did get_context pick these pointers?" --phase execute
+```
+
+It reports the active project and backend, which repo-local rules/tags/tests/workflows files were discovered and loaded, which bootstrap integrations are installed, and any missing setup. `acm doctor` is an alias, but `status` is the canonical command name.
+
 ### verify
 
 Before `report_completion` for code changes, run repo-defined executable verification:

@@ -95,6 +95,12 @@ func (s *loggingService) HealthFix(ctx context.Context, payload v1.HealthFixPayl
 	})
 }
 
+func (s *loggingService) Status(ctx context.Context, payload v1.StatusPayload) (v1.StatusResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationStatus, payload.ProjectID, func() (v1.StatusResult, *APIError) {
+		return s.next.Status(ctx, payload)
+	})
+}
+
 func (s *loggingService) Coverage(ctx context.Context, payload v1.CoveragePayload) (v1.CoverageResult, *APIError) {
 	return withOperation(ctx, s.now, s.logger, logging.OperationCoverage, payload.ProjectID, func() (v1.CoverageResult, *APIError) {
 		return s.next.Coverage(ctx, payload)

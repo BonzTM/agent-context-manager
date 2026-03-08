@@ -69,6 +69,10 @@ func (f fakeService) HealthFix(_ context.Context, _ v1.HealthFixPayload) (v1.Hea
 	return v1.HealthFixResult{DryRun: true, PlannedActions: []v1.HealthFixAction{}, AppliedActions: []v1.HealthFixAction{}, Summary: "ok"}, nil
 }
 
+func (f fakeService) Status(_ context.Context, _ v1.StatusPayload) (v1.StatusResult, *core.APIError) {
+	return v1.StatusResult{}, nil
+}
+
 func (f fakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {
 	return v1.CoverageResult{}, nil
 }

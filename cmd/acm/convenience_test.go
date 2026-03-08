@@ -809,6 +809,50 @@ func TestBuildHealthFixEnvelope_RulesAndTagsFileFlags(t *testing.T) {
 	}
 }
 
+func TestBuildStatusEnvelope_LoadsTaskFileAndOptionalSources(t *testing.T) {
+	taskFile := filepath.Join(t.TempDir(), "task.txt")
+	if err := os.WriteFile(taskFile, []byte(" diagnose get_context drift \n"), 0o644); err != nil {
+		t.Fatalf("write task file: %v", err)
+	}
+
+	env, err := buildConvenienceEnvelope("status", []string{
+		"--project", "myproject",
+		"--project-root", ".",
+		"--rules-file", ".acm/acm-rules.yaml",
+		"--tags-file", ".acm/acm-tags.yaml",
+		"--tests-file", ".acm/acm-tests.yaml",
+		"--workflows-file", ".acm/acm-workflows.yaml",
+		"--task-file", taskFile,
+		"--phase", "review",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.StatusPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.ProjectID != "myproject" {
+		t.Fatalf("unexpected project_id: %q", payload.ProjectID)
+	}
+	if payload.ProjectRoot != "." {
+		t.Fatalf("unexpected project_root: %q", payload.ProjectRoot)
+	}
+	if payload.RulesFile != ".acm/acm-rules.yaml" || payload.TagsFile != ".acm/acm-tags.yaml" {
+		t.Fatalf("unexpected rules/tags files: %+v", payload)
+	}
+	if payload.TestsFile != ".acm/acm-tests.yaml" || payload.WorkflowsFile != ".acm/acm-workflows.yaml" {
+		t.Fatalf("unexpected tests/workflows files: %+v", payload)
+	}
+	if payload.TaskText != "diagnose get_context drift" {
+		t.Fatalf("unexpected task_text: %q", payload.TaskText)
+	}
+	if payload.Phase != v1.PhaseReview {
+		t.Fatalf("unexpected phase: %q", payload.Phase)
+	}
+}
+
 func TestBuildBootstrapEnvelope_RulesAndTagsFileFlags(t *testing.T) {
 	env, err := buildConvenienceEnvelope("bootstrap", []string{
 		"--project", "myproject",
@@ -999,6 +1043,10 @@ func (f *convenienceFakeService) HealthCheck(_ context.Context, _ v1.HealthCheck
 
 func (f *convenienceFakeService) HealthFix(_ context.Context, _ v1.HealthFixPayload) (v1.HealthFixResult, *core.APIError) {
 	return v1.HealthFixResult{}, nil
+}
+
+func (f *convenienceFakeService) Status(_ context.Context, _ v1.StatusPayload) (v1.StatusResult, *core.APIError) {
+	return v1.StatusResult{}, nil
 }
 
 func (f *convenienceFakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {

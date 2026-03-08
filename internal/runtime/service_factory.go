@@ -34,7 +34,7 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 			return nil, nil, fmt.Errorf("initialize postgres repository: %w", err)
 		}
 
-		svc, err := backendsvc.NewWithProjectRoot(repo, cfg.ProjectRoot)
+		svc, err := backendsvc.NewWithRuntimeStatus(repo, cfg.ProjectRoot, backendsvcRuntimeSnapshot(cfg, "postgres"))
 		if err != nil {
 			repo.Close()
 			return nil, nil, fmt.Errorf("initialize postgres service: %w", err)
@@ -52,7 +52,7 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 		return nil, nil, fmt.Errorf("initialize sqlite repository: %w", err)
 	}
 
-	svc, err := backendsvc.NewWithProjectRoot(sqliteRepo, cfg.ProjectRoot)
+	svc, err := backendsvc.NewWithRuntimeStatus(sqliteRepo, cfg.ProjectRoot, backendsvcRuntimeSnapshot(cfg, "sqlite"))
 	if err != nil {
 		_ = sqliteRepo.Close()
 		return nil, nil, fmt.Errorf("initialize sqlite service: %w", err)
@@ -61,4 +61,13 @@ func NewServiceWithLogger(ctx context.Context, cfg Config, logger logging.Logger
 	return core.WithLogging(svc, logger), func() {
 		_ = sqliteRepo.Close()
 	}, nil
+}
+
+func backendsvcRuntimeSnapshot(cfg Config, backend string) backendsvc.RuntimeStatusSnapshot {
+	return backendsvc.RuntimeStatusSnapshot{
+		Backend:                backend,
+		PostgresConfigured:     cfg.PostgresConfigured(),
+		SQLitePath:             cfg.EffectiveSQLitePath(),
+		UsesImplicitSQLitePath: cfg.UsesImplicitSQLitePath(),
+	}
 }

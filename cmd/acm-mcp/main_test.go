@@ -368,6 +368,10 @@ func (mcpMainFakeService) HealthFix(_ context.Context, _ v1.HealthFixPayload) (v
 	return v1.HealthFixResult{}, nil
 }
 
+func (mcpMainFakeService) Status(_ context.Context, _ v1.StatusPayload) (v1.StatusResult, *core.APIError) {
+	return v1.StatusResult{}, nil
+}
+
 func (mcpMainFakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {
 	return v1.CoverageResult{}, nil
 }

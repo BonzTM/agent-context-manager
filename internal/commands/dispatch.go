@@ -40,6 +40,9 @@ var handlers = map[v1.Command]handlerFunc{
 	v1.CommandHealthFix: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
 		return svc.HealthFix(ctx, payload.(v1.HealthFixPayload))
 	},
+	v1.CommandStatus: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
+		return svc.Status(ctx, payload.(v1.StatusPayload))
+	},
 	v1.CommandCoverage: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
 		return svc.Coverage(ctx, payload.(v1.CoveragePayload))
 	},

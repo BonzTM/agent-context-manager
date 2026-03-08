@@ -71,13 +71,13 @@ type workflowRunDefinition struct {
 	Env        map[string]string
 }
 
-func (s *Service) loadWorkflowCompletionRequirements(projectRoot, tagsFile string) ([]workflowRequiredTaskDefinition, workflowDefinitionsSource, error) {
+func (s *Service) loadWorkflowCompletionRequirements(projectRoot, workflowsFile, tagsFile string) ([]workflowRequiredTaskDefinition, workflowDefinitionsSource, error) {
 	tagNormalizer, err := s.loadCanonicalTagNormalizer(projectRoot, tagsFile)
 	if err != nil {
 		return nil, workflowDefinitionsSource{}, fmt.Errorf("load canonical tags: %w", err)
 	}
 
-	source, err := discoverWorkflowDefinitionsSource(projectRoot)
+	source, err := discoverWorkflowDefinitionsSource(projectRoot, workflowsFile)
 	if err != nil {
 		return nil, workflowDefinitionsSource{}, err
 	}
@@ -116,8 +116,12 @@ func (s *Service) loadWorkflowCompletionRequirements(projectRoot, tagsFile strin
 	return definitions, source, nil
 }
 
-func discoverWorkflowDefinitionsSource(projectRoot string) (workflowDefinitionsSource, error) {
+func discoverWorkflowDefinitionsSource(projectRoot, workflowsFile string) (workflowDefinitionsSource, error) {
 	root := bootstrapkit.NormalizeProjectRoot(projectRoot)
+
+	if trimmed := strings.TrimSpace(workflowsFile); trimmed != "" {
+		return statWorkflowDefinitionsSource(root, trimmed)
+	}
 
 	primary, err := statWorkflowDefinitionsSource(root, workflowDefinitionsPrimarySourcePath)
 	if err != nil {

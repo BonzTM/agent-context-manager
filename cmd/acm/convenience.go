@@ -807,6 +807,54 @@ func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 	return buildEnvelope(v1.CommandHealthFix, *requestID, payload, now)
 }
 
+func buildStatusEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	fs := newCommandFlagSet(
+		"status",
+		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
+		"acm status --task-text \"add review gate\" --phase execute",
+	)
+	projectID, requestID := addProjectAndRequestFlags(fs)
+	projectRoot := fs.String("project-root", "", "project root")
+	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
+	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
+	testsFile := fs.String("tests-file", "", "explicit verify tests file path (overrides default discovery)")
+	workflowsFile := fs.String("workflows-file", "", "explicit workflow definitions file path (overrides default discovery)")
+	taskText := fs.String("task-text", "", "optional task text to preview get-context reasoning")
+	taskFile := fs.String("task-file", "", "optional file containing task text ('-' for stdin)")
+	phase := fs.String("phase", string(v1.PhaseExecute), "phase: plan|execute|review")
+	if err := parseCommandFlags(fs, args); err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	trimmedTaskText := strings.TrimSpace(*taskText)
+	trimmedTaskFile := strings.TrimSpace(*taskFile)
+	if trimmedTaskText != "" && trimmedTaskFile != "" {
+		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --task-text or --task-file")
+	}
+	if trimmedTaskText == "" && trimmedTaskFile != "" {
+		blob, err := readTextFile(trimmedTaskFile)
+		if err != nil {
+			return v1.CommandEnvelope{}, fmt.Errorf("read --task-file %s: %w", trimmedTaskFile, err)
+		}
+		trimmedTaskText = strings.TrimSpace(blob)
+	}
+
+	payload := v1.StatusPayload{
+		ProjectID:     strings.TrimSpace(*projectID),
+		ProjectRoot:   strings.TrimSpace(*projectRoot),
+		RulesFile:     strings.TrimSpace(*rulesFile),
+		TagsFile:      strings.TrimSpace(*tagsFile),
+		TestsFile:     strings.TrimSpace(*testsFile),
+		WorkflowsFile: strings.TrimSpace(*workflowsFile),
+		TaskText:      trimmedTaskText,
+		Phase:         v1.Phase(strings.TrimSpace(*phase)),
+	}
+	if payload.TaskText == "" {
+		payload.Phase = ""
+	}
+
+	return buildEnvelope(v1.CommandStatus, *requestID, payload, now)
+}
+
 func buildCoverageEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"coverage",

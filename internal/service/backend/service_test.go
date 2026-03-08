@@ -2641,6 +2641,110 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 	}
 }
 
+func TestStatus_ReportsMissingCanonicalSources(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+
+	svc, err := NewWithRuntimeStatus(&fakeRepository{}, root, RuntimeStatusSnapshot{
+		Backend:                "sqlite",
+		SQLitePath:             filepath.Join(root, ".acm", "context.db"),
+		UsesImplicitSQLitePath: true,
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Status(context.Background(), v1.StatusPayload{ProjectID: "project.alpha"})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Summary.Ready {
+		t.Fatalf("expected missing sources to make status not ready")
+	}
+	if result.Project.Backend != "sqlite" {
+		t.Fatalf("unexpected backend: %q", result.Project.Backend)
+	}
+	missingCodes := make([]string, 0, len(result.Missing))
+	for _, item := range result.Missing {
+		missingCodes = append(missingCodes, item.Code)
+	}
+	for _, code := range []string{"rules_missing", "tags_missing", "tests_missing", "workflows_missing"} {
+		if !containsString(missingCodes, code) {
+			t.Fatalf("expected missing code %q in %+v", code, missingCodes)
+		}
+	}
+}
+
+func TestStatus_PreviewsRetrievalAndLoadedSources(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	files := map[string]string{
+		".acm/acm-rules.yaml":     "version: acm.rules.v1\nrules:\n  - summary: Keep tests green\n",
+		".acm/acm-tags.yaml":      "version: acm.tags.v1\ncanonical_tags:\n  backend:\n    - svc\n",
+		".acm/acm-tests.yaml":     "version: acm.tests.v1\ndefaults:\n  cwd: .\n  timeout_sec: 120\ntests:\n  - id: smoke\n    summary: Run smoke tests\n    command:\n      argv: [\"go\", \"test\", \"./...\"]\n",
+		".acm/acm-workflows.yaml": "version: acm.workflows.v1\ncompletion:\n  required_tasks:\n    - key: verify:tests\n",
+	}
+	for rel, contents := range files {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			candidate("rule:tests", ".acm/acm-rules.yaml", true, []string{"governance"}),
+			candidate("code:status", "internal/service/backend/status.go", false, []string{"backend"}),
+		}},
+		memoryResults: [][]core.ActiveMemory{{}},
+	}
+	svc, err := NewWithRuntimeStatus(repo, root, RuntimeStatusSnapshot{
+		Backend:                "sqlite",
+		SQLitePath:             filepath.Join(root, ".acm", "context.db"),
+		UsesImplicitSQLitePath: true,
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Status(context.Background(), v1.StatusPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "diagnose why get_context chose these pointers",
+		Phase:     v1.PhaseExecute,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Summary.Ready {
+		t.Fatalf("expected ready status, got missing %+v", result.Missing)
+	}
+	if result.Retrieval == nil || result.Retrieval.Status != "ok" {
+		t.Fatalf("expected retrieval preview, got %+v", result.Retrieval)
+	}
+	if len(result.Retrieval.SelectedPointers) != 2 {
+		t.Fatalf("expected 2 selected pointers, got %+v", result.Retrieval.SelectedPointers)
+	}
+	sourceKinds := make([]string, 0, len(result.Sources))
+	for _, source := range result.Sources {
+		sourceKinds = append(sourceKinds, source.Kind)
+	}
+	for _, kind := range []string{"rules", "tags", "tests", "workflows"} {
+		if !containsString(sourceKinds, kind) {
+			t.Fatalf("expected source kind %q in %+v", kind, result.Sources)
+		}
+	}
+	if got := repo.candidateCalls[0].Phase; got != string(v1.PhaseExecute) {
+		t.Fatalf("unexpected retrieval phase: %q", got)
+	}
+}
+
 func TestHealthCheck_IncludeDetailsFalseOmitsSamples(t *testing.T) {
 	repo := &fakeRepository{
 		candidateResults: [][]core.CandidatePointer{{

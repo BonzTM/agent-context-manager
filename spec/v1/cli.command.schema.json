@@ -405,6 +405,40 @@
         }
       }
     },
+    "statusPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "rules_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "tests_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "workflows_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        }
+      }
+    },
     "evalPayload": {
       "type": "object",
       "additionalProperties": false,
@@ -956,6 +990,25 @@
         "properties": {
           "payload": {
             "$ref": "#/$defs/healthFixPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "status"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/statusPayload"
           }
         }
       }

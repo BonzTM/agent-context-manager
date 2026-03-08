@@ -71,7 +71,7 @@ func (s *Service) ReportCompletion(ctx context.Context, payload v1.ReportComplet
 		return v1.ReportCompletionResult{}, reportCompletionInternalError("list_work_items", err)
 	}
 
-	workflowRequirements, workflowSource, err := s.loadWorkflowCompletionRequirements(s.defaultProjectRoot(), payload.TagsFile)
+	workflowRequirements, workflowSource, err := s.loadWorkflowCompletionRequirements(s.defaultProjectRoot(), "", payload.TagsFile)
 	if err != nil {
 		return v1.ReportCompletionResult{}, workflowDefinitionsAPIError(workflowSource.SourcePath, err)
 	}

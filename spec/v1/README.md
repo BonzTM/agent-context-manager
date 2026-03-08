@@ -1,6 +1,6 @@
 # acm v1 Schemas
 
-This directory defines the v1 wire contract for the context broker.
+This directory defines the v1 wire contract for the context broker, including the preferred diagnostics surface `status`.
 
 ## Files
 
@@ -16,7 +16,7 @@ For project-scoped commands, `project_id` may be omitted when runtime defaults a
 
 ## MCP Contract
 
-The MCP adapter exposes fourteen tools — all CLI operations are available via MCP:
+The MCP adapter exposes fifteen tools — all CLI operations are available via MCP:
 
 Agent-facing:
 
@@ -33,10 +33,11 @@ Maintenance:
 8. `sync`
 9. `health_check`
 10. `health_fix`
-11. `coverage`
-12. `eval`
-13. `verify`
-14. `bootstrap`
+11. `status`
+12. `coverage`
+13. `eval`
+14. `verify`
+15. `bootstrap`
 
 Tool input/output shapes are referenced from CLI payload/result defs to guarantee parity.
 
@@ -50,6 +51,7 @@ The MCP flow is index-first:
 - `history_search` lists or searches compact work, memory, receipt, and run history and returns targeted `fetch_keys` for selective follow-up retrieval. `entity` defaults to `all`; `scope` and `kind` are only valid when `entity=work`.
 - For work updates, `verify:tests` is the built-in executable verification key. `verify:diff-review` is optional workflow metadata.
 - `eval` is the public retrieval-evaluation command/tool name. `verify` selects repo-defined executable checks from `.acm/acm-tests.yaml` or `acm-tests.yaml`, with `tests_file` as the explicit override.
+- `status` reports the active project/backend/runtime snapshot, loaded rules/tags/tests/workflows, installed bootstrap integrations, and optionally a `get_context`-style retrieval preview when callers provide `task_text`.
 - `bootstrap` accepts repeatable `apply_templates` ids and reports per-template `template_results`. Template application is additive-only: create missing files, upgrade ACM-owned pristine scaffolds, and merge known additive JSON fragments without overwriting edited repo files.
 - `report_completion` can enforce repo-defined completion task keys from `.acm/acm-workflows.yaml` or `acm-workflows.yaml`; runnable review gates may also require a fresh passing attempt for the current scoped fingerprint when fingerprint dedupe is enabled. When no workflow gates are configured, acm falls back to `verify:tests`.
 - `propose_memory` and `report_completion` remain receipt-scoped write operations.

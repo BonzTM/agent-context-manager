@@ -225,6 +225,25 @@ var commandCatalog = []CommandSpec{
 		},
 	),
 	newCommandSpec(
+		CommandStatus,
+		"status",
+		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
+		"Explain active project/runtime state, loaded ACM files, installed integrations, and optional retrieval reasoning.",
+		CommandGroupMaintenance,
+		"statusPayload",
+		"statusResult",
+		"Inspect ACM Status",
+		"Explain current project/runtime state, loaded ACM files, installed integrations, and optional get_context retrieval reasoning.",
+		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
+			return decodeValidatedCommandPayload(raw, defaults,
+				func(p *StatusPayload, defaults ValidationDefaults) {
+					p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
+				},
+				validateStatusPayload,
+			)
+		},
+	),
+	newCommandSpec(
 		CommandCoverage,
 		"coverage",
 		"acm coverage [--project <id>] [--project-root <path>]",
@@ -391,6 +410,8 @@ func ProjectIDFromPayload(payload any) string {
 	case HealthCheckPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case HealthFixPayload:
+		return strings.TrimSpace(p.ProjectID)
+	case StatusPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case CoveragePayload:
 		return strings.TrimSpace(p.ProjectID)

@@ -43,6 +43,13 @@ var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
 type gitRunnerFunc func(ctx context.Context, projectRoot string, args ...string) (string, error)
 type reviewRunnerFunc func(ctx context.Context, projectRoot string, command workflowRunDefinition, extraEnv map[string]string) verifyCommandRun
 
+type RuntimeStatusSnapshot struct {
+	Backend                string
+	PostgresConfigured     bool
+	SQLitePath             string
+	UsesImplicitSQLitePath bool
+}
+
 type syncPathRecord struct {
 	Path        string
 	ContentHash string
@@ -134,6 +141,7 @@ type Service struct {
 	runVerifyCommand verifyRunnerFunc
 	runReviewCommand reviewRunnerFunc
 	projectRoot      string
+	runtimeStatus    RuntimeStatusSnapshot
 }
 
 func New(repo repositoryCore) (*Service, error) {
@@ -141,6 +149,10 @@ func New(repo repositoryCore) (*Service, error) {
 }
 
 func NewWithProjectRoot(repo repositoryCore, projectRoot string) (*Service, error) {
+	return NewWithRuntimeStatus(repo, projectRoot, RuntimeStatusSnapshot{})
+}
+
+func NewWithRuntimeStatus(repo repositoryCore, projectRoot string, snapshot RuntimeStatusSnapshot) (*Service, error) {
 	if repo == nil {
 		return nil, fmt.Errorf("repository is required")
 	}
@@ -150,6 +162,7 @@ func NewWithProjectRoot(repo repositoryCore, projectRoot string) (*Service, erro
 		runVerifyCommand: runVerifyCommand,
 		runReviewCommand: runWorkflowReviewCommand,
 		projectRoot:      normalizeSyncProjectRoot(projectRoot),
+		runtimeStatus:    snapshot,
 	}
 	if planRepo, ok := repo.(workPlanStore); ok {
 		svc.planRepo = planRepo

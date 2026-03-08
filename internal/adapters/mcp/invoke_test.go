@@ -68,6 +68,10 @@ func (f fakeService) HealthFix(_ context.Context, _ v1.HealthFixPayload) (v1.Hea
 	return v1.HealthFixResult{}, nil
 }
 
+func (f fakeService) Status(_ context.Context, _ v1.StatusPayload) (v1.StatusResult, *core.APIError) {
+	return v1.StatusResult{}, nil
+}
+
 func (f fakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {
 	return v1.CoverageResult{}, nil
 }
@@ -229,6 +233,17 @@ func TestInvoke_RemainingTools(t *testing.T) {
 			},
 		},
 		{
+			name:    "status",
+			tool:    "status",
+			payload: []byte(`{"project_id":"my-cool-app","project_root":"."}`),
+			assert: func(t *testing.T, result any) {
+				t.Helper()
+				if _, ok := result.(v1.StatusResult); !ok {
+					t.Fatalf("unexpected status result type: %T", result)
+				}
+			},
+		},
+		{
 			name:    "coverage",
 			tool:    toolCoverage,
 			payload: []byte(`{"project_id":"my-cool-app"}`),
@@ -287,8 +302,8 @@ func TestInvoke_RemainingTools(t *testing.T) {
 
 func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 	defs := ToolDefinitions()
-	if len(defs) != 14 {
-		t.Fatalf("unexpected tool count: got %d want 14", len(defs))
+	if len(defs) != 15 {
+		t.Fatalf("unexpected tool count: got %d want 15", len(defs))
 	}
 
 	expectedInputRefs := map[string]string{
@@ -302,6 +317,7 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"sync":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/syncPayload",
 		"health_check":      "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/healthCheckPayload",
 		"health_fix":        "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/healthFixPayload",
+		"status":            "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/statusPayload",
 		"coverage":          "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/coveragePayload",
 		"eval":              "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/evalPayload",
 		"verify":            "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/verifyPayload",
@@ -318,6 +334,7 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"sync":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/syncResult",
 		"health_check":      "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthCheckResult",
 		"health_fix":        "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthFixResult",
+		"status":            "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/statusResult",
 		"coverage":          "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/coverageResult",
 		"eval":              "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/evalResult",
 		"verify":            "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/verifyResult",

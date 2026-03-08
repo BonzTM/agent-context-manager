@@ -66,7 +66,7 @@ func maintenanceHelpCommands() []helpCommand {
 }
 
 func buildRouteCatalog() []routeSpec {
-	specs := make([]routeSpec, 0, len(v1.CommandSpecs())+3)
+	specs := make([]routeSpec, 0, len(v1.CommandSpecs())+4)
 	for _, spec := range v1.CommandSpecs() {
 		builder, ok := canonicalRouteBuilder(spec.CLISubcommand)
 		if !ok {
@@ -109,6 +109,15 @@ func buildRouteCatalog() []routeSpec {
 				return buildHealthCheckEnvelope(args, now)
 			},
 		},
+		routeSpec{
+			Name:    "doctor",
+			Usage:   "acm doctor [flags]",
+			Summary: "Alias for `acm status`.",
+			Group:   routeGroupMaintenance,
+			Build: func(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+				return buildStatusEnvelope(args, now)
+			},
+		},
 	)
 
 	return specs
@@ -138,6 +147,8 @@ func canonicalRouteBuilder(name string) (routeBuilder, bool) {
 		return buildHealthCheckEnvelope, true
 	case "health-fix":
 		return buildHealthFixEnvelope, true
+	case "status":
+		return buildStatusEnvelope, true
 	case "coverage":
 		return buildCoverageEnvelope, true
 	case "eval":

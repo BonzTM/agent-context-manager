@@ -17,6 +17,7 @@ type Service interface {
 	Sync(context.Context, v1.SyncPayload) (v1.SyncResult, *APIError)
 	HealthCheck(context.Context, v1.HealthCheckPayload) (v1.HealthCheckResult, *APIError)
 	HealthFix(context.Context, v1.HealthFixPayload) (v1.HealthFixResult, *APIError)
+	Status(context.Context, v1.StatusPayload) (v1.StatusResult, *APIError)
 	Coverage(context.Context, v1.CoveragePayload) (v1.CoverageResult, *APIError)
 	Eval(context.Context, v1.EvalPayload) (v1.EvalResult, *APIError)
 	Verify(context.Context, v1.VerifyPayload) (v1.VerifyResult, *APIError)

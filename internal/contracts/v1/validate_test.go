@@ -108,6 +108,53 @@ func TestDecodeAndValidateCommand_GetContextAcceptsTagsFile(t *testing.T) {
 	}
 }
 
+func TestDecodeAndValidateCommand_StatusDefaultsProjectIDFromProjectRoot(t *testing.T) {
+	projectRoot := filepath.Join("/tmp", "Example Repo")
+	json := `{
+		"version":"acm.v1",
+		"command":"status",
+		"request_id":"req-12345",
+		"payload":{
+			"project_root":"` + projectRoot + `",
+			"task_text":"why did get_context choose these pointers",
+			"phase":"review"
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(StatusPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.ProjectID != "Example-Repo" {
+		t.Fatalf("unexpected project_id: %q", p.ProjectID)
+	}
+	if p.Phase != PhaseReview {
+		t.Fatalf("unexpected phase: %q", p.Phase)
+	}
+}
+
+func TestDecodeAndValidateCommand_StatusRejectsInvalidPhase(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"status",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"phase":"shipit"
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
 func TestDecodeAndValidateCommand_InvalidVersion(t *testing.T) {
 	json := `{
 		"version":"ctx.v0",

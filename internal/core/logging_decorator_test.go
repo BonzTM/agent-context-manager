@@ -53,6 +53,10 @@ func (f decoratorFakeService) HealthFix(_ context.Context, _ v1.HealthFixPayload
 	return v1.HealthFixResult{}, f.errorFor(logging.OperationHealthFix)
 }
 
+func (f decoratorFakeService) Status(_ context.Context, _ v1.StatusPayload) (v1.StatusResult, *APIError) {
+	return v1.StatusResult{}, f.errorFor(logging.OperationStatus)
+}
+
 func (f decoratorFakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.CoverageResult, *APIError) {
 	return v1.CoverageResult{}, f.errorFor(logging.OperationCoverage)
 }
@@ -258,6 +262,15 @@ func decoratorOperationCases() []decoratorOperationCase {
 			operation: logging.OperationHealthFix,
 			call: func(ctx context.Context, svc Service) *APIError {
 				_, apiErr := svc.HealthFix(ctx, v1.HealthFixPayload{
+					ProjectID: "project.alpha",
+				})
+				return apiErr
+			},
+		},
+		{
+			operation: logging.OperationStatus,
+			call: func(ctx context.Context, svc Service) *APIError {
+				_, apiErr := svc.Status(ctx, v1.StatusPayload{
 					ProjectID: "project.alpha",
 				})
 				return apiErr

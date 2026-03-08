@@ -146,10 +146,10 @@ If you already have this repo checked out locally, the equivalent command is `./
 acm-mcp invoke --tool get_context --in payload.json
 ```
 
-Fourteen tools exposed:
+Fifteen tools exposed:
 
 - **Agent-facing** (7): `get_context`, `fetch`, `work`, `review`, `history_search`, `propose_memory`, `report_completion`
-- **Maintenance** (7): `sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`
+- **Maintenance** (8): `sync`, `health_check`, `health_fix`, `status`, `coverage`, `eval`, `verify`, `bootstrap`
 
 `review` is intentionally thin — it records one review task through the existing `work` path and can execute a workflow-defined `run` block when requested.
 
@@ -197,10 +197,13 @@ acm bootstrap     [--project <id>] [--project-root .] [--apply-template <id>]...
 acm sync          [--project <id>] --mode <changed|full|working_tree> [--insert-new-candidates] [--rules-file <path>] [--tags-file <path>]
 acm health        [--project <id>] [--include-details]
 acm health-fix    [--project <id>] --apply [--fixer <name>] [--rules-file <path>] [--tags-file <path>]
+acm status        [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]
 acm coverage      [--project <id>] [--project-root .]
 acm eval          [--project <id>] (--eval-suite-path ./eval.json|--eval-suite-inline-file <path>|--eval-suite-inline-json <json>) [--minimum-recall <0..1>] [--tags-file <path>]
 acm verify        [--project <id>] [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]
 ```
+
+`acm status` is the preferred diagnostics surface. It reports the active project, runtime/backend details, loaded rules/tags/tests/workflows, installed bootstrap integrations, and missing setup. With `--task-text`, it also previews `get_context` selection reasoning. `acm doctor` is a CLI alias for the same command.
 
 ### Structured JSON Contract Mode
 

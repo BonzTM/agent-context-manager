@@ -53,6 +53,10 @@ func (s *Service) HealthFix(_ context.Context, _ v1.HealthFixPayload) (v1.Health
 	return v1.HealthFixResult{}, notImplemented("health_fix")
 }
 
+func (s *Service) Status(_ context.Context, _ v1.StatusPayload) (v1.StatusResult, *core.APIError) {
+	return v1.StatusResult{}, notImplemented("status")
+}
+
 func (s *Service) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {
 	return v1.CoverageResult{}, notImplemented("coverage")
 }

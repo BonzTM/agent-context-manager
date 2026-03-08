@@ -24,6 +24,7 @@ Start here, then customize once the project develops stronger local conventions.
 9. If you learn a reusable decision, gotcha, or preference, record it with `propose_memory`.
 
 If you need to resume after compaction or inspect archived work, use `work list` or `work search --scope all` for plan discovery. If you need receipts, runs, or durable memories too, use `history search --entity all` or `history search --entity memory`, then `fetch` the returned `fetch_keys`.
+If you need to debug project setup, loaded ACM files, integrations, or why retrieval is behaving a certain way, use `status` (preferred) or `doctor` (alias).
 
 ## Working Rules
 

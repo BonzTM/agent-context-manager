@@ -17,8 +17,8 @@
       "items": {
         "$ref": "#/$defs/toolContract"
       },
-      "minItems": 14,
-      "maxItems": 14
+      "minItems": 15,
+      "maxItems": 15
     }
   },
   "$defs": {
@@ -46,6 +46,7 @@
             "sync",
             "health_check",
             "health_fix",
+            "status",
             "coverage",
             "eval",
             "verify",
@@ -123,6 +124,12 @@
     },
     "healthFixOutput": {
       "$ref": "cli.result.schema.json#/$defs/healthFixResult"
+    },
+    "statusInput": {
+      "$ref": "cli.command.schema.json#/$defs/statusPayload"
+    },
+    "statusOutput": {
+      "$ref": "cli.result.schema.json#/$defs/statusResult"
     },
     "coverageInput": {
       "$ref": "cli.command.schema.json#/$defs/coveragePayload"
@@ -285,6 +292,19 @@
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthFixResult"
+      }
+    },
+    {
+      "name": "status",
+      "title": "Inspect ACM Status",
+      "description": "Explain current project/runtime state, loaded ACM files, installed integrations, and optional get_context retrieval reasoning.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/statusPayload"
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/statusResult"
       }
     },
     {

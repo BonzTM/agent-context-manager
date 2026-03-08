@@ -850,6 +850,334 @@
         }
       }
     },
+    "statusSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ready",
+        "missing_count"
+      ],
+      "properties": {
+        "ready": {
+          "type": "boolean"
+        },
+        "missing_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "statusProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "project_root",
+        "backend",
+        "unbounded"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "detected_repo_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "backend": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "postgres_configured": {
+          "type": "boolean"
+        },
+        "sqlite_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "uses_implicit_sqlite_path": {
+          "type": "boolean"
+        },
+        "unbounded": {
+          "type": "boolean"
+        }
+      }
+    },
+    "statusSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_path",
+        "exists",
+        "loaded"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "rules",
+            "tags",
+            "tests",
+            "workflows"
+          ]
+        },
+        "source_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "absolute_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "loaded": {
+          "type": "boolean"
+        },
+        "item_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "maxItems": 32
+        }
+      }
+    },
+    "statusIntegration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "installed",
+        "present_targets",
+        "expected_targets"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "present_targets": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expected_targets": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "maxItems": 64
+        }
+      }
+    },
+    "statusRetrievalSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "kind"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "shared.schema.json#/$defs/contractKey"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "is_rule": {
+          "type": "boolean"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "maxItems": 32
+        }
+      }
+    },
+    "statusRetrieval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "insufficient_context",
+            "unavailable"
+          ]
+        },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "initial_pointer_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fallback_used": {
+              "type": "boolean"
+            },
+            "fallback_mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "widen_once"
+              ]
+            }
+          }
+        },
+        "resolved_tags": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/tag"
+          },
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "rule_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "suggestion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "memory_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "plan_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selected_pointers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/statusRetrievalSelection"
+          },
+          "maxItems": 128
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "statusMissingItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "statusResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "project",
+        "sources",
+        "integrations"
+      ],
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/statusSummary"
+        },
+        "project": {
+          "$ref": "#/$defs/statusProject"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/statusSource"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "integrations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/statusIntegration"
+          },
+          "maxItems": 32
+        },
+        "retrieval": {
+          "$ref": "#/$defs/statusRetrieval"
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/statusMissingItem"
+          },
+          "maxItems": 64
+        }
+      }
+    },
     "coverageResult": {
       "type": "object",
       "additionalProperties": false,
@@ -1436,6 +1764,29 @@
         "properties": {
           "result": {
             "$ref": "#/$defs/healthFixResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "status"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/statusResult"
           }
         }
       }

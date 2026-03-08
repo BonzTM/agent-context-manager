@@ -66,7 +66,7 @@ func (s *Service) Review(ctx context.Context, payload v1.ReviewPayload) (v1.Revi
 	}
 
 	projectRoot := s.defaultProjectRoot()
-	definitions, source, err := s.loadWorkflowCompletionRequirements(projectRoot, normalized.TagsFile)
+	definitions, source, err := s.loadWorkflowCompletionRequirements(projectRoot, "", normalized.TagsFile)
 	if err != nil {
 		return v1.ReviewResult{}, workflowDefinitionsAPIError(source.SourcePath, err)
 	}

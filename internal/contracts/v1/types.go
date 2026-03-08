@@ -17,6 +17,7 @@ const (
 	CommandSync             Command = "sync"
 	CommandHealthCheck      Command = "health_check"
 	CommandHealthFix        Command = "health_fix"
+	CommandStatus           Command = "status"
 	CommandCoverage         Command = "coverage"
 	CommandEval             Command = "eval"
 	CommandVerify           Command = "verify"
@@ -246,6 +247,17 @@ type HealthFixPayload struct {
 	RulesFile   string        `json:"rules_file,omitempty"`
 	TagsFile    string        `json:"tags_file,omitempty"`
 	Fixers      []HealthFixer `json:"fixers,omitempty"`
+}
+
+type StatusPayload struct {
+	ProjectID     string `json:"project_id"`
+	ProjectRoot   string `json:"project_root,omitempty"`
+	RulesFile     string `json:"rules_file,omitempty"`
+	TagsFile      string `json:"tags_file,omitempty"`
+	TestsFile     string `json:"tests_file,omitempty"`
+	WorkflowsFile string `json:"workflows_file,omitempty"`
+	TaskText      string `json:"task_text,omitempty"`
+	Phase         Phase  `json:"phase,omitempty"`
 }
 
 type CoveragePayload struct {
@@ -479,6 +491,76 @@ type HealthFixResult struct {
 	PlannedActions []HealthFixAction `json:"planned_actions"`
 	AppliedActions []HealthFixAction `json:"applied_actions"`
 	Summary        string            `json:"summary"`
+}
+
+type StatusSummary struct {
+	Ready        bool `json:"ready"`
+	MissingCount int  `json:"missing_count"`
+}
+
+type StatusProject struct {
+	ProjectID              string `json:"project_id"`
+	ProjectRoot            string `json:"project_root"`
+	DetectedRepoRoot       string `json:"detected_repo_root,omitempty"`
+	Backend                string `json:"backend"`
+	PostgresConfigured     bool   `json:"postgres_configured,omitempty"`
+	SQLitePath             string `json:"sqlite_path,omitempty"`
+	UsesImplicitSQLitePath bool   `json:"uses_implicit_sqlite_path,omitempty"`
+	Unbounded              bool   `json:"unbounded"`
+}
+
+type StatusSource struct {
+	Kind         string   `json:"kind"`
+	SourcePath   string   `json:"source_path"`
+	AbsolutePath string   `json:"absolute_path,omitempty"`
+	Exists       bool     `json:"exists"`
+	Loaded       bool     `json:"loaded"`
+	ItemCount    int      `json:"item_count,omitempty"`
+	Notes        []string `json:"notes,omitempty"`
+}
+
+type StatusIntegration struct {
+	ID              string   `json:"id"`
+	Summary         string   `json:"summary,omitempty"`
+	Installed       bool     `json:"installed"`
+	PresentTargets  int      `json:"present_targets"`
+	ExpectedTargets int      `json:"expected_targets"`
+	MissingTargets  []string `json:"missing_targets,omitempty"`
+}
+
+type StatusRetrievalSelection struct {
+	Key     string   `json:"key"`
+	Kind    string   `json:"kind"`
+	IsRule  bool     `json:"is_rule,omitempty"`
+	Reasons []string `json:"reasons,omitempty"`
+}
+
+type StatusRetrieval struct {
+	TaskText         string                     `json:"task_text,omitempty"`
+	Phase            Phase                      `json:"phase,omitempty"`
+	Status           string                     `json:"status"`
+	Diagnostics      *GetContextDiagnostics     `json:"diagnostics,omitempty"`
+	ResolvedTags     []string                   `json:"resolved_tags,omitempty"`
+	RuleCount        int                        `json:"rule_count,omitempty"`
+	SuggestionCount  int                        `json:"suggestion_count,omitempty"`
+	MemoryCount      int                        `json:"memory_count,omitempty"`
+	PlanCount        int                        `json:"plan_count,omitempty"`
+	SelectedPointers []StatusRetrievalSelection `json:"selected_pointers,omitempty"`
+	Error            string                     `json:"error,omitempty"`
+}
+
+type StatusMissingItem struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type StatusResult struct {
+	Summary      StatusSummary       `json:"summary"`
+	Project      StatusProject       `json:"project"`
+	Sources      []StatusSource      `json:"sources"`
+	Integrations []StatusIntegration `json:"integrations"`
+	Retrieval    *StatusRetrieval    `json:"retrieval,omitempty"`
+	Missing      []StatusMissingItem `json:"missing,omitempty"`
 }
 
 type CoverageSummary struct {

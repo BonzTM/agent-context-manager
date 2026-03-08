@@ -11,6 +11,7 @@ const (
 	OperationSync             = "sync"
 	OperationHealthCheck      = "health_check"
 	OperationHealthFix        = "health_fix"
+	OperationStatus           = "status"
 	OperationCoverage         = "coverage"
 	OperationEval             = "eval"
 	OperationVerify           = "verify"

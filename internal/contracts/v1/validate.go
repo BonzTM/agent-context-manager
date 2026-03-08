@@ -588,6 +588,36 @@ func validateCoveragePayload(p *CoveragePayload) error {
 	return nil
 }
 
+func validateStatusPayload(p *StatusPayload) error {
+	if err := validateProjectID(p.ProjectID); err != nil {
+		return err
+	}
+	if err := validateOptionalProjectRoot(p.ProjectRoot); err != nil {
+		return err
+	}
+	if err := validateRulesFile(p.RulesFile); err != nil {
+		return err
+	}
+	if err := validateTagsFile(p.TagsFile); err != nil {
+		return err
+	}
+	if err := validateTestsFile(p.TestsFile); err != nil {
+		return err
+	}
+	if err := validateWorkflowsFile(p.WorkflowsFile); err != nil {
+		return err
+	}
+	if trimmed := strings.TrimSpace(p.TaskText); trimmed != "" {
+		if len(trimmed) > 4000 {
+			return fmt.Errorf("task_text too long")
+		}
+	}
+	if p.Phase != "" && p.Phase != PhasePlan && p.Phase != PhaseExecute && p.Phase != PhaseReview {
+		return fmt.Errorf("phase must be plan|execute|review")
+	}
+	return nil
+}
+
 func validateEvalPayload(p *EvalPayload) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
@@ -729,6 +759,10 @@ func validateTagsFile(tagsFile string) error {
 
 func validateTestsFile(testsFile string) error {
 	return validateOptionalFilePath("tests_file", testsFile)
+}
+
+func validateWorkflowsFile(workflowsFile string) error {
+	return validateOptionalFilePath("workflows_file", workflowsFile)
 }
 
 func validateOptionalFilePath(fieldName, filePath string) error {
