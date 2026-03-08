@@ -59,6 +59,7 @@ Convenience subcommands (build v1 envelopes internally):
 - `acm verify` -> repo-defined executable verification
 - `acm bootstrap` -> initial pointer candidate generation (respects .gitignore, optional candidate persistence)
 - `acm coverage` -> file coverage analysis
+- `acm status` / `acm doctor` -> project diagnostics: active project, loaded ACM files, installed integrations, optional retrieval reasoning
 
 Structured command-envelope mode is also available via `acm run --in request.json` and `acm validate --in request.json`.
 For project-scoped commands, runtime resolution is explicit `--project` / `project_id`, then `ACM_PROJECT_ID`, then the effective repo-root name (using `ACM_PROJECT_ROOT` when set).
@@ -80,6 +81,7 @@ Maintenance tools (same operations as CLI, exposed for tool-native orchestration
 - `sync`
 - `health_check`
 - `health_fix`
+- `status`
 - `coverage`
 - `eval`
 - `verify`

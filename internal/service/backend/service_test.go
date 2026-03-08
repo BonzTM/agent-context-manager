@@ -2666,6 +2666,15 @@ func TestStatus_ReportsMissingCanonicalSources(t *testing.T) {
 	if result.Project.Backend != "sqlite" {
 		t.Fatalf("unexpected backend: %q", result.Project.Backend)
 	}
+	integrationIDs := make([]string, 0, len(result.Integrations))
+	for _, integration := range result.Integrations {
+		integrationIDs = append(integrationIDs, integration.ID)
+	}
+	for _, id := range []string{"starter-contract", "verify-generic", "verify-go", "verify-python", "verify-rust", "verify-ts"} {
+		if !containsString(integrationIDs, id) {
+			t.Fatalf("expected integration %q in %+v", id, integrationIDs)
+		}
+	}
 	missingCodes := make([]string, 0, len(result.Missing))
 	for _, item := range result.Missing {
 		missingCodes = append(missingCodes, item.Code)
@@ -4047,43 +4056,93 @@ func TestBootstrap_ApplyStarterContractSeedsContractsAndIndexesThem(t *testing.T
 	}
 }
 
-func TestBootstrap_ApplyVerifyGoReplacesPristineTestsScaffold(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# hello\n"), 0o644); err != nil {
-		t.Fatalf("write README: %v", err)
+func TestBootstrap_ApplyVerifyProfilesReplacePristineTestsScaffold(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		templateID string
+		snippets   []string
+	}{
+		{
+			templateID: "verify-generic",
+			snippets: []string{
+				`id: smoke`,
+				`argv: ["acm", "status", "--project-root", "."]`,
+				`id: repo-diff-check`,
+			},
+		},
+		{
+			templateID: "verify-go",
+			snippets: []string{
+				`id: smoke`,
+				`id: go-build`,
+			},
+		},
+		{
+			templateID: "verify-python",
+			snippets: []string{
+				`id: smoke`,
+				`id: python-compile`,
+			},
+		},
+		{
+			templateID: "verify-rust",
+			snippets: []string{
+				`id: smoke`,
+				`id: cargo-check`,
+			},
+		},
+		{
+			templateID: "verify-ts",
+			snippets: []string{
+				`id: smoke`,
+				`id: ts-build`,
+			},
+		},
 	}
 
-	respectGitIgnore := false
-	repo := &fakeRepository{}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
+	for _, tc := range cases {
+		t.Run(tc.templateID, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# hello\n"), 0o644); err != nil {
+				t.Fatalf("write README: %v", err)
+			}
 
-	result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
-		ProjectID:        "project.alpha",
-		ProjectRoot:      root,
-		RespectGitIgnore: &respectGitIgnore,
-		ApplyTemplates:   []string{"verify-go"},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
+			respectGitIgnore := false
+			repo := &fakeRepository{}
+			svc, err := New(repo)
+			if err != nil {
+				t.Fatalf("new service: %v", err)
+			}
 
-	templateResult, ok := bootstrapTemplateResultByID(result.TemplateResults, "verify-go")
-	if !ok {
-		t.Fatalf("expected verify-go template result, got %+v", result.TemplateResults)
-	}
-	if wantUpdated := []string{".acm/acm-tests.yaml"}; !reflect.DeepEqual(templateResult.Updated, wantUpdated) {
-		t.Fatalf("unexpected updated paths: got %v want %v", templateResult.Updated, wantUpdated)
-	}
+			result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+				ProjectID:        "project.alpha",
+				ProjectRoot:      root,
+				RespectGitIgnore: &respectGitIgnore,
+				ApplyTemplates:   []string{tc.templateID},
+			})
+			if apiErr != nil {
+				t.Fatalf("unexpected API error: %+v", apiErr)
+			}
 
-	testsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tests.yaml"))
-	if err != nil {
-		t.Fatalf("read tests scaffold: %v", err)
-	}
-	if !strings.Contains(string(testsRaw), "id: smoke") || !strings.Contains(string(testsRaw), "id: go-build") {
-		t.Fatalf("expected verify-go starter contents, got %q", string(testsRaw))
+			templateResult, ok := bootstrapTemplateResultByID(result.TemplateResults, tc.templateID)
+			if !ok {
+				t.Fatalf("expected %s template result, got %+v", tc.templateID, result.TemplateResults)
+			}
+			if wantUpdated := []string{".acm/acm-tests.yaml"}; !reflect.DeepEqual(templateResult.Updated, wantUpdated) {
+				t.Fatalf("unexpected updated paths: got %v want %v", templateResult.Updated, wantUpdated)
+			}
+
+			testsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tests.yaml"))
+			if err != nil {
+				t.Fatalf("read tests scaffold: %v", err)
+			}
+			for _, snippet := range tc.snippets {
+				if !strings.Contains(string(testsRaw), snippet) {
+					t.Fatalf("expected %s starter contents to include %q, got %q", tc.templateID, snippet, string(testsRaw))
+				}
+			}
+		})
 	}
 }
 

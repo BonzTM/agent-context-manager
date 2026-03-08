@@ -33,7 +33,7 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
 		"acm verify [--project <id>] [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]",
 		"acm bootstrap",
-		"acm bootstrap --apply-template starter-contract --apply-template verify-go",
+		"acm bootstrap --apply-template starter-contract --apply-template verify-generic",
 		"export ACM_PG_DSN='postgres://user:pass@localhost:5432/agents_context?sslmode=disable'",
 		"export ACM_PROJECT_ID=myproject",
 		"`ACM_PROJECT_ID`: Optional default project identifier for convenience, run, validate, and MCP tool calls.",

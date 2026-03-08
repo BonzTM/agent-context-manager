@@ -996,7 +996,7 @@ func buildBootstrapEnvelope(args []string, now func() time.Time) (v1.CommandEnve
 	fs := newCommandFlagSet(
 		"bootstrap",
 		"acm bootstrap [--project <id>] [--project-root <path>] [--apply-template <id>]... [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--output-candidates-path <path>]",
-		"acm bootstrap --project-root . --apply-template starter-contract --apply-template verify-go",
+		"acm bootstrap --project-root . --apply-template starter-contract --apply-template verify-generic",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	projectRoot := fs.String("project-root", "", "project root to analyze")

@@ -1,13 +1,13 @@
 # acm — Context Manager for LLM Agents
 
-acm manages the context pipeline between you and your LLM agents.
+acm is a deterministic context broker for LLM coding agents. It sits between your codebase and your agents, controlling exactly what context they receive and enforcing the rules you set.
 
-- **You define what matters** — index your codebase, write your rules, scope what agents see.
-- **acm delivers it** — task-scoped retrieval returns only relevant rules, code pointers, memories, and work state. Context windows stay light.
-- **Agents follow it** — rules are delivered as hard constraints, not suggestions buried in a long file. Scope violations are caught on completion.
-- **Everything persists** — memories, work plans/tasks, and run history are stored outside any model's memory. They survive context compaction, session boundaries, and model switches.
+- **You write rules in YAML, acm enforces them** — hard rules are included in every agent receipt with full content. No hoping the agent reads your CLAUDE.md carefully enough.
+- **Agents get scoped context, not your whole repo** — `get_context` returns only the rules, code pointers, memories, and active work plans relevant to the current task. An agent fixing a login bug doesn't see your CSS utilities.
+- **Work survives context loss** — plans and tasks are stored in SQLite (or Postgres), not in the model's conversation. When context compacts or a session ends, the next `get_context` call returns the active plan so the agent can resume.
+- **Scope violations are caught, not ignored** — `report_completion` validates that the agent only touched files within the retrieved scope. Out-of-scope changes are flagged (or blocked, if you set `strict` mode).
 
-acm is infrastructure, not opinions. It doesn't ship default rules or enforce a workflow. You define the rules, you seed the index, acm enforces and delivers.
+acm doesn't ship default rules or enforce a workflow. You define rules, seed the index, and choose how strictly to enforce scope. acm delivers and validates.
 
 ## Install
 
@@ -61,13 +61,21 @@ If you want a heavier starter, rerun bootstrap with one or more additive templat
 ```bash
 acm bootstrap \
   --apply-template starter-contract \
-  --apply-template verify-go \
+  --apply-template verify-generic \
   --apply-template claude-command-pack \
   --apply-template claude-receipt-guard \
   --apply-template git-hooks-precommit
 ```
 
 `--apply-template` is repeatable and safe to re-run. Templates only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments (e.g. `.claude/settings.json`). They never delete files or overwrite files you've edited.
+
+Starter verify profiles:
+
+- `verify-generic` — language-agnostic `.acm/acm-tests.yaml` that works out of the box
+- `verify-go` — Go-oriented `.acm/acm-tests.yaml`
+- `verify-ts` — TypeScript-oriented `.acm/acm-tests.yaml`
+- `verify-python` — Python-oriented `.acm/acm-tests.yaml`
+- `verify-rust` — Rust-oriented `.acm/acm-tests.yaml`
 
 - `claude-receipt-guard` — seeds Claude hooks that block edits until `/acm-get` succeeds in the session
 - `git-hooks-precommit` — seeds `.githooks/pre-commit` for staged-file `acm verify` gating; enable with `git config core.hooksPath .githooks`
@@ -160,7 +168,7 @@ All commands support `--help` for full flag documentation.
 ### Agent-facing (called by agents via CLI, skills, or MCP)
 
 ```bash
-acm get-context    [--project <id>] (--task-text <text>|--task-file <path>) --phase <plan|execute|review> [--tags-file <path>] [--unbounded]
+acm get-context    [--project <id>] (--task-text <text>|--task-file <path>) [--phase <plan|execute|review>] [--tags-file <path>] [--unbounded]
 acm fetch          [--project <id>] [--key <key>]... [--keys-file <path>|--keys-json <json>] [--expect <key=version>]... [--expected-versions-file <path>|--expected-versions-json <json>] [--receipt-id <id>]
 acm work           [--project <id>] [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>]
 acm work list      [--project <id>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
@@ -194,9 +202,9 @@ Keep raw reviewer commands in repo-local scripts and workflow definitions, not m
 
 ```bash
 acm bootstrap     [--project <id>] [--project-root .] [--apply-template <id>]... [--persist-candidates] [--respect-gitignore] [--output-candidates-path <path>] [--rules-file <path>] [--tags-file <path>]
-acm sync          [--project <id>] --mode <changed|full|working_tree> [--insert-new-candidates] [--rules-file <path>] [--tags-file <path>]
-acm health        [--project <id>] [--include-details]
-acm health-fix    [--project <id>] --apply [--fixer <name>] [--rules-file <path>] [--tags-file <path>]
+acm sync          [--project <id>] --mode <changed|full|working_tree> [--git-range <range>] [--project-root <path>] [--insert-new-candidates] [--rules-file <path>] [--tags-file <path>]
+acm health        [--project <id>] [--include-details] [--max-findings-per-check <n>]
+acm health-fix    [--project <id>] --apply [--fixer <name>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]
 acm status        [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]
 acm coverage      [--project <id>] [--project-root .]
 acm eval          [--project <id>] (--eval-suite-path ./eval.json|--eval-suite-inline-file <path>|--eval-suite-inline-json <json>) [--minimum-recall <0..1>] [--tags-file <path>]
@@ -310,7 +318,11 @@ Templates are seed-only — they create missing files but never overwrite edited
 | Template | What it seeds |
 |---|---|
 | `starter-contract` | `AGENTS.md`, `CLAUDE.md`, richer starter ruleset |
+| `verify-generic` | Language-agnostic `.acm/acm-tests.yaml` that works out of the box |
 | `verify-go` | Go-oriented `.acm/acm-tests.yaml` |
+| `verify-ts` | TypeScript-oriented `.acm/acm-tests.yaml` |
+| `verify-python` | Python-oriented `.acm/acm-tests.yaml` |
+| `verify-rust` | Rust-oriented `.acm/acm-tests.yaml` |
 | `claude-command-pack` | `.claude/commands/*`, `.claude/acm-broker/*` |
 | `claude-receipt-guard` | Claude hook settings and receipt guard scripts |
 | `git-hooks-precommit` | `.githooks/pre-commit` |

@@ -53,7 +53,7 @@ If you want a heavier starter later, rerun bootstrap with one or more additive t
 ```bash
 acm bootstrap \
   --apply-template starter-contract \
-  --apply-template verify-go \
+  --apply-template verify-generic \
   --apply-template claude-command-pack
 ```
 
@@ -69,7 +69,7 @@ Bootstrap automatically:
 
 Use `--persist-candidates` to save the enumerated file list to `.acm/bootstrap_candidates.json`.
 
-Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `verify-go`, `claude-command-pack`, `claude-receipt-guard`, `git-hooks-precommit`.
+Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `claude-command-pack`, `claude-receipt-guard`, `git-hooks-precommit`.
 
 Check what was indexed:
 
@@ -129,7 +129,13 @@ defaults:
 tests: []
 ```
 
-For a Go-oriented starter instead, rerun `acm bootstrap --apply-template verify-go`.
+For a starter verify profile, rerun bootstrap with one of:
+
+- `acm bootstrap --apply-template verify-generic` for a language-agnostic profile that works out of the box
+- `acm bootstrap --apply-template verify-go` for Go repos
+- `acm bootstrap --apply-template verify-ts` for TypeScript repos
+- `acm bootstrap --apply-template verify-python` for Python repos
+- `acm bootstrap --apply-template verify-rust` for Rust repos
 
 ### Workflow gates
 
@@ -411,14 +417,14 @@ Add an `AGENTS.md` to your project root. A starter template is at [docs/examples
 For models with native tool support, use the MCP adapter:
 
 ```bash
-acm-mcp tools          # list all 14 available tools
+acm-mcp tools          # list all 15 available tools
 acm-mcp invoke --tool get_context --in payload.json
 ```
 
-The MCP adapter exposes the same 14 operations as the CLI:
+The MCP adapter exposes the same 15 operations as the CLI:
 
 - **Agent-facing** (7): `get_context`, `fetch`, `work`, `review`, `history_search`, `propose_memory`, `report_completion`
-- **Maintenance** (7): `sync`, `health_check`, `health_fix`, `coverage`, `eval`, `verify`, `bootstrap`
+- **Maintenance** (8): `sync`, `health_check`, `health_fix`, `status`, `coverage`, `eval`, `verify`, `bootstrap`
 
 ## Step 7: Ongoing maintenance
 

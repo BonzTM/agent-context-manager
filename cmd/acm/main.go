@@ -251,7 +251,7 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  # zero-config local bootstrap")
 	fmt.Fprintln(w, "  acm bootstrap")
 	fmt.Fprintln(w, "  # later, opt into additive starter templates without overwriting edited files")
-	fmt.Fprintln(w, "  acm bootstrap --apply-template starter-contract --apply-template verify-go")
+	fmt.Fprintln(w, "  acm bootstrap --apply-template starter-contract --apply-template verify-generic")
 	fmt.Fprintln(w, "  acm health --include-details")
 	fmt.Fprintln(w, "  # after later edits, refresh changed files")
 	fmt.Fprintln(w, "  acm sync --mode working_tree --insert-new-candidates")

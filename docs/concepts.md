@@ -252,6 +252,7 @@ Most CLI commands that accept text or list values support inline flags and file-
 | `--key` (repeatable) | `--keys-json` | `--keys-file` | JSON string array |
 | `--file-changed` (repeatable) | `--files-changed-json` | `--files-changed-file` | JSON string array |
 | `--evidence-key` (repeatable) | `--evidence-keys-json` | `--evidence-keys-file` | JSON string array |
+| `--evidence` (repeatable, review) | `--evidence-json` | `--evidence-file` | JSON string array |
 | `--related-key` (repeatable) | `--related-keys-json` | `--related-keys-file` | JSON string array |
 | `--memory-tag` (repeatable) | `--memory-tags-json` | `--memory-tags-file` | JSON string array |
 | `--expect` (repeatable) | `--expected-versions-json` | `--expected-versions-file` | JSON object (`{"key": "version"}`) |

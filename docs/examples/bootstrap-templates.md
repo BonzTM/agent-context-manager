@@ -7,7 +7,7 @@ Example:
 ```bash
 acm bootstrap \
   --apply-template starter-contract \
-  --apply-template verify-go \
+  --apply-template verify-generic \
   --apply-template claude-command-pack
 ```
 
@@ -16,8 +16,17 @@ Current built-ins:
 - `starter-contract`
   - seeds `AGENTS.md` and `CLAUDE.md`
   - upgrades blank ACM rules scaffolds to a richer starter ruleset
+- `verify-generic`
+  - upgrades blank ACM test scaffolds to a language-agnostic verify profile
+  - uses `acm status` plus git checks so it works out of the box
 - `verify-go`
   - upgrades blank ACM test scaffolds to a Go-oriented verify profile
+- `verify-ts`
+  - upgrades blank ACM test scaffolds to a TypeScript-oriented verify profile
+- `verify-python`
+  - upgrades blank ACM test scaffolds to a Python-oriented verify profile
+- `verify-rust`
+  - upgrades blank ACM test scaffolds to a Rust-oriented verify profile
 - `claude-command-pack`
   - seeds `.claude/commands/*` and `.claude/acm-broker/*`
 - `claude-receipt-guard`

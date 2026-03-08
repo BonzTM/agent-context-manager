@@ -19,7 +19,11 @@ var statusTemplateIDs = []string{
 	"claude-receipt-guard",
 	"git-hooks-precommit",
 	"starter-contract",
+	"verify-generic",
 	"verify-go",
+	"verify-python",
+	"verify-rust",
+	"verify-ts",
 }
 
 func (s *Service) Status(ctx context.Context, payload v1.StatusPayload) (v1.StatusResult, *core.APIError) {
