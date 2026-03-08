@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -76,8 +77,10 @@ func TestHealthFix_DryRunPlansSafeFixers(t *testing.T) {
 		}
 	}
 
+	apply := false
 	result, apiErr := svc.HealthFix(context.Background(), v1.HealthFixPayload{
 		ProjectID:   "project.alpha",
+		Apply:       &apply,
 		ProjectRoot: root,
 	})
 	if apiErr != nil {
@@ -194,6 +197,66 @@ func TestHealthFix_ApplySyncRulesetUsesCanonicalParser(t *testing.T) {
 	}
 	if !strings.Contains(result.Summary, "apply complete") {
 		t.Fatalf("unexpected summary: %q", result.Summary)
+	}
+}
+
+func TestHealthFix_AllFixerExpandsToDefaultFixers(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("tracked"), 0o644); err != nil {
+		t.Fatalf("write tracked file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "new.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatalf("write new file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-rules.yaml"), []byte("version: acm.rules.v1\nrules:\n  - summary: Keep tests green\n"), 0o644); err != nil {
+		t.Fatalf("write ruleset: %v", err)
+	}
+
+	repo := &trackingRuleSyncRepository{fakeRepository: &fakeRepository{
+		inventoryResults: []core.PointerInventory{{Path: "tracked.txt", IsStale: false}},
+	}}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	svc.runGitCommand = func(_ context.Context, projectRoot string, args ...string) (string, error) {
+		switch strings.Join(args, " ") {
+		case "diff --name-status --find-renames HEAD":
+			return "M\ttracked.txt\n", nil
+		case "ls-files --others --exclude-standard":
+			return "new.txt\n", nil
+		case "ls-files --cached --others --exclude-standard":
+			return "tracked.txt\nnew.txt\n", nil
+		default:
+			return "", nil
+		}
+	}
+
+	apply := false
+	result, apiErr := svc.HealthFix(context.Background(), v1.HealthFixPayload{
+		ProjectID:   "project.alpha",
+		Apply:       &apply,
+		ProjectRoot: root,
+		Fixers:      []v1.HealthFixer{v1.HealthFixerAll},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.DryRun {
+		t.Fatalf("expected dry_run=true, got false")
+	}
+	if got := len(result.PlannedActions); got != len(defaultHealthFixers) {
+		t.Fatalf("expected %d planned actions, got %d", len(defaultHealthFixers), got)
+	}
+	gotFixers := make([]v1.HealthFixer, 0, len(result.PlannedActions))
+	for _, action := range result.PlannedActions {
+		gotFixers = append(gotFixers, action.Fixer)
+	}
+	if !reflect.DeepEqual(gotFixers, defaultHealthFixers) {
+		t.Fatalf("unexpected fixer expansion: got %v want %v", gotFixers, defaultHealthFixers)
 	}
 }
 

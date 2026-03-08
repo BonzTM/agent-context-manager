@@ -559,15 +559,15 @@ func validateHealthFixPayload(p *HealthFixPayload, fields map[string]json.RawMes
 	if err := validateOptionalArrayField(fields, "fixers", len(p.Fixers)); err != nil {
 		return err
 	}
-	if len(p.Fixers) > 3 {
-		return fmt.Errorf("fixers may include at most 3 entries")
+	if len(p.Fixers) > 4 {
+		return fmt.Errorf("fixers may include at most 4 entries")
 	}
 	if err := validateUniqueStrings(healthFixerStrings(p.Fixers), "fixers"); err != nil {
 		return err
 	}
 	for i, fixer := range p.Fixers {
 		switch fixer {
-		case HealthFixerSyncWorkingTree, HealthFixerIndexUncoveredFile, HealthFixerSyncRuleset:
+		case HealthFixerAll, HealthFixerSyncWorkingTree, HealthFixerIndexUncoveredFile, HealthFixerSyncRuleset:
 		default:
 			return fmt.Errorf("fixers[%d] is invalid", i)
 		}

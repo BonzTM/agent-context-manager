@@ -21,6 +21,7 @@ type routeSpec struct {
 	Summary string
 	Group   routeGroup
 	Build   routeBuilder
+	Hidden  bool
 }
 
 var routeCatalog = buildRouteCatalog()
@@ -78,6 +79,7 @@ func buildRouteCatalog() []routeSpec {
 			Summary: spec.CLISummary,
 			Group:   routeGroupForCommand(spec.Group),
 			Build:   builder,
+			Hidden:  spec.CLISubcommand == "health-check" || spec.CLISubcommand == "health-fix",
 		})
 	}
 
@@ -102,11 +104,11 @@ func buildRouteCatalog() []routeSpec {
 		},
 		routeSpec{
 			Name:    "health",
-			Usage:   "acm health [flags]",
-			Summary: "Alias for `acm health-check`.",
+			Usage:   "acm health [--project <id>] [--include-details[=true|false]] [--max-findings-per-check <n>] | [--fix <name>]... [--dry-run[=true|false]] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]",
+			Summary: "Check project health or run selected health fixers via `--fix`.",
 			Group:   routeGroupMaintenance,
 			Build: func(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-				return buildHealthCheckEnvelope(args, now)
+				return buildHealthAliasEnvelope(args, now)
 			},
 		},
 		routeSpec{
@@ -115,7 +117,7 @@ func buildRouteCatalog() []routeSpec {
 			Summary: "Alias for `acm status`.",
 			Group:   routeGroupMaintenance,
 			Build: func(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-				return buildStatusEnvelope(args, now)
+				return buildDoctorEnvelope(args, now)
 			},
 		},
 	)
@@ -182,7 +184,7 @@ func buildRouteCatalogByName(specs []routeSpec) map[string]routeSpec {
 func helpCommandsForGroup(group routeGroup) []helpCommand {
 	out := make([]helpCommand, 0, len(routeCatalog))
 	for _, spec := range routeCatalog {
-		if spec.Group != group {
+		if spec.Group != group || spec.Hidden {
 			continue
 		}
 		out = append(out, helpCommand{

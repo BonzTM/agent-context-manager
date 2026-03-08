@@ -214,11 +214,17 @@ func effectiveHealthFixers(raw []v1.HealthFixer) []v1.HealthFixer {
 	seen := make(map[v1.HealthFixer]struct{}, len(raw))
 	fixers := make([]v1.HealthFixer, 0, len(raw))
 	for _, fixer := range raw {
-		if _, exists := seen[fixer]; exists {
-			continue
+		expansion := []v1.HealthFixer{fixer}
+		if fixer == v1.HealthFixerAll {
+			expansion = defaultHealthFixers
 		}
-		seen[fixer] = struct{}{}
-		fixers = append(fixers, fixer)
+		for _, expanded := range expansion {
+			if _, exists := seen[expanded]; exists {
+				continue
+			}
+			seen[expanded] = struct{}{}
+			fixers = append(fixers, expanded)
+		}
 	}
 	return fixers
 }

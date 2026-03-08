@@ -204,6 +204,7 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "Shared Conventions:")
 	fmt.Fprintln(w, "  - Convenience commands accept optional `--project` or `--project-id`; explicit values override env and repo-root defaults.")
 	fmt.Fprintln(w, "  - Run `acm <subcommand> --help` for exhaustive flags and examples for one command.")
+	fmt.Fprintln(w, "  - Run `acm health --help` to list available fixers and preview/apply examples.")
 	fmt.Fprintln(w, "  - `--project` and `--project-id` are aliases on convenience commands.")
 	fmt.Fprintln(w, "  - `--request` and `--request-id` are aliases on convenience commands.")
 	fmt.Fprintln(w, "  - Most text/list payloads support inline values, `--*-json`, and `--*-file` variants.")

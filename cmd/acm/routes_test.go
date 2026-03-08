@@ -20,4 +20,21 @@ func TestRouteCatalogCoversCanonicalCommands(t *testing.T) {
 			t.Fatalf("summary drift for %q: got %q want %q", spec.CLISubcommand, route.Summary, spec.CLISummary)
 		}
 	}
+
+	healthRoute, ok := lookupRouteSpec("health")
+	if !ok {
+		t.Fatal("missing route for health")
+	}
+	if healthRoute.Summary == "" {
+		t.Fatal("expected health route summary")
+	}
+	for _, name := range []string{"health-check", "health-fix"} {
+		route, ok := lookupRouteSpec(name)
+		if !ok {
+			t.Fatalf("missing hidden route for %q", name)
+		}
+		if !route.Hidden {
+			t.Fatalf("expected %q to stay hidden from main help", name)
+		}
+	}
 }

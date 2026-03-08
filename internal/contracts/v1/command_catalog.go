@@ -209,7 +209,7 @@ var commandCatalog = []CommandSpec{
 		CommandHealthFix,
 		"health-fix",
 		"acm health-fix [--project <id>] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--fixer <name>]...",
-		"Plan or apply repair actions such as sync_working_tree, index_uncovered_files, and sync_ruleset.",
+		"Plan or apply repair actions such as all, sync_working_tree, index_uncovered_files, and sync_ruleset.",
 		CommandGroupMaintenance,
 		"healthFixPayload",
 		"healthFixResult",

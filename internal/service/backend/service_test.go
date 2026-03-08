@@ -2670,7 +2670,7 @@ func TestStatus_ReportsMissingCanonicalSources(t *testing.T) {
 	for _, integration := range result.Integrations {
 		integrationIDs = append(integrationIDs, integration.ID)
 	}
-	for _, id := range []string{"starter-contract", "verify-generic", "verify-go", "verify-python", "verify-rust", "verify-ts"} {
+	for _, id := range []string{"starter-contract", "detailed-planning-enforcement", "verify-generic", "verify-go", "verify-python", "verify-rust", "verify-ts"} {
 		if !containsString(integrationIDs, id) {
 			t.Fatalf("expected integration %q in %+v", id, integrationIDs)
 		}
@@ -3450,6 +3450,92 @@ func TestRunVerifyCommand_AppliesCommandEnv(t *testing.T) {
 	}
 }
 
+func TestRunVerifyCommand_LoadsDotEnvBackedACMRuntimeEnv(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ACM_PG_DSN=postgres://dotenv\n"), 0o644); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	def := verifyTestDefinition{
+		Argv:       []string{os.Args[0], "-test.run=TestRunACMCommandDotEnvHelperProcess", "--"},
+		CWD:        ".",
+		TimeoutSec: 5,
+		Env: map[string]string{
+			"GO_WANT_ACM_COMMAND_DOTENV_HELPER_PROCESS": "1",
+			"ACM_EXPECTED_PG_DSN":                       "postgres://dotenv",
+			"ACM_EXPECTED_RECEIPT_ID":                   "receipt.abc123",
+			"ACM_EXPECTED_PLAN_KEY":                     "plan:receipt.abc123",
+		},
+	}
+
+	run := runVerifyCommand(context.Background(), root, def, map[string]string{
+		"ACM_RECEIPT_ID": "receipt.abc123",
+		"ACM_PLAN_KEY":   "plan:receipt.abc123",
+	})
+	if run.Err != nil {
+		t.Fatalf("unexpected command error: %v\nstdout=%q\nstderr=%q", run.Err, run.Stdout, run.Stderr)
+	}
+	if run.ExitCode == nil || *run.ExitCode != 0 {
+		t.Fatalf("unexpected exit code: %+v", run.ExitCode)
+	}
+}
+
+func TestRunVerifyCommand_CommandEnvOverridesDotEnvBackedACMRuntimeEnv(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ACM_PG_DSN=postgres://dotenv\n"), 0o644); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	def := verifyTestDefinition{
+		Argv:       []string{os.Args[0], "-test.run=TestRunACMCommandDotEnvHelperProcess", "--"},
+		CWD:        ".",
+		TimeoutSec: 5,
+		Env: map[string]string{
+			"GO_WANT_ACM_COMMAND_DOTENV_HELPER_PROCESS": "1",
+			"ACM_PG_DSN":          "postgres://command",
+			"ACM_EXPECTED_PG_DSN": "postgres://command",
+		},
+	}
+
+	run := runVerifyCommand(context.Background(), root, def, nil)
+	if run.Err != nil {
+		t.Fatalf("unexpected command error: %v\nstdout=%q\nstderr=%q", run.Err, run.Stdout, run.Stderr)
+	}
+	if run.ExitCode == nil || *run.ExitCode != 0 {
+		t.Fatalf("unexpected exit code: %+v", run.ExitCode)
+	}
+}
+
+func TestRunWorkflowReviewCommand_LoadsDotEnvBackedACMRuntimeEnv(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ACM_PG_DSN=postgres://dotenv\n"), 0o644); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	command := workflowRunDefinition{
+		Argv:       []string{os.Args[0], "-test.run=TestRunACMCommandDotEnvHelperProcess", "--"},
+		CWD:        ".",
+		TimeoutSec: 5,
+		Env: map[string]string{
+			"GO_WANT_ACM_COMMAND_DOTENV_HELPER_PROCESS": "1",
+			"ACM_EXPECTED_PG_DSN":                       "postgres://dotenv",
+			"ACM_EXPECTED_REVIEW_KEY":                   "review:cross-llm",
+			"ACM_EXPECTED_PLAN_KEY":                     "plan:receipt.abc123",
+		},
+	}
+
+	run := runWorkflowReviewCommand(context.Background(), root, command, map[string]string{
+		"ACM_REVIEW_KEY": "review:cross-llm",
+		"ACM_PLAN_KEY":   "plan:receipt.abc123",
+	})
+	if run.Err != nil {
+		t.Fatalf("unexpected command error: %v\nstdout=%q\nstderr=%q", run.Err, run.Stdout, run.Stderr)
+	}
+	if run.ExitCode == nil || *run.ExitCode != 0 {
+		t.Fatalf("unexpected exit code: %+v", run.ExitCode)
+	}
+}
+
 func TestRunVerifyCommandHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_VERIFY_HELPER_PROCESS") != "1" {
 		return
@@ -3467,6 +3553,31 @@ func TestRunVerifyCommandHelperProcess(t *testing.T) {
 		os.Exit(3)
 	}
 	fmt.Fprintln(os.Stdout, "env ok")
+	os.Exit(0)
+}
+
+func TestRunACMCommandDotEnvHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_ACM_COMMAND_DOTENV_HELPER_PROCESS") != "1" {
+		return
+	}
+
+	checks := map[string]string{
+		"ACM_PG_DSN":     os.Getenv("ACM_EXPECTED_PG_DSN"),
+		"ACM_RECEIPT_ID": os.Getenv("ACM_EXPECTED_RECEIPT_ID"),
+		"ACM_PLAN_KEY":   os.Getenv("ACM_EXPECTED_PLAN_KEY"),
+		"ACM_REVIEW_KEY": os.Getenv("ACM_EXPECTED_REVIEW_KEY"),
+	}
+	for key, want := range checks {
+		if want == "" {
+			continue
+		}
+		if got := os.Getenv(key); got != want {
+			fmt.Fprintf(os.Stderr, "unexpected %s: got %q want %q\n", key, got, want)
+			os.Exit(3)
+		}
+	}
+
+	fmt.Fprintln(os.Stdout, "dotenv env ok")
 	os.Exit(0)
 }
 
@@ -4143,6 +4254,167 @@ func TestBootstrap_ApplyStarterContractSeedsContractsAndIndexesThem(t *testing.T
 	}
 }
 
+func TestBootstrap_ApplyDetailedPlanningEnforcementSeedsFeaturePlanningScaffold(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+		ApplyTemplates:   []string{"detailed-planning-enforcement"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	templateResult, ok := bootstrapTemplateResultByID(result.TemplateResults, "detailed-planning-enforcement")
+	if !ok {
+		t.Fatalf("expected detailed-planning-enforcement template result, got %+v", result.TemplateResults)
+	}
+	if wantCreated := []string{"AGENTS.md", "CLAUDE.md", "docs/feature-plans.md", "scripts/acm-feature-plan-validate.py"}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
+		t.Fatalf("unexpected created paths: got %v want %v", templateResult.Created, wantCreated)
+	}
+	if wantUpdated := []string{".acm/acm-rules.yaml", ".acm/acm-tests.yaml"}; !reflect.DeepEqual(templateResult.Updated, wantUpdated) {
+		t.Fatalf("unexpected updated paths: got %v want %v", templateResult.Updated, wantUpdated)
+	}
+	if len(repo.upsertStubCalls) != 1 {
+		t.Fatalf("expected one stub upsert, got %+v", repo.upsertStubCalls)
+	}
+	gotPaths := make([]string, 0, len(repo.upsertStubCalls[0]))
+	for _, stub := range repo.upsertStubCalls[0] {
+		gotPaths = append(gotPaths, stub.Path)
+	}
+	for _, required := range []string{"AGENTS.md", "CLAUDE.md", "README.md", "docs/feature-plans.md", "scripts/acm-feature-plan-validate.py"} {
+		if !containsString(gotPaths, required) {
+			t.Fatalf("expected indexed template path %q in %v", required, gotPaths)
+		}
+	}
+
+	agentsRaw, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if !strings.Contains(string(agentsRaw), "## Feature Plans") {
+		t.Fatalf("expected detailed feature plan guidance, got %q", string(agentsRaw))
+	}
+
+	rulesRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-rules.yaml"))
+	if err != nil {
+		t.Fatalf("read rules scaffold: %v", err)
+	}
+	if !strings.Contains(string(rulesRaw), "rule_feature_plan_schema") {
+		t.Fatalf("expected feature plan rule scaffold, got %q", string(rulesRaw))
+	}
+
+	testsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tests.yaml"))
+	if err != nil {
+		t.Fatalf("read tests scaffold: %v", err)
+	}
+	if !strings.Contains(string(testsRaw), "id: feature-plan-validate") {
+		t.Fatalf("expected feature plan verify scaffold, got %q", string(testsRaw))
+	}
+
+	planDocRaw, err := os.ReadFile(filepath.Join(root, "docs", "feature-plans.md"))
+	if err != nil {
+		t.Fatalf("read feature plan doc: %v", err)
+	}
+	if !strings.Contains(string(planDocRaw), "kind=feature_stream") {
+		t.Fatalf("expected feature stream guidance, got %q", string(planDocRaw))
+	}
+
+	validatorInfo, err := os.Stat(filepath.Join(root, "scripts", "acm-feature-plan-validate.py"))
+	if err != nil {
+		t.Fatalf("stat feature plan validator: %v", err)
+	}
+	if validatorInfo.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("expected executable validator mode, got %v", validatorInfo.Mode().Perm())
+	}
+}
+
+func TestBootstrap_DetailedPlanningEnforcementUpgradesPristineStarterScaffolds(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+		ApplyTemplates:   []string{"starter-contract", "verify-generic"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error on first run: %+v", apiErr)
+	}
+
+	result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+		ApplyTemplates:   []string{"detailed-planning-enforcement"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error on second run: %+v", apiErr)
+	}
+
+	templateResult, ok := bootstrapTemplateResultByID(result.TemplateResults, "detailed-planning-enforcement")
+	if !ok {
+		t.Fatalf("expected detailed-planning-enforcement template result, got %+v", result.TemplateResults)
+	}
+	if wantCreated := []string{"docs/feature-plans.md", "scripts/acm-feature-plan-validate.py"}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
+		t.Fatalf("unexpected created paths: got %v want %v", templateResult.Created, wantCreated)
+	}
+	if wantUpdated := []string{".acm/acm-rules.yaml", ".acm/acm-tests.yaml", "AGENTS.md", "CLAUDE.md"}; !reflect.DeepEqual(templateResult.Updated, wantUpdated) {
+		t.Fatalf("unexpected updated paths: got %v want %v", templateResult.Updated, wantUpdated)
+	}
+	if templateResult.SkippedConflicts != nil {
+		t.Fatalf("expected no template conflicts, got %+v", templateResult.SkippedConflicts)
+	}
+
+	agentsRaw, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if strings.Contains(string(agentsRaw), "## Optional Feature Plans") || !strings.Contains(string(agentsRaw), "## Feature Plans") {
+		t.Fatalf("expected mandatory feature plan guidance, got %q", string(agentsRaw))
+	}
+
+	claudeRaw, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	if !strings.Contains(string(claudeRaw), "scripts/acm-feature-plan-validate.py") {
+		t.Fatalf("expected CLAUDE guidance to mention the validator, got %q", string(claudeRaw))
+	}
+
+	testsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tests.yaml"))
+	if err != nil {
+		t.Fatalf("read tests scaffold: %v", err)
+	}
+	for _, snippet := range []string{"id: feature-plan-help", "id: feature-plan-validate"} {
+		if !strings.Contains(string(testsRaw), snippet) {
+			t.Fatalf("expected upgraded tests scaffold to include %q, got %q", snippet, string(testsRaw))
+		}
+	}
+}
+
 func TestBootstrap_ApplyVerifyProfilesReplacePristineTestsScaffold(t *testing.T) {
 	t.Parallel()
 
@@ -4379,7 +4651,7 @@ func TestBootstrap_ApplyClaudeCommandPackIndexesCreatedFiles(t *testing.T) {
 	}
 }
 
-func TestBootstrap_ClaudeReceiptGuardMergesSettingsJSONIdempotently(t *testing.T) {
+func TestBootstrap_ClaudeHooksMergesSettingsJSONIdempotently(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
 		t.Fatalf("mkdir .claude: %v", err)
@@ -4403,17 +4675,23 @@ func TestBootstrap_ClaudeReceiptGuardMergesSettingsJSONIdempotently(t *testing.T
 		ProjectID:        "project.alpha",
 		ProjectRoot:      root,
 		RespectGitIgnore: &respectGitIgnore,
-		ApplyTemplates:   []string{"claude-receipt-guard"},
+		ApplyTemplates:   []string{"claude-hooks"},
 	})
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
 
-	templateResult, ok := bootstrapTemplateResultByID(result.TemplateResults, "claude-receipt-guard")
+	templateResult, ok := bootstrapTemplateResultByID(result.TemplateResults, "claude-hooks")
 	if !ok {
-		t.Fatalf("expected claude-receipt-guard result, got %+v", result.TemplateResults)
+		t.Fatalf("expected claude-hooks result, got %+v", result.TemplateResults)
 	}
-	if wantCreated := []string{".claude/hooks/acm-receipt-guard.sh", ".claude/hooks/acm-receipt-mark.sh"}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
+	if wantCreated := []string{
+		".claude/hooks/acm-edit-state.sh",
+		".claude/hooks/acm-receipt-guard.sh",
+		".claude/hooks/acm-receipt-mark.sh",
+		".claude/hooks/acm-session-context.sh",
+		".claude/hooks/acm-stop-guard.sh",
+	}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
 		t.Fatalf("unexpected created paths: got %v want %v", templateResult.Created, wantCreated)
 	}
 	if wantUpdated := []string{".claude/settings.json"}; !reflect.DeepEqual(templateResult.Updated, wantUpdated) {
@@ -4447,24 +4725,57 @@ func TestBootstrap_ClaudeReceiptGuardMergesSettingsJSONIdempotently(t *testing.T
 		ProjectID:        "project.alpha",
 		ProjectRoot:      root,
 		RespectGitIgnore: &respectGitIgnore,
-		ApplyTemplates:   []string{"claude-receipt-guard"},
+		ApplyTemplates:   []string{"claude-hooks"},
 	})
 	if apiErr != nil {
 		t.Fatalf("unexpected API error on rerun: %+v", apiErr)
 	}
-	againResult, ok := bootstrapTemplateResultByID(again.TemplateResults, "claude-receipt-guard")
+	againResult, ok := bootstrapTemplateResultByID(again.TemplateResults, "claude-hooks")
 	if !ok {
-		t.Fatalf("expected claude-receipt-guard result on rerun, got %+v", again.TemplateResults)
+		t.Fatalf("expected claude-hooks result on rerun, got %+v", again.TemplateResults)
 	}
 	if againResult.Created != nil || againResult.Updated != nil {
 		t.Fatalf("expected no created or updated paths on rerun, got %+v", againResult)
 	}
 	if wantUnchanged := []string{
+		".claude/hooks/acm-edit-state.sh",
 		".claude/hooks/acm-receipt-guard.sh",
 		".claude/hooks/acm-receipt-mark.sh",
+		".claude/hooks/acm-session-context.sh",
+		".claude/hooks/acm-stop-guard.sh",
 		".claude/settings.json",
 	}; !reflect.DeepEqual(againResult.Unchanged, wantUnchanged) {
 		t.Fatalf("unexpected unchanged paths on rerun: got %v want %v", againResult.Unchanged, wantUnchanged)
+	}
+}
+
+func TestBootstrap_ClaudeReceiptGuardAliasAppliesClaudeHooksTemplate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatalf("mkdir .claude: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+
+	respectGitIgnore := false
+	svc, err := New(&fakeRepository{})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+		ApplyTemplates:   []string{"claude-receipt-guard"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if _, ok := bootstrapTemplateResultByID(result.TemplateResults, "claude-hooks"); !ok {
+		t.Fatalf("expected claude-receipt-guard alias to apply claude-hooks, got %+v", result.TemplateResults)
 	}
 }
 

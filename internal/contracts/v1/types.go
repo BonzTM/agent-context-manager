@@ -235,6 +235,7 @@ type HealthCheckPayload struct {
 type HealthFixer string
 
 const (
+	HealthFixerAll                HealthFixer = "all"
 	HealthFixerSyncWorkingTree    HealthFixer = "sync_working_tree"
 	HealthFixerIndexUncoveredFile HealthFixer = "index_uncovered_files"
 	HealthFixerSyncRuleset        HealthFixer = "sync_ruleset"

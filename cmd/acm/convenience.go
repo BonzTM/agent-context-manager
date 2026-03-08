@@ -479,6 +479,8 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 	example := "acm work search --query \"bootstrap\" --scope all --limit 10"
 	defaultScope := v1.HistoryScopeCurrent
 	defaultEntity := v1.HistoryEntityWork
+	includeEntityFilter := false
+	includeQueryFilter := true
 	queryRequired := true
 	includeWorkFilters := true
 
@@ -487,6 +489,7 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 		usageLine = "acm work list [--project <id>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
 		example = "acm work list --scope current --limit 20"
 		defaultScope = v1.HistoryScopeCurrent
+		includeQueryFilter = false
 		queryRequired = false
 	case "work-search":
 		usageLine = "acm work search [--project <id>] (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
@@ -496,15 +499,26 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 		example = "acm history search --entity memory --query \"bootstrap\" --limit 25"
 		defaultScope = v1.HistoryScopeAll
 		defaultEntity = v1.HistoryEntityAll
+		includeEntityFilter = true
 		queryRequired = false
 		includeWorkFilters = false
 	}
 
 	fs := newCommandFlagSet(subcommand, usageLine, example)
 	projectID, requestID := addProjectAndRequestFlags(fs)
-	entity := fs.String("entity", string(defaultEntity), "history entity: all|work|memory|receipt|run")
-	query := fs.String("query", "", "search text applied to plan and task summaries")
-	queryFile := fs.String("query-file", "", "file containing search text ('-' for stdin)")
+	entityValue := string(defaultEntity)
+	queryValue := ""
+	queryFileValue := ""
+	if includeEntityFilter {
+		entity := fs.String("entity", string(defaultEntity), "history entity: all|work|memory|receipt|run")
+		entityValue = *entity
+	}
+	if includeQueryFilter {
+		query := fs.String("query", "", "search text applied to plan and task summaries")
+		queryFile := fs.String("query-file", "", "file containing search text ('-' for stdin)")
+		queryValue = *query
+		queryFileValue = *queryFile
+	}
 	limit := fs.Int("limit", 20, "maximum number of plans to return (1-100)")
 	unbounded := optionalBoolFlag{}
 	var scope *string
@@ -517,8 +531,15 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	trimmedQuery := strings.TrimSpace(*query)
-	trimmedQueryFile := strings.TrimSpace(*queryFile)
+	if includeEntityFilter {
+		entityValue = fs.Lookup("entity").Value.String()
+	}
+	if includeQueryFilter {
+		queryValue = fs.Lookup("query").Value.String()
+		queryFileValue = fs.Lookup("query-file").Value.String()
+	}
+	trimmedQuery := strings.TrimSpace(queryValue)
+	trimmedQueryFile := strings.TrimSpace(queryFileValue)
 	if trimmedQuery != "" && trimmedQueryFile != "" {
 		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --query or --query-file")
 	}
@@ -535,7 +556,7 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 
 	payload := v1.HistorySearchPayload{
 		ProjectID: strings.TrimSpace(*projectID),
-		Entity:    v1.HistoryEntity(strings.TrimSpace(*entity)),
+		Entity:    v1.HistoryEntity(strings.TrimSpace(entityValue)),
 		Query:     trimmedQuery,
 	}
 	if includeWorkFilters {
@@ -771,47 +792,98 @@ func buildHealthCheckEnvelope(args []string, now func() time.Time) (v1.CommandEn
 	return buildEnvelope(v1.CommandHealthCheck, *requestID, payload, now)
 }
 
-func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+func buildHealthAliasEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
-		"health-fix",
-		"acm health-fix [--project <id>] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--fixer <name>]...",
-		"acm health-fix --apply --fixer sync_working_tree",
+		"health",
+		"acm health [--project <id>] [--include-details[=true|false]] [--max-findings-per-check <n>] | [--fix <name>]... [--dry-run[=true|false]] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]",
+		"acm health --include-details",
+		"acm health --fix sync_ruleset",
+		"acm health --fix all --dry-run",
+		"acm health --fix sync_ruleset --dry-run",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
-	applyChanges := optionalBoolFlag{}
-	fs.Var(&applyChanges, "apply", "apply actions instead of dry-run (optional bool)")
-	projectRoot := fs.String("project-root", "", "project root for fixers")
-	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
-	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
-	var fixers repeatedStringFlag
-	fs.Var(&fixers, "fixer", "fixer to run (repeatable): sync_working_tree|index_uncovered_files|sync_ruleset")
+	includeDetails := optionalBoolFlag{}
+	fs.Var(&includeDetails, "include-details", "include detailed findings in check mode (optional bool)")
+	maxFindingsPerCheck := fs.Int("max-findings-per-check", -1, "maximum findings per check in check mode (1..500)")
+	fixOptions := addHealthFixCLIFlags(fs)
 	if err := parseCommandFlags(fs, args); err != nil {
 		return v1.CommandEnvelope{}, err
 	}
-	payload := v1.HealthFixPayload{
-		ProjectID:   strings.TrimSpace(*projectID),
-		ProjectRoot: strings.TrimSpace(*projectRoot),
-		RulesFile:   strings.TrimSpace(*rulesFile),
-		TagsFile:    strings.TrimSpace(*tagsFile),
-	}
-	if applyChanges.IsSet() {
-		payload.Apply = applyChanges.Ptr()
-	}
-	if len(fixers) > 0 {
-		payload.Fixers = make([]v1.HealthFixer, 0, len(fixers))
-		for _, fixer := range fixers {
-			payload.Fixers = append(payload.Fixers, v1.HealthFixer(fixer))
+
+	if fixOptions.modeRequested() {
+		if includeDetails.IsSet() || *maxFindingsPerCheck >= 0 {
+			return v1.CommandEnvelope{}, fmt.Errorf("health check flags cannot be combined with --fix, --apply, or --dry-run")
 		}
+		payload, err := buildHealthFixPayload(strings.TrimSpace(*projectID), fixOptions)
+		if err != nil {
+			return v1.CommandEnvelope{}, err
+		}
+		if payload.Apply == nil {
+			apply := true
+			payload.Apply = &apply
+		}
+		return buildEnvelope(v1.CommandHealthFix, *requestID, payload, now)
+	}
+	if err := fixOptions.validateIdle(); err != nil {
+		return v1.CommandEnvelope{}, err
 	}
 
+	payload := v1.HealthCheckPayload{ProjectID: strings.TrimSpace(*projectID)}
+	if includeDetails.IsSet() {
+		payload.IncludeDetails = includeDetails.Ptr()
+	}
+	if *maxFindingsPerCheck >= 0 {
+		payload.MaxFindingsPerCheck = maxFindingsPerCheck
+	}
+
+	return buildEnvelope(v1.CommandHealthCheck, *requestID, payload, now)
+}
+
+func buildHealthFixEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	fs := newCommandFlagSet(
+		"health-fix",
+		"acm health-fix [--project <id>] [--fix <name>]... [--dry-run[=true|false]] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]",
+		"acm health-fix --fix sync_ruleset --dry-run",
+		"acm health-fix --fix sync_ruleset --apply",
+		"acm health-fix --apply",
+	)
+	projectID, requestID := addProjectAndRequestFlags(fs)
+	fixOptions := addHealthFixCLIFlags(fs)
+	if err := parseCommandFlags(fs, args); err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	payload, err := buildHealthFixPayload(strings.TrimSpace(*projectID), fixOptions)
+	if err != nil {
+		return v1.CommandEnvelope{}, err
+	}
 	return buildEnvelope(v1.CommandHealthFix, *requestID, payload, now)
 }
 
+func buildDoctorEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	return buildStatusEnvelopeForCommand(
+		"doctor",
+		"acm doctor [flags]",
+		"acm doctor --task-text \"add review gate\" --phase execute",
+		args,
+		now,
+	)
+}
+
 func buildStatusEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-	fs := newCommandFlagSet(
+	return buildStatusEnvelopeForCommand(
 		"status",
 		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
 		"acm status --task-text \"add review gate\" --phase execute",
+		args,
+		now,
+	)
+}
+
+func buildStatusEnvelopeForCommand(commandName, usageLine, example string, args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	fs := newCommandFlagSet(
+		commandName,
+		usageLine,
+		example,
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
 	projectRoot := fs.String("project-root", "", "project root")
@@ -1270,6 +1342,102 @@ func readJSONInlineStrict(raw string, out any) error {
 	return decodeJSONStrict([]byte(raw), out)
 }
 
+type healthFixCLIFlags struct {
+	apply       optionalBoolFlag
+	dryRun      optionalBoolFlag
+	projectRoot *string
+	rulesFile   *string
+	tagsFile    *string
+	fixes       repeatedStringFlag
+	fixers      repeatedStringFlag
+}
+
+func addHealthFixCLIFlags(fs *flag.FlagSet) *healthFixCLIFlags {
+	flags := &healthFixCLIFlags{}
+	fs.Var(&flags.apply, "apply", "force apply mode for selected fixers (optional bool)")
+	fs.Var(&flags.dryRun, "dry-run", "force preview mode without applying changes (optional bool)")
+	flags.projectRoot = fs.String("project-root", "", "project root for fixers")
+	flags.rulesFile = fs.String("rules-file", "", "explicit canonical rules file path for fix mode (overrides default discovery)")
+	flags.tagsFile = fs.String("tags-file", "", "explicit canonical tag dictionary file path for fix mode (overrides default discovery)")
+	fs.Var(&flags.fixes, "fix", healthFixerFlagDescription())
+	fs.Var(&flags.fixers, "fixer", "alias for --fix")
+	return flags
+}
+
+func (f *healthFixCLIFlags) modeRequested() bool {
+	if f == nil {
+		return false
+	}
+	return f.apply.IsSet() || f.dryRun.IsSet() || len(f.fixes) > 0 || len(f.fixers) > 0
+}
+
+func (f *healthFixCLIFlags) validateIdle() error {
+	if f == nil {
+		return nil
+	}
+	if strings.TrimSpace(derefString(f.projectRoot)) == "" && strings.TrimSpace(derefString(f.rulesFile)) == "" && strings.TrimSpace(derefString(f.tagsFile)) == "" {
+		return nil
+	}
+	return fmt.Errorf("use --fix, --apply, or --dry-run when supplying fix-mode flags such as --project-root, --rules-file, or --tags-file")
+}
+
+func buildHealthFixPayload(projectID string, options *healthFixCLIFlags) (v1.HealthFixPayload, error) {
+	if options == nil {
+		return v1.HealthFixPayload{ProjectID: projectID}, nil
+	}
+	apply, err := resolveHealthFixApply(options.apply, options.dryRun)
+	if err != nil {
+		return v1.HealthFixPayload{}, err
+	}
+	payload := v1.HealthFixPayload{
+		ProjectID:   projectID,
+		ProjectRoot: strings.TrimSpace(derefString(options.projectRoot)),
+		RulesFile:   strings.TrimSpace(derefString(options.rulesFile)),
+		TagsFile:    strings.TrimSpace(derefString(options.tagsFile)),
+	}
+	if apply != nil {
+		payload.Apply = apply
+	}
+	for _, fixer := range mergeUnique(options.fixes.Values(), options.fixers.Values()) {
+		payload.Fixers = append(payload.Fixers, v1.HealthFixer(fixer))
+	}
+	return payload, nil
+}
+
+func resolveHealthFixApply(applyFlag, dryRunFlag optionalBoolFlag) (*bool, error) {
+	applyValue := (*bool)(nil)
+	if applyFlag.IsSet() {
+		applyValue = applyFlag.Ptr()
+	}
+	if !dryRunFlag.IsSet() {
+		return applyValue, nil
+	}
+	dryRunValue := !dryRunFlag.value
+	if applyValue != nil && *applyValue != dryRunValue {
+		return nil, fmt.Errorf("--apply and --dry-run disagree; use one or provide matching values")
+	}
+	return &dryRunValue, nil
+}
+
+func healthFixerFlagDescription() string {
+	parts := make([]string, 0, len(healthFixerDescriptions)+1)
+	parts = append(parts, "fixer to run (repeatable)")
+	for _, fixer := range healthFixerDescriptions {
+		parts = append(parts, fmt.Sprintf("%s=%s", fixer.name, fixer.description))
+	}
+	return strings.Join(parts, "; ")
+}
+
+var healthFixerDescriptions = []struct {
+	name        string
+	description string
+}{
+	{name: string(v1.HealthFixerAll), description: "expand to the default fixer set"},
+	{name: string(v1.HealthFixerSyncWorkingTree), description: "refresh indexed file hashes from the working tree"},
+	{name: string(v1.HealthFixerIndexUncoveredFile), description: "add pointer stubs for uncovered files"},
+	{name: string(v1.HealthFixerSyncRuleset), description: "re-sync pointers from the canonical ruleset"},
+}
+
 func decodeJSONStrict(data []byte, out any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -1336,9 +1504,16 @@ func (f *optionalBoolFlag) IsSet() bool {
 }
 
 func (f *optionalBoolFlag) Ptr() *bool {
-	if !f.set {
+	if f == nil || !f.set {
 		return nil
 	}
 	value := f.value
 	return &value
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

@@ -30,6 +30,7 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 		"acm work search [--project <id>] (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
 		"acm history search [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--limit <n>] [--unbounded[=true|false]]",
 		"acm review [--project <id>] [--receipt-id <id>|--plan-key <key>] [--run] [--key <task-key>] [--summary <text>] [--status <pending|in_progress|complete|blocked>] [--outcome <text>|--outcome-file <path>] [--blocked-reason <text>] [--evidence <text>]... [--evidence-file <path>|--evidence-json <json>] [--tags-file <path>]",
+		"acm health [--project <id>] [--include-details[=true|false]] [--max-findings-per-check <n>] | [--fix <name>]... [--dry-run[=true|false]] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]",
 		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
 		"acm verify [--project <id>] [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]",
 		"acm bootstrap",
@@ -40,12 +41,18 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 		"`ACM_UNBOUNDED`: `true|false`. When true, retrieval/list surfaces stop applying built-in result caps.",
 		"`.acm/acm-workflows.yaml` or `acm-workflows.yaml`: repo-local completion gate definitions.",
 		"`--request` and `--request-id` are aliases on convenience commands.",
+		"Run `acm health --help` to list available fixers and preview/apply examples.",
 		"Convenience commands accept optional `--project` or `--project-id`; explicit values override env and repo-root defaults.",
 		"Optional bool flags accept `--flag`, `--flag=true`, or `--flag=false`.",
 	}
 	for _, snippet := range requiredSnippets {
 		if !strings.Contains(output, snippet) {
 			t.Fatalf("main usage is missing snippet %q\noutput:\n%s", snippet, output)
+		}
+	}
+	for _, hiddenSnippet := range []string{"acm health-check", "acm health-fix"} {
+		if strings.Contains(output, hiddenSnippet) {
+			t.Fatalf("main usage should not advertise %q\noutput:\n%s", hiddenSnippet, output)
 		}
 	}
 }

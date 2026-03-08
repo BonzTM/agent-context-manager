@@ -23,6 +23,7 @@ import (
 
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/workspace"
 )
 
 const (
@@ -40,6 +41,15 @@ var (
 	verifyTestIDPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 	verifyPointerKeyPattern = regexp.MustCompile(`^[^\s]+:[^\s#]+(?:#[^\s]+)?$`)
 	verifyEnvKeyPattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	runtimeCommandEnvKeys   = []string{
+		"ACM_PG_DSN",
+		"ACM_PROJECT_ID",
+		"ACM_PROJECT_ROOT",
+		"ACM_SQLITE_PATH",
+		unboundedEnvVar,
+		"ACM_LOG_LEVEL",
+		"ACM_LOG_SINK",
+	}
 )
 
 type verifyRunnerFunc func(ctx context.Context, projectRoot string, def verifyTestDefinition, extraEnv map[string]string) verifyCommandRun
@@ -1019,6 +1029,24 @@ func mergeCommandEnv(base, extra map[string]string) map[string]string {
 	return merged
 }
 
+func runtimeCommandEnv(projectRoot string) map[string]string {
+	startDir := strings.TrimSpace(projectRoot)
+	if startDir != "" {
+		startDir = filepath.Clean(startDir)
+	}
+
+	values := make(map[string]string, len(runtimeCommandEnvKeys))
+	for _, key := range runtimeCommandEnvKeys {
+		if value := workspace.LookupEnvValue(startDir, key, nil); value != "" {
+			values[key] = value
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
 func runConfiguredCommand(ctx context.Context, projectRoot string, argv []string, cwd string, timeoutSec int, env map[string]string, extraEnv map[string]string) verifyCommandRun {
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
@@ -1026,7 +1054,9 @@ func runConfiguredCommand(ctx context.Context, projectRoot string, argv []string
 	startedAt := time.Now().UTC()
 	command := exec.CommandContext(timeoutCtx, argv[0], argv[1:]...)
 	command.Dir = filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(cwd)))
-	command.Env = append(os.Environ(), verifyEnvPairs(mergeCommandEnv(env, extraEnv))...)
+	commandEnv := mergeCommandEnv(runtimeCommandEnv(projectRoot), env)
+	commandEnv = mergeCommandEnv(commandEnv, extraEnv)
+	command.Env = append(os.Environ(), verifyEnvPairs(commandEnv)...)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -442,6 +443,19 @@ func TestBuildHistorySearchEnvelope_RequiresQueryForSearchCommands(t *testing.T)
 	}
 }
 
+func TestBuildHistorySearchEnvelope_WorkListRejectsQueryFlags(t *testing.T) {
+	_, err := buildConvenienceEnvelope("work-list", []string{
+		"--project", "myproject",
+		"--query", "bootstrap",
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected work-list query flag to fail")
+	}
+	if !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestBuildHistorySearchEnvelope_ForGenericHistoryDefaultsToAllEntities(t *testing.T) {
 	env, err := buildConvenienceEnvelope("history-search", []string{
 		"--project", "myproject",
@@ -786,15 +800,18 @@ func TestBuildSyncEnvelope_RulesAndTagsFileFlags(t *testing.T) {
 	}
 }
 
-func TestBuildHealthFixEnvelope_RulesAndTagsFileFlags(t *testing.T) {
-	env, err := buildConvenienceEnvelope("health-fix", []string{
+func TestBuildHealthEnvelope_FixModeSupportsRulesAndTagsFileFlags(t *testing.T) {
+	env, err := buildConvenienceEnvelope("health", []string{
 		"--project", "myproject",
+		"--fix", "sync_ruleset",
 		"--rules-file", "custom-rules.yaml",
 		"--tags-file", "custom-tags.json",
-		"--fixer", "sync_ruleset",
 	}, fixedNow)
 	if err != nil {
 		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandHealthFix {
+		t.Fatalf("unexpected command: %s", env.Command)
 	}
 
 	var payload v1.HealthFixPayload
@@ -806,6 +823,152 @@ func TestBuildHealthFixEnvelope_RulesAndTagsFileFlags(t *testing.T) {
 	}
 	if payload.TagsFile != "custom-tags.json" {
 		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
+	}
+}
+
+func TestBuildHealthEnvelope_DefaultsToCheckMode(t *testing.T) {
+	env, err := buildConvenienceEnvelope("health", []string{
+		"--project", "myproject",
+		"--include-details",
+		"--max-findings-per-check", "25",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandHealthCheck {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.HealthCheckPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.IncludeDetails == nil || !*payload.IncludeDetails {
+		t.Fatalf("expected include_details=true, got %+v", payload.IncludeDetails)
+	}
+	if payload.MaxFindingsPerCheck == nil || *payload.MaxFindingsPerCheck != 25 {
+		t.Fatalf("unexpected max_findings_per_check: %+v", payload.MaxFindingsPerCheck)
+	}
+}
+
+func TestBuildHealthEnvelope_FixModeWithDryRun(t *testing.T) {
+	env, err := buildConvenienceEnvelope("health", []string{
+		"--project", "myproject",
+		"--fix", "sync_ruleset",
+		"--dry-run",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandHealthFix {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.HealthFixPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.Apply == nil || *payload.Apply {
+		t.Fatalf("expected apply=false, got %+v", payload.Apply)
+	}
+	if want := []v1.HealthFixer{v1.HealthFixerSyncRuleset}; !reflect.DeepEqual(payload.Fixers, want) {
+		t.Fatalf("unexpected fixers: got %v want %v", payload.Fixers, want)
+	}
+}
+
+func TestBuildHealthEnvelope_FixModeDefaultsToApply(t *testing.T) {
+	env, err := buildConvenienceEnvelope("health", []string{
+		"--project", "myproject",
+		"--fix", "sync_ruleset",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandHealthFix {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.HealthFixPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.Apply == nil || !*payload.Apply {
+		t.Fatalf("expected apply=true, got %+v", payload.Apply)
+	}
+	if want := []v1.HealthFixer{v1.HealthFixerSyncRuleset}; !reflect.DeepEqual(payload.Fixers, want) {
+		t.Fatalf("unexpected fixers: got %v want %v", payload.Fixers, want)
+	}
+}
+
+func TestBuildHealthEnvelope_AllFixer(t *testing.T) {
+	env, err := buildConvenienceEnvelope("health", []string{
+		"--project", "myproject",
+		"--fix", "all",
+		"--dry-run",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+
+	var payload v1.HealthFixPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if want := []v1.HealthFixer{v1.HealthFixerAll}; !reflect.DeepEqual(payload.Fixers, want) {
+		t.Fatalf("unexpected fixers: got %v want %v", payload.Fixers, want)
+	}
+}
+
+func TestBuildHealthEnvelope_RejectsMixedCheckAndFixFlags(t *testing.T) {
+	_, err := buildConvenienceEnvelope("health", []string{
+		"--include-details",
+		"--fix", "sync_ruleset",
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected mixed check/fix flags to fail")
+	}
+	if !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildHealthEnvelope_RejectsFixScopedFlagsWithoutFixMode(t *testing.T) {
+	_, err := buildConvenienceEnvelope("health", []string{
+		"--rules-file", "custom-rules.yaml",
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected fix-scoped flags without fix mode to fail")
+	}
+	if !strings.Contains(err.Error(), "use --fix, --apply, or --dry-run") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildConvenienceEnvelope_AllowsHealthFixSubcommand(t *testing.T) {
+	env, err := buildConvenienceEnvelope("health-fix", []string{"--fix", "sync_ruleset"}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandHealthFix {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.HealthFixPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.Apply != nil {
+		t.Fatalf("expected health-fix to preserve preview-mode default, got %+v", payload.Apply)
+	}
+}
+
+func TestBuildConvenienceEnvelope_AllowsHealthCheckSubcommand(t *testing.T) {
+	env, err := buildConvenienceEnvelope("health-check", []string{"--include-details"}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandHealthCheck {
+		t.Fatalf("unexpected command: %s", env.Command)
 	}
 }
 
@@ -996,8 +1159,91 @@ func TestRunConvenienceWithDeps_DefaultsProjectIDFromEnv(t *testing.T) {
 	}
 }
 
+func TestRunConvenienceWithDeps_WorkListHelpHidesSearchOnlyFlags(t *testing.T) {
+	output := captureStderr(t, func() {
+		code := runConvenienceWithDeps(
+			context.Background(),
+			logging.NewRecorder(),
+			"work-list",
+			[]string{"--help"},
+			&bytes.Buffer{},
+			fixedNow,
+			nil,
+			nil,
+		)
+		if code != 0 {
+			t.Fatalf("expected exit code 0, got %d", code)
+		}
+	})
+
+	if !strings.Contains(output, "acm work list [--project <id>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]") {
+		t.Fatalf("unexpected help output: %q", output)
+	}
+	for _, forbidden := range []string{"-entity", "-query string", "-query-file string"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("work-list help should not include %q: %q", forbidden, output)
+		}
+	}
+}
+
+func TestRunConvenienceWithDeps_DoctorHelpUsesDoctorUsage(t *testing.T) {
+	output := captureStderr(t, func() {
+		code := runConvenienceWithDeps(
+			context.Background(),
+			logging.NewRecorder(),
+			"doctor",
+			[]string{"--help"},
+			&bytes.Buffer{},
+			fixedNow,
+			nil,
+			nil,
+		)
+		if code != 0 {
+			t.Fatalf("expected exit code 0, got %d", code)
+		}
+	})
+
+	if !strings.Contains(output, "Usage:\n  acm doctor [flags]") {
+		t.Fatalf("unexpected help output: %q", output)
+	}
+	if strings.Contains(output, "Usage:\n  acm status") {
+		t.Fatalf("doctor help should not advertise status usage: %q", output)
+	}
+	if !strings.Contains(output, "acm doctor --task-text \"add review gate\" --phase execute") {
+		t.Fatalf("doctor help should include a doctor example: %q", output)
+	}
+}
+
 func fixedNow() time.Time {
 	return time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC)
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	original := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = w
+	defer func() {
+		os.Stderr = original
+	}()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	output, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read captured stderr: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("close stderr reader: %v", err)
+	}
+	return string(output)
 }
 
 type convenienceFakeService struct {

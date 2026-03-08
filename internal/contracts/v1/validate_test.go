@@ -1037,7 +1037,7 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 			"project_root":".",
 			"rules_file":"custom-rules.yaml",
 			"tags_file":"custom-tags.json",
-			"fixers":["sync_working_tree","sync_ruleset"]
+			"fixers":["all","sync_ruleset"]
 		}
 	}`
 	_, payload, errp := DecodeAndValidateCommand([]byte(validJSON))
@@ -1060,8 +1060,8 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 	if p.TagsFile != "custom-tags.json" {
 		t.Fatalf("unexpected tags_file: %q", p.TagsFile)
 	}
-	if len(p.Fixers) != 2 {
-		t.Fatalf("unexpected fixer count: %d", len(p.Fixers))
+	if want := []HealthFixer{HealthFixerAll, HealthFixerSyncRuleset}; !reflect.DeepEqual(p.Fixers, want) {
+		t.Fatalf("unexpected fixers: got %v want %v", p.Fixers, want)
 	}
 
 	invalidJSON := `{

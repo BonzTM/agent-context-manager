@@ -388,13 +388,14 @@
           "items": {
             "type": "string",
             "enum": [
+              "all",
               "sync_working_tree",
               "index_uncovered_files",
               "sync_ruleset"
             ]
           },
           "minItems": 1,
-          "maxItems": 3,
+          "maxItems": 4,
           "uniqueItems": true
         },
         "rules_file": {
