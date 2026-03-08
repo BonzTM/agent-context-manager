@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	bootstrapkit "github.com/bonztm/agent-context-manager/internal/bootstrap"
 	"gopkg.in/yaml.v3"
 
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
@@ -326,7 +327,7 @@ func (s *Service) loadVerifyDefinitions(projectRoot, testsFile, tagsFile string)
 }
 
 func discoverVerifyTestsSource(projectRoot, testsFile string) (verifyTestsSource, error) {
-	root := normalizeBootstrapProjectRoot(projectRoot)
+	root := bootstrapkit.NormalizeProjectRoot(projectRoot)
 	if trimmedTestsFile := strings.TrimSpace(testsFile); trimmedTestsFile != "" {
 		return statVerifyTestsSource(root, trimmedTestsFile)
 	}

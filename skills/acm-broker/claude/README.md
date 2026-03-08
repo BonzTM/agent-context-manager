@@ -48,6 +48,7 @@ Add `--apply-template git-hooks-precommit` when you also want the staged-file `a
 - `ACM_PROJECT_ID` can provide a default project namespace; otherwise acm infers from the effective repo root and `ACM_PROJECT_ROOT` when set.
 - The optional `claude-receipt-guard` template keeps edits blocked until `/acm-get` or an equivalent `get_context` request succeeds in the current session.
 - Scope mode defaults to advisory `warn` when `scope_mode` is omitted.
+- Runnable review gates can carry repo-local script arguments in `.acm/acm-workflows.yaml` `run.argv`, which is where model and reasoning choices should live.
 - Optional logger controls:
   - `ACM_LOG_LEVEL=debug|info|warn|error`
   - `ACM_LOG_SINK=stderr|stdout|discard`

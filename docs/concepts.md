@@ -83,12 +83,15 @@ A task is a unit of work within a plan. Tasks have:
 
 Tasks can reference a `parent_task_key` for grouping, and can be fetched individually via `fetch --key task:plan:<receipt-id>#<task-key>`.
 
-Two special task keys are used for definition-of-done verification:
-- `verify:tests` — confirms tests were run
-- `verify:diff-review` — optional manual review task for diff inspection
-- `review:cross-llm` — default review gate key used by the thin `review` command/tool for cross-LLM or human review outcomes when a workflow wants one
+Special task keys with built-in meaning:
 
-`review` is intentionally thin: it lowers to a single `work.tasks[]` merge update. When omitted, `key` defaults to `review:cross-llm`, `summary` defaults to `Cross-LLM review`, and `status` defaults to `complete`. With `--run` or `run=true`, acm executes the matching workflow task's `run` block and records `complete` on success or `blocked` on failure or timeout. Manual `status`, `outcome`, `blocked_reason`, and `evidence` fields are only for non-run mode.
+| Key | Purpose |
+|---|---|
+| `verify:tests` | Confirms tests were run (required by default completion gate) |
+| `verify:diff-review` | Optional manual diff inspection task |
+| `review:cross-llm` | Default key for the thin `review` command — cross-LLM or human review |
+
+The `review` command lowers to a single `work.tasks[]` merge update. Defaults when flags are omitted: `key=review:cross-llm`, `summary="Cross-LLM review"`, `status=complete`. With `--run`, acm executes the workflow task's `run` block and records `complete` or `blocked` automatically.
 
 ## Tag
 
@@ -224,24 +227,18 @@ completion:
         phases: ["review"]
         changed_paths_any: ["cmd/**", "internal/**", "spec/**"]
       run:
-        argv: ["scripts/acm-cross-review.sh"]
+        argv: ["scripts/acm-cross-review.sh", "--model", "gpt-5.3-codex", "--reasoning-effort", "xhigh"]
         cwd: .
         timeout_sec: 1800
 ```
 
-Runnable review gates are intended to be terminal checks, not inner-loop retries. ACM persists append-only review attempts, skips reruns for the same scoped fingerprint when `rerun_requires_new_fingerprint: true`, and only enforces retry caps when the workflow explicitly sets `max_attempts`.
+Runnable review gates are terminal checks, not inner-loop retries. ACM persists append-only review attempts, skips same-fingerprint reruns when `rerun_requires_new_fingerprint: true`, and only enforces retry caps when `max_attempts` is set.
 
-Selectors use the same shape as `verify` selection:
+Selectors use the same shape as `verify` selection: `phases`, `tags_any`, `changed_paths_any`, `pointer_keys_any`, `always_run`.
 
-- `phases`
-- `tags_any`
-- `changed_paths_any`
-- `pointer_keys_any`
-- `always_run`
+**Fallback behavior:** If no workflow file exists or no completion requirements are declared, acm requires `verify:tests` by default. When a workflow declares requirements, only those task keys are enforced.
 
-If a workflow file is absent, or if it exists but does not declare any completion requirements, acm falls back to the built-in `verify:tests` requirement. When a workflow file does declare completion requirements, only the matching task keys are enforced.
-
-Bootstrap seeds a thin `required_tasks: []` skeleton by default. Adding keys like `review:cross-llm` is an opt-in repo policy, not a built-in bootstrap requirement. When a workflow task includes `run`, `review --run` / `run=true` execute that repo-local command and auto-record the task outcome. Keep raw reviewer commands in repo-local scripts and workflow definitions, not maintainer prose.
+Bootstrap seeds a thin `required_tasks: []` skeleton. Adding keys like `review:cross-llm` is opt-in, and reviewer-specific script arguments such as model or reasoning choices belong in the workflow `run.argv`.
 
 ## File-Based Flags
 

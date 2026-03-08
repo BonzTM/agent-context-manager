@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	bootstrapkit "github.com/bonztm/agent-context-manager/internal/bootstrap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -231,7 +232,7 @@ func syncBootstrapCanonicalTagsFile(projectRoot, tagsFile string, candidatePaths
 		return os.WriteFile(source.AbsolutePath, renderCanonicalTagsDocumentYAML(suggestions), 0o644)
 	}
 
-	return writeBootstrapScaffoldFile(source.AbsolutePath, renderCanonicalTagsDocumentYAML(suggestions))
+	return bootstrapkit.WriteScaffoldFile(source.AbsolutePath, renderCanonicalTagsDocumentYAML(suggestions))
 }
 
 func bootstrapCanonicalTagsDocument(candidatePaths []string) canonicalTagsDocumentV1 {

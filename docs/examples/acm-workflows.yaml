@@ -23,6 +23,7 @@ completion:
         phases: ["review"]
         changed_paths_any: ["cmd/**", "internal/**", "spec/**"]
       run:
-        argv: ["scripts/acm-cross-review.sh"]
+        # Repo-local script flags belong in argv, so you can pin the review model here.
+        argv: ["scripts/acm-cross-review.sh", "--model", "gpt-5.3-codex", "--reasoning-effort", "xhigh"]
         cwd: .
         timeout_sec: 1800

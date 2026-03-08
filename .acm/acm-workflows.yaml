@@ -38,5 +38,9 @@ completion:
       run:
         argv:
           - "scripts/acm-cross-review.sh"
+          - "--model"
+          - "gpt-5.3-codex"
+          - "--reasoning-effort"
+          - "xhigh"
         cwd: .
         timeout_sec: 1800

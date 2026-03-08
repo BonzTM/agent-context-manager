@@ -6,7 +6,7 @@ usage() {
 Run the repo-local cross-LLM review gate for ACM.
 
 Usage:
-  scripts/acm-cross-review.sh
+  scripts/acm-cross-review.sh [--model <codex-model>] [--reasoning-effort <level>]
 
 Environment:
   ACM_PROJECT_ID
@@ -16,13 +16,51 @@ Environment:
   ACM_REVIEW_KEY
   ACM_REVIEW_SUMMARY
   ACM_WORKFLOW_SOURCE_PATH
+  ACM_CROSS_REVIEW_MODEL
+  ACM_CROSS_REVIEW_REASONING_EFFORT
 USAGE
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
-fi
+die_usage() {
+  printf '%s\n\n' "$1" >&2
+  usage >&2
+  exit 2
+}
+
+require_flag_value() {
+  local flag="$1"
+  local value="${2:-}"
+  if [[ -z "${value}" ]]; then
+    die_usage "missing value for ${flag}"
+  fi
+}
+
+default_codex_model="gpt-5.3-codex"
+default_reasoning_effort="xhigh"
+codex_model="${ACM_CROSS_REVIEW_MODEL:-${default_codex_model}}"
+codex_reasoning_effort="${ACM_CROSS_REVIEW_REASONING_EFFORT:-${default_reasoning_effort}}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --model)
+      require_flag_value "$1" "${2:-}"
+      codex_model="$2"
+      shift 2
+      ;;
+    --reasoning|--reasoning-effort)
+      require_flag_value "$1" "${2:-}"
+      codex_reasoning_effort="$2"
+      shift 2
+      ;;
+    *)
+      die_usage "unknown argument: $1"
+      ;;
+  esac
+done
 
 if ! command -v codex >/dev/null 2>&1; then
   echo "codex CLI is required for scripts/acm-cross-review.sh" >&2
@@ -244,15 +282,19 @@ Context:
 - workflow_source_path: ${ACM_WORKFLOW_SOURCE_PATH:-.acm/acm-workflows.yaml}
 EOF
 
-codex exec \
-  -c model='"gpt-5.4"' \
-  -c model_reasoning_effort='"xhigh"' \
-  --sandbox read-only \
-  --ephemeral \
-  -C "${REPO_ROOT}" \
-  --output-schema "${schema_path}" \
-  --output-last-message "${output_path}" \
-  - <"${prompt_path}"
+codex_args=(
+  exec
+  --model "${codex_model}"
+  -c "model_reasoning_effort=\"${codex_reasoning_effort}\""
+  --sandbox read-only
+  --ephemeral
+  -C "${REPO_ROOT}"
+  --output-schema "${schema_path}"
+  --output-last-message "${output_path}"
+  -
+)
+
+codex "${codex_args[@]}" <"${prompt_path}"
 
 python3 - "${output_path}" <<'PY'
 import json

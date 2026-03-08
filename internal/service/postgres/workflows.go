@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	bootstrapkit "github.com/bonztm/agent-context-manager/internal/bootstrap"
 	"gopkg.in/yaml.v3"
 
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
@@ -116,7 +117,7 @@ func (s *Service) loadWorkflowCompletionRequirements(projectRoot, tagsFile strin
 }
 
 func discoverWorkflowDefinitionsSource(projectRoot string) (workflowDefinitionsSource, error) {
-	root := normalizeBootstrapProjectRoot(projectRoot)
+	root := bootstrapkit.NormalizeProjectRoot(projectRoot)
 
 	primary, err := statWorkflowDefinitionsSource(root, workflowDefinitionsPrimarySourcePath)
 	if err != nil {
