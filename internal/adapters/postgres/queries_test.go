@@ -13,9 +13,6 @@ func TestBuildCandidatePointersQuery_DeterministicInputs(t *testing.T) {
 	staleBefore := time.Date(2026, 3, 4, 9, 0, 0, 0, time.UTC)
 	q := core.CandidatePointerQuery{
 		ProjectID: "project-a",
-		TaskText:  "  fix flaky memory retrieval ",
-		Phase:     " plan ",
-		Tags:      []string{"ops", "backend", "ops", " "},
 		Limit:     0,
 		StaleFilter: core.StaleFilter{
 			AllowStale:  true,
@@ -43,9 +40,6 @@ func TestBuildCandidatePointersQuery_DeterministicInputs(t *testing.T) {
 func TestBuildCandidatePointersQuery_DoesNotApplySQLRankingOrLimit(t *testing.T) {
 	sql, args, err := buildCandidatePointersQuery(core.CandidatePointerQuery{
 		ProjectID: "project-a",
-		TaskText:  "retrieve context",
-		Phase:     "plan",
-		Tags:      []string{"backend"},
 		Limit:     1,
 	})
 	if err != nil {
@@ -88,11 +82,14 @@ func TestBuildFetchReceiptScopeQuery_DeterministicOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "ARRAY_AGG(DISTINCT p.path ORDER BY p.path)") {
-		t.Fatalf("expected deterministic pointer-path ordering in query:\n%s", sql)
+	if !strings.Contains(sql, "r.initial_scope_paths") || !strings.Contains(sql, "r.baseline_paths_json") {
+		t.Fatalf("expected stored initial scope and baseline columns in query:\n%s", sql)
 	}
 	if !strings.Contains(sql, "r.pointer_keys") {
 		t.Fatalf("expected receipt metadata columns in query:\n%s", sql)
+	}
+	if strings.Contains(sql, "acm_pointers p") || strings.Contains(sql, "unnest(r.pointer_keys)") {
+		t.Fatalf("did not expect mutable pointer joins in query:\n%s", sql)
 	}
 	wantArgs := []any{"project-a", "receipt-123"}
 	if !reflect.DeepEqual(args, wantArgs) {
@@ -110,7 +107,7 @@ func TestBuildFetchReceiptScopeQuery_ValidatesInput(t *testing.T) {
 }
 
 func TestBuildInsertMemoryCandidateQuery_DeterministicArgs(t *testing.T) {
-	sql, args, err := buildInsertMemoryCandidateQuery(core.ProposeMemoryPersistence{
+	sql, args, err := buildInsertMemoryCandidateQuery(core.MemoryPersistence{
 		ProjectID:           " project-a ",
 		ReceiptID:           " receipt-123 ",
 		Category:            "decision",
@@ -121,7 +118,7 @@ func TestBuildInsertMemoryCandidateQuery_DeterministicArgs(t *testing.T) {
 		RelatedPointerKeys:  []string{"ptr:b", "ptr:a", "ptr:b"},
 		EvidencePointerKeys: []string{"ptr:scope-2", "ptr:scope-1", "ptr:scope-2"},
 		DedupeKey:           " dedupe-abc ",
-		Validation: core.ProposeMemoryValidation{
+		Validation: core.MemoryValidation{
 			HardPassed: true,
 			SoftPassed: false,
 			Errors:     []string{},
@@ -156,7 +153,7 @@ func TestBuildInsertMemoryCandidateQuery_DeterministicArgs(t *testing.T) {
 }
 
 func TestBuildInsertMemoryCandidateQuery_ValidatesInput(t *testing.T) {
-	_, _, err := buildInsertMemoryCandidateQuery(core.ProposeMemoryPersistence{
+	_, _, err := buildInsertMemoryCandidateQuery(core.MemoryPersistence{
 		ProjectID:  "project-a",
 		ReceiptID:  "receipt-123",
 		Category:   "decision",
@@ -169,7 +166,7 @@ func TestBuildInsertMemoryCandidateQuery_ValidatesInput(t *testing.T) {
 		t.Fatal("expected status validation error")
 	}
 
-	_, _, err = buildInsertMemoryCandidateQuery(core.ProposeMemoryPersistence{
+	_, _, err = buildInsertMemoryCandidateQuery(core.MemoryPersistence{
 		ProjectID:  "project-a",
 		ReceiptID:  "receipt-123",
 		Category:   "decision",
@@ -184,7 +181,7 @@ func TestBuildInsertMemoryCandidateQuery_ValidatesInput(t *testing.T) {
 }
 
 func TestBuildInsertDurableMemoryQuery_DeterministicArgs(t *testing.T) {
-	sql, args, err := buildInsertDurableMemoryQuery(core.ProposeMemoryPersistence{
+	sql, args, err := buildInsertDurableMemoryQuery(core.MemoryPersistence{
 		ProjectID:           " project-a ",
 		Category:            "decision",
 		Subject:             "  Subject  ",
@@ -441,7 +438,7 @@ func TestBuildUpsertWorkItemsQuery_DeterministicAndValidated(t *testing.T) {
 		"project-a",
 		"receipt-123",
 		"src/a.go", core.WorkItemStatusBlocked,
-		"src/b.go", core.WorkItemStatusCompleted,
+		"src/b.go", core.WorkItemStatusComplete,
 		"src/c.go", core.WorkItemStatusPending,
 	}
 	if !reflect.DeepEqual(args, wantArgs) {
@@ -466,7 +463,7 @@ func TestNormalizeWorkItemStatus_NormalizesLegacyCompleted(t *testing.T) {
 	if got := normalizeWorkItemStatus(core.WorkItemStatusComplete); got != core.WorkItemStatusComplete {
 		t.Fatalf("canonical complete should remain complete, got %q", got)
 	}
-	if got := storageWorkItemStatus(core.WorkItemStatusComplete); got != core.WorkItemStatusCompleted {
-		t.Fatalf("storage status should persist as completed for compatibility, got %q", got)
+	if got := storageWorkItemStatus(core.WorkItemStatusComplete); got != core.WorkItemStatusComplete {
+		t.Fatalf("storage status should remain canonical complete, got %q", got)
 	}
 }

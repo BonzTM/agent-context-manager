@@ -1,7 +1,7 @@
 {
   "version": "acm.v1",
-  "command": "get_context",
-  "request_id": "req-get-context-001",
+  "command": "context",
+  "request_id": "req-context-001",
   "payload": {
     "project_id": "customer-portal",
     "task_text": "fix the profile settings save race so stale responses cannot overwrite newer edits",

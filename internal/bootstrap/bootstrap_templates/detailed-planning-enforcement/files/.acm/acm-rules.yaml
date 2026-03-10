@@ -4,15 +4,15 @@
 
 version: acm.rules.v1
 rules:
-  - id: rule_startup_get_context
-    summary: Start every task with get_context.
+  - id: rule_startup_context
+    summary: Start every task with context.
     content: Retrieve context before reading or editing repo files, then follow every hard rule returned in the receipt.
     enforcement: hard
     tags: [startup, context]
 
   - id: rule_fetch_surgically
     summary: Keep context compact by fetching only the artifacts needed for the current step.
-    content: Fetch the specific pointer, plan, or task keys you need. If the receipt is missing obvious context, rerun get_context with a better task description instead of bulk fetching.
+    content: Fetch the specific pointer, plan, or task keys you need. If the receipt is missing obvious context, rerun context with a better task description instead of bulk fetching.
     enforcement: soft
     tags: [context, efficiency]
 
@@ -36,24 +36,24 @@ rules:
 
   - id: rule_no_silent_scope_expansion
     summary: Do not silently widen scope.
-    content: If the task spills into adjacent systems, files, or decisions that are not represented in the current receipt, rerun get_context or fetch the missing artifacts before making changes.
+    content: If the task spills into adjacent systems, files, or decisions that are not represented in the current receipt, rerun context or record `plan.discovered_paths` through work before relying on review or done to pass.
     enforcement: hard
     tags: [scope, safety]
 
   - id: rule_verify_code_changes
     summary: Run verify before closing code, config, or behavior changes.
-    content: Use repo-defined verify checks that match the changed files and current phase. Do not call report_completion until executable verification has passed or the required completion tasks from .acm/acm-workflows.yaml are satisfied.
+    content: Use repo-defined verify checks that match the changed files and current phase. Do not call done until executable verification has passed or the required completion tasks from .acm/acm-workflows.yaml are satisfied.
     enforcement: hard
     tags: [verification, quality]
 
-  - id: rule_report_completion
-    summary: Finish every task with report_completion.
-    content: Report every changed file and give a concise outcome summary. If nothing changed, say so explicitly in the outcome.
+  - id: rule_done
+    summary: Finish every task with done.
+    content: Report every changed file for file-backed work when you know them and give a concise outcome summary. ACM can derive the task delta from the receipt baseline; when that detected delta is empty, the closeout is effectively no-file.
     enforcement: hard
     tags: [completion, audit]
 
   - id: rule_capture_durable_memory
-    summary: Persist reusable decisions and gotchas with propose_memory.
+    summary: Persist reusable decisions and gotchas with memory.
     content: Record stable architectural decisions, recurring setup pitfalls, or operator preferences when future tasks would benefit from retrieving them automatically.
     enforcement: soft
     tags: [memory, learning]
@@ -73,5 +73,5 @@ rules:
 
 # Maintenance flow:
 # 1) Add/remove/update entries under rules.
-# 2) Run sync OR acm health --apply.
-# 3) Run health and resolve blocking findings.
+# 2) Run acm sync --mode working_tree --insert-new-candidates OR acm health --apply.
+# 3) Run acm health --include-details and resolve blocking findings.

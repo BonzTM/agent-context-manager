@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -17,11 +18,11 @@ const (
 	maxTaskCanonicalTags         = 6
 	canonicalTagsVersionV1       = "acm.tags.v1"
 	canonicalTagsDefaultFilePath = ".acm/acm-tags.yaml"
-	maxBootstrapSuggestedTags    = 16
-	minBootstrapTagFileCount     = 2
+	maxInitSuggestedTags         = 16
+	minInitTagFileCount          = 2
 )
 
-var bootstrapIgnoredTagTokens = map[string]struct{}{
+var initIgnoredTagTokens = map[string]struct{}{
 	"adapter":    {},
 	"adapters":   {},
 	"agent":      {},
@@ -65,6 +66,8 @@ var bootstrapIgnoredTagTokens = map[string]struct{}{
 	"vendor":     {},
 }
 
+var wordPattern = regexp.MustCompile(`[A-Za-z0-9]+(?:[._:/-][A-Za-z0-9]+)*`)
+
 //go:embed canonical_tags.json
 var canonicalTagsJSON []byte
 
@@ -83,7 +86,7 @@ type canonicalTagNormalizer struct {
 	aliasMap map[string]string
 }
 
-type bootstrapTagSuggestion struct {
+type initTagSuggestion struct {
 	Tag       string
 	FileCount int
 	DirCount  int
@@ -211,7 +214,7 @@ func cloneCanonicalTagAliasMap(source map[string]string) map[string]string {
 	return cloned
 }
 
-func syncBootstrapCanonicalTagsFile(projectRoot, tagsFile string, candidatePaths []string) error {
+func syncInitCanonicalTagsFile(projectRoot, tagsFile string, candidatePaths []string) error {
 	source, err := discoverCanonicalTagsSource(projectRoot, tagsFile)
 	if err != nil {
 		return err
@@ -220,7 +223,7 @@ func syncBootstrapCanonicalTagsFile(projectRoot, tagsFile string, candidatePaths
 		return nil
 	}
 
-	suggestions := bootstrapCanonicalTagsDocument(candidatePaths)
+	suggestions := initCanonicalTagsDocument(candidatePaths)
 	if source.Exists {
 		existing, err := parseCanonicalTagsFile(source)
 		if err != nil {
@@ -235,20 +238,20 @@ func syncBootstrapCanonicalTagsFile(projectRoot, tagsFile string, candidatePaths
 	return bootstrapkit.WriteScaffoldFile(source.AbsolutePath, renderCanonicalTagsDocumentYAML(suggestions))
 }
 
-func bootstrapCanonicalTagsDocument(candidatePaths []string) canonicalTagsDocumentV1 {
+func initCanonicalTagsDocument(candidatePaths []string) canonicalTagsDocumentV1 {
 	document := canonicalTagsDocumentV1{
 		Version:       canonicalTagsVersionV1,
 		CanonicalTags: map[string][]string{},
 	}
 
-	suggestions := suggestBootstrapCanonicalTags(candidatePaths)
+	suggestions := suggestInitCanonicalTags(candidatePaths)
 	for _, suggestion := range suggestions {
 		document.CanonicalTags[suggestion.Tag] = []string{}
 	}
 	return document
 }
 
-func suggestBootstrapCanonicalTags(candidatePaths []string) []bootstrapTagSuggestion {
+func suggestInitCanonicalTags(candidatePaths []string) []initTagSuggestion {
 	type tagStats struct {
 		fileCount int
 		dirCount  int
@@ -257,7 +260,7 @@ func suggestBootstrapCanonicalTags(candidatePaths []string) []bootstrapTagSugges
 
 	stats := map[string]*tagStats{}
 	for _, candidatePath := range normalizeCompletionPaths(candidatePaths) {
-		dirTokens, baseTokens := bootstrapTagTokensForPath(candidatePath)
+		dirTokens, baseTokens := initTagTokensForPath(candidatePath)
 
 		seenInFile := map[string]struct{}{}
 		for _, token := range dirTokens {
@@ -283,12 +286,12 @@ func suggestBootstrapCanonicalTags(candidatePaths []string) []bootstrapTagSugges
 		}
 	}
 
-	suggestions := make([]bootstrapTagSuggestion, 0, len(stats))
+	suggestions := make([]initTagSuggestion, 0, len(stats))
 	for token, stat := range stats {
-		if stat.fileCount < minBootstrapTagFileCount {
+		if stat.fileCount < minInitTagFileCount {
 			continue
 		}
-		suggestions = append(suggestions, bootstrapTagSuggestion{
+		suggestions = append(suggestions, initTagSuggestion{
 			Tag:       token,
 			FileCount: stat.fileCount,
 			DirCount:  stat.dirCount,
@@ -297,8 +300,8 @@ func suggestBootstrapCanonicalTags(candidatePaths []string) []bootstrapTagSugges
 	}
 
 	sort.Slice(suggestions, func(i, j int) bool {
-		leftScore := bootstrapTagSuggestionScore(suggestions[i])
-		rightScore := bootstrapTagSuggestionScore(suggestions[j])
+		leftScore := initTagSuggestionScore(suggestions[i])
+		rightScore := initTagSuggestionScore(suggestions[j])
 		if leftScore != rightScore {
 			return leftScore > rightScore
 		}
@@ -307,8 +310,8 @@ func suggestBootstrapCanonicalTags(candidatePaths []string) []bootstrapTagSugges
 		}
 		return suggestions[i].Tag < suggestions[j].Tag
 	})
-	if len(suggestions) > maxBootstrapSuggestedTags {
-		suggestions = suggestions[:maxBootstrapSuggestedTags]
+	if len(suggestions) > maxInitSuggestedTags {
+		suggestions = suggestions[:maxInitSuggestedTags]
 	}
 	sort.Slice(suggestions, func(i, j int) bool {
 		return suggestions[i].Tag < suggestions[j].Tag
@@ -317,11 +320,11 @@ func suggestBootstrapCanonicalTags(candidatePaths []string) []bootstrapTagSugges
 	return suggestions
 }
 
-func bootstrapTagSuggestionScore(suggestion bootstrapTagSuggestion) int {
+func initTagSuggestionScore(suggestion initTagSuggestion) int {
 	return (suggestion.FileCount * 3) + (suggestion.DirCount * 2) + suggestion.BaseCount
 }
 
-func bootstrapTagTokensForPath(candidatePath string) ([]string, []string) {
+func initTagTokensForPath(candidatePath string) ([]string, []string) {
 	normalizedPath := normalizeCompletionPath(candidatePath)
 	if normalizedPath == "" {
 		return nil, nil
@@ -331,28 +334,28 @@ func bootstrapTagTokensForPath(candidatePath string) ([]string, []string) {
 	dirPath := path.Dir(normalizedPath)
 	if dirPath != "" && dirPath != "." {
 		for _, segment := range strings.Split(dirPath, "/") {
-			addBootstrapTagTokens(dirTokens, segment)
+			addInitTagTokens(dirTokens, segment)
 		}
 	}
 
 	baseTokens := make(map[string]struct{})
 	baseName := strings.TrimSuffix(path.Base(normalizedPath), path.Ext(normalizedPath))
-	addBootstrapTagTokens(baseTokens, baseName)
+	addInitTagTokens(baseTokens, baseName)
 
 	return mapKeysSorted(dirTokens), mapKeysSorted(baseTokens)
 }
 
-func addBootstrapTagTokens(dest map[string]struct{}, raw string) {
+func addInitTagTokens(dest map[string]struct{}, raw string) {
 	for _, token := range strings.FieldsFunc(strings.ToLower(strings.TrimSpace(raw)), isTagTokenSeparator) {
 		token = strings.TrimSpace(token)
-		if !shouldSuggestBootstrapTagToken(token) {
+		if !shouldSuggestInitTagToken(token) {
 			continue
 		}
 		dest[token] = struct{}{}
 	}
 }
 
-func shouldSuggestBootstrapTagToken(token string) bool {
+func shouldSuggestInitTagToken(token string) bool {
 	if len(token) < 3 {
 		return false
 	}
@@ -362,7 +365,7 @@ func shouldSuggestBootstrapTagToken(token string) bool {
 	if !healthTagPattern.MatchString(token) {
 		return false
 	}
-	if _, ignored := bootstrapIgnoredTagTokens[token]; ignored {
+	if _, ignored := initIgnoredTagTokens[token]; ignored {
 		return false
 	}
 	if _, known := defaultCanonicalTagNormalizer.aliasMap[token]; known {

@@ -44,7 +44,7 @@ func main() {
 	switch os.Args[1] {
 	case "tools":
 		logger.Info(ctx, logging.EventACMMCP, "stage", "start", "subcommand", "tools")
-		printJSON(os.Stdout, map[string]any{"version": v1.Version, "tools": mcp.ToolDefinitions()})
+		writeToolsJSON(os.Stdout)
 		logger.Info(ctx, logging.EventACMMCP, "stage", "finish", "subcommand", "tools", "exit_code", 0)
 		os.Exit(0)
 	case "invoke":
@@ -138,6 +138,10 @@ func printJSON(out io.Writer, v any) {
 	_ = enc.Encode(v)
 }
 
+func writeToolsJSON(out io.Writer) {
+	printJSON(out, map[string]any{"version": v1.Version, "tools": mcp.ToolDefinitions()})
+}
+
 func writeEnvelope(out io.Writer, env v1.ResultEnvelope) {
 	printJSON(out, env)
 }
@@ -218,7 +222,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  5. Repo-root `.env` is loaded when present.")
 	fmt.Fprintln(w, "  6. `ACM_PG_DSN` takes precedence over SQLite.")
 	fmt.Fprintln(w, "  7. Default SQLite path is `<repo-root>/.acm/context.db`.")
-	fmt.Fprintln(w, "  8. `ACM_UNBOUNDED=true` removes built-in retrieval/list caps for supported tools.")
+	fmt.Fprintln(w, "  8. `ACM_UNBOUNDED=true` removes built-in list caps for supported tools.")
 }
 
 func printVersion(w io.Writer, binaryName string) {

@@ -4,13 +4,16 @@
   "request_id": "req-work-001",
   "payload": {
     "project_id": "customer-portal",
-    "receipt_id": "replace-from-get-context-receipt",
+    "receipt_id": "replace-from-context-receipt",
     "mode": "merge",
     "plan": {
       "title": "Profile settings save race",
       "objective": "Prevent stale save responses from overwriting newer settings and verify the fix",
       "kind": "bugfix",
       "status": "in_progress",
+      "discovered_paths": [
+        "web/src/features/profile/useSaveProfile.test.tsx"
+      ],
       "constraints": [
         "Preserve the existing save API contract",
         "Keep optimistic success feedback for the newest request"

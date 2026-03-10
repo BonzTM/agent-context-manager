@@ -13,7 +13,7 @@ import (
 
 const (
 	DefaultProjectRoot              = "."
-	DefaultOutputCandidatesPath     = ".acm/bootstrap_candidates.json"
+	DefaultInitCandidatesPath       = ".acm/init_candidates.json"
 	canonicalRulesPrimarySourcePath = ".acm/acm-rules.yaml"
 	canonicalRulesSecondaryPath     = "acm-rules.yaml"
 	verifyTestsPrimarySourcePath    = ".acm/acm-tests.yaml"
@@ -70,7 +70,7 @@ func ResolveOutputPath(projectRoot, explicitOutputPath string, persistCandidates
 	if !persistCandidates {
 		return "", false
 	}
-	return filepath.Clean(filepath.Join(projectRoot, DefaultOutputCandidatesPath)), true
+	return filepath.Clean(filepath.Join(projectRoot, DefaultInitCandidatesPath)), true
 }
 
 func WriteCandidates(outputPath string, paths []string) error {

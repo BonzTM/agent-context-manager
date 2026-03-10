@@ -39,7 +39,6 @@ const (
 
 var (
 	verifyTestIDPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-	verifyPointerKeyPattern = regexp.MustCompile(`^[^\s]+:[^\s#]+(?:#[^\s]+)?$`)
 	verifyEnvKeyPattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	runtimeCommandEnvKeys   = []string{
 		"ACM_PG_DSN",
@@ -90,7 +89,6 @@ type verifyTestSelectionV1 struct {
 	Phases          []string `yaml:"phases"`
 	TagsAny         []string `yaml:"tags_any"`
 	ChangedPathsAny []string `yaml:"changed_paths_any"`
-	PointerKeysAny  []string `yaml:"pointer_keys_any"`
 	AlwaysRun       bool     `yaml:"always_run"`
 }
 
@@ -108,7 +106,6 @@ type verifyTestDefinition struct {
 	Phases           []v1.Phase
 	TagsAny          []string
 	ChangedPathsAny  []string
-	PointerKeysAny   []string
 	AlwaysRun        bool
 	ExpectedExitCode int
 	DefinitionHash   string
@@ -119,7 +116,6 @@ type verifySelectionContext struct {
 	PlanKey      string
 	Phase        v1.Phase
 	Tags         []string
-	PointerKeys  []string
 	FilesChanged []string
 }
 
@@ -428,11 +424,7 @@ func normalizeVerifyDefinition(sourcePath string, index int, raw verifyTestDocum
 	if err != nil {
 		return verifyTestDefinition{}, fmt.Errorf("%s.select.changed_paths_any %w", prefix, err)
 	}
-	pointerKeysAny, err := normalizeVerifyPointerKeys(raw.Select.PointerKeysAny)
-	if err != nil {
-		return verifyTestDefinition{}, fmt.Errorf("%s.select.pointer_keys_any %w", prefix, err)
-	}
-	if raw.Select.AlwaysRun && (len(phases) > 0 || len(tagsAny) > 0 || len(changedPathsAny) > 0 || len(pointerKeysAny) > 0) {
+	if raw.Select.AlwaysRun && (len(phases) > 0 || len(tagsAny) > 0 || len(changedPathsAny) > 0) {
 		return verifyTestDefinition{}, fmt.Errorf("%s.select.always_run must not be combined with other selector fields", prefix)
 	}
 
@@ -454,7 +446,6 @@ func normalizeVerifyDefinition(sourcePath string, index int, raw verifyTestDocum
 		Phases:           phases,
 		TagsAny:          tagsAny,
 		ChangedPathsAny:  changedPathsAny,
-		PointerKeysAny:   pointerKeysAny,
 		AlwaysRun:        raw.Select.AlwaysRun,
 		ExpectedExitCode: expectedExitCode,
 	}
@@ -507,8 +498,12 @@ func (s *Service) resolveVerifySelectionContext(ctx context.Context, payload v1.
 	if selection.Phase == "" {
 		selection.Phase = v1.Phase(strings.TrimSpace(scope.Phase))
 	}
+	detectedFiles, reliableDetection, apiErr := s.detectReceiptChangedPaths(ctx, s.defaultProjectRoot(), scope)
+	if apiErr != nil {
+		return verifySelectionContext{}, apiErr
+	}
+	selection.FilesChanged = resolveDetectedFilesChanged(reliableDetection, detectedFiles, payload.FilesChanged)
 	selection.Tags = normalizeValues(scope.ResolvedTags)
-	selection.PointerKeys = normalizeValues(scope.PointerKeys)
 	return selection, nil
 }
 
@@ -556,7 +551,7 @@ func matchVerifyDefinition(definition verifyTestDefinition, selection verifySele
 		return []string{"always_run=true"}, true
 	}
 
-	selectorCount := len(definition.Phases) + len(definition.TagsAny) + len(definition.ChangedPathsAny) + len(definition.PointerKeysAny)
+	selectorCount := len(definition.Phases) + len(definition.TagsAny) + len(definition.ChangedPathsAny)
 	if selectorCount == 0 {
 		return nil, false
 	}
@@ -581,13 +576,6 @@ func matchVerifyDefinition(definition verifyTestDefinition, selection verifySele
 			return nil, false
 		}
 		reasons = append(reasons, "changed_paths_any matched "+matchedPath)
-	}
-	if len(definition.PointerKeysAny) > 0 {
-		matchedPointerKey, ok := firstVerifyStringIntersection(definition.PointerKeysAny, selection.PointerKeys)
-		if !ok {
-			return nil, false
-		}
-		reasons = append(reasons, "pointer_keys_any matched "+matchedPointerKey)
 	}
 	return reasons, true
 }
@@ -940,24 +928,6 @@ func normalizeVerifyGlobs(raw []string) ([]string, error) {
 	return out, nil
 }
 
-func normalizeVerifyPointerKeys(raw []string) ([]string, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]string, 0, len(raw))
-	for i, value := range raw {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" || len(trimmed) > maxFetchKeyLength {
-			return nil, fmt.Errorf("[%d] must be 1..%d chars", i, maxFetchKeyLength)
-		}
-		if !verifyPointerKeyPattern.MatchString(trimmed) {
-			return nil, fmt.Errorf("[%d] format is invalid", i)
-		}
-		out = append(out, trimmed)
-	}
-	return normalizeValues(out), nil
-}
-
 func verifyDefinitionHash(definition verifyTestDefinition) string {
 	type envEntry struct {
 		Key   string `json:"key"`
@@ -978,7 +948,6 @@ func verifyDefinitionHash(definition verifyTestDefinition) string {
 		Phases           []v1.Phase `json:"phases,omitempty"`
 		TagsAny          []string   `json:"tags_any,omitempty"`
 		ChangedPathsAny  []string   `json:"changed_paths_any,omitempty"`
-		PointerKeysAny   []string   `json:"pointer_keys_any,omitempty"`
 		AlwaysRun        bool       `json:"always_run,omitempty"`
 		ExpectedExitCode int        `json:"expected_exit_code"`
 	}{
@@ -991,7 +960,6 @@ func verifyDefinitionHash(definition verifyTestDefinition) string {
 		Phases:           definition.Phases,
 		TagsAny:          definition.TagsAny,
 		ChangedPathsAny:  definition.ChangedPathsAny,
-		PointerKeysAny:   definition.PointerKeysAny,
 		AlwaysRun:        definition.AlwaysRun,
 		ExpectedExitCode: definition.ExpectedExitCode,
 	})

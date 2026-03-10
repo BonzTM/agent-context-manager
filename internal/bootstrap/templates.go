@@ -20,31 +20,27 @@ import (
 )
 
 //go:embed all:bootstrap_templates/**
-var bootstrapTemplateFS embed.FS
+var initTemplateFS embed.FS
 
 const (
-	bootstrapTemplateManifestVersion             = "acm.bootstrap-template.v1"
-	bootstrapTemplateOpCreateIfMissing           = "create_if_missing"
-	bootstrapTemplateOpCreateOrReplaceIfPristine = "create_or_replace_if_pristine"
-	bootstrapTemplateOpReplaceIfPristine         = "replace_if_pristine"
-	bootstrapTemplateOpMergeJSON                 = "merge_json"
-	BlankRulesContents                           = "version: acm.rules.v1\nrules: []\n"
-	BlankTestsContents                           = "version: acm.tests.v1\ndefaults:\n  cwd: .\n  timeout_sec: 300\ntests: []\n"
-	BlankWorkflowsContents                       = "version: acm.workflows.v1\ncompletion:\n  required_tasks: []\n"
+	initTemplateManifestVersion             = "acm.init-template.v1"
+	initTemplateOpCreateIfMissing           = "create_if_missing"
+	initTemplateOpCreateOrReplaceIfPristine = "create_or_replace_if_pristine"
+	initTemplateOpReplaceIfPristine         = "replace_if_pristine"
+	initTemplateOpMergeJSON                 = "merge_json"
+	BlankRulesContents                      = "version: acm.rules.v1\nrules: []\n"
+	BlankTestsContents                      = "version: acm.tests.v1\ndefaults:\n  cwd: .\n  timeout_sec: 300\ntests: []\n"
+	BlankWorkflowsContents                  = "version: acm.workflows.v1\ncompletion:\n  required_tasks: []\n"
 )
 
-var bootstrapTemplateAliases = map[string]string{
-	"claude-receipt-guard": "claude-hooks",
+type initTemplateManifest struct {
+	Version    string                          `yaml:"version"`
+	ID         string                          `yaml:"id"`
+	Summary    string                          `yaml:"summary"`
+	Operations []initTemplateOperationManifest `yaml:"operations"`
 }
 
-type bootstrapTemplateManifest struct {
-	Version    string                               `yaml:"version"`
-	ID         string                               `yaml:"id"`
-	Summary    string                               `yaml:"summary"`
-	Operations []bootstrapTemplateOperationManifest `yaml:"operations"`
-}
-
-type bootstrapTemplateOperationManifest struct {
+type initTemplateOperationManifest struct {
 	Type     string   `yaml:"type"`
 	Target   string   `yaml:"target"`
 	Source   string   `yaml:"source,omitempty"`
@@ -55,10 +51,10 @@ type bootstrapTemplateOperationManifest struct {
 type Template struct {
 	ID         string
 	Summary    string
-	Operations []bootstrapTemplateOperation
+	Operations []initTemplateOperation
 }
 
-type bootstrapTemplateOperation struct {
+type initTemplateOperation struct {
 	Type     string
 	Target   string
 	Source   string
@@ -66,13 +62,13 @@ type bootstrapTemplateOperation struct {
 	Pristine []string
 }
 
-type bootstrapTemplateContext struct {
+type initTemplateContext struct {
 	ProjectID string
 	RepoName  string
 }
 
 type ApplyResult struct {
-	TemplateResults []v1.BootstrapTemplateResult
+	TemplateResults []v1.InitTemplateResult
 	CandidatePaths  []string
 }
 
@@ -81,7 +77,7 @@ type UnknownTemplateError struct {
 }
 
 func (e UnknownTemplateError) Error() string {
-	return fmt.Sprintf("unknown bootstrap template %q", e.TemplateID)
+	return fmt.Sprintf("unknown init template %q", e.TemplateID)
 }
 
 func ResolveTemplates(templateIDs []string) ([]Template, error) {
@@ -90,7 +86,7 @@ func ResolveTemplates(templateIDs []string) ([]Template, error) {
 		return nil, nil
 	}
 
-	catalog, err := loadBootstrapTemplateCatalog()
+	catalog, err := loadInitTemplateCatalog()
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +94,7 @@ func ResolveTemplates(templateIDs []string) ([]Template, error) {
 	templates := make([]Template, 0, len(normalizedIDs))
 	seen := make(map[string]struct{}, len(normalizedIDs))
 	for _, templateID := range normalizedIDs {
-		canonicalID := canonicalBootstrapTemplateID(templateID)
+		canonicalID := canonicalInitTemplateID(templateID)
 		if _, ok := seen[canonicalID]; ok {
 			continue
 		}
@@ -114,15 +110,12 @@ func ResolveTemplates(templateIDs []string) ([]Template, error) {
 	return templates, nil
 }
 
-func canonicalBootstrapTemplateID(templateID string) string {
-	if alias, ok := bootstrapTemplateAliases[strings.TrimSpace(templateID)]; ok {
-		return alias
-	}
+func canonicalInitTemplateID(templateID string) string {
 	return strings.TrimSpace(templateID)
 }
 
-func loadBootstrapTemplateCatalog() (map[string]Template, error) {
-	manifestPaths, err := fs.Glob(bootstrapTemplateFS, "bootstrap_templates/*/template.yaml")
+func loadInitTemplateCatalog() (map[string]Template, error) {
+	manifestPaths, err := fs.Glob(initTemplateFS, "bootstrap_templates/*/template.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("glob manifests: %w", err)
 	}
@@ -130,16 +123,16 @@ func loadBootstrapTemplateCatalog() (map[string]Template, error) {
 
 	catalog := make(map[string]Template, len(manifestPaths))
 	for _, manifestPath := range manifestPaths {
-		raw, err := bootstrapTemplateFS.ReadFile(manifestPath)
+		raw, err := initTemplateFS.ReadFile(manifestPath)
 		if err != nil {
 			return nil, fmt.Errorf("read manifest %s: %w", manifestPath, err)
 		}
 
-		var manifest bootstrapTemplateManifest
+		var manifest initTemplateManifest
 		if err := yaml.Unmarshal(raw, &manifest); err != nil {
 			return nil, fmt.Errorf("parse manifest %s: %w", manifestPath, err)
 		}
-		if strings.TrimSpace(manifest.Version) != bootstrapTemplateManifestVersion {
+		if strings.TrimSpace(manifest.Version) != initTemplateManifestVersion {
 			return nil, fmt.Errorf("manifest %s has unsupported version %q", manifestPath, manifest.Version)
 		}
 
@@ -148,12 +141,12 @@ func loadBootstrapTemplateCatalog() (map[string]Template, error) {
 			return nil, fmt.Errorf("manifest %s is missing id", manifestPath)
 		}
 		if _, exists := catalog[templateID]; exists {
-			return nil, fmt.Errorf("duplicate bootstrap template id %q", templateID)
+			return nil, fmt.Errorf("duplicate init template id %q", templateID)
 		}
 
-		operations := make([]bootstrapTemplateOperation, 0, len(manifest.Operations))
+		operations := make([]initTemplateOperation, 0, len(manifest.Operations))
 		for i, operation := range manifest.Operations {
-			resolved, err := resolveBootstrapTemplateOperation(manifestPath, templateID, i, operation)
+			resolved, err := resolveInitTemplateOperation(manifestPath, templateID, i, operation)
 			if err != nil {
 				return nil, err
 			}
@@ -173,32 +166,32 @@ func loadBootstrapTemplateCatalog() (map[string]Template, error) {
 	return catalog, nil
 }
 
-func resolveBootstrapTemplateOperation(manifestPath, templateID string, index int, manifest bootstrapTemplateOperationManifest) (bootstrapTemplateOperation, error) {
+func resolveInitTemplateOperation(manifestPath, templateID string, index int, manifest initTemplateOperationManifest) (initTemplateOperation, error) {
 	target := normalizeRelativePath(manifest.Target)
 	if target == "" {
-		return bootstrapTemplateOperation{}, fmt.Errorf("template %q operation %d has invalid target %q", templateID, index, manifest.Target)
+		return initTemplateOperation{}, fmt.Errorf("template %q operation %d has invalid target %q", templateID, index, manifest.Target)
 	}
 
 	switch strings.TrimSpace(manifest.Type) {
-	case bootstrapTemplateOpCreateIfMissing, bootstrapTemplateOpCreateOrReplaceIfPristine, bootstrapTemplateOpReplaceIfPristine, bootstrapTemplateOpMergeJSON:
+	case initTemplateOpCreateIfMissing, initTemplateOpCreateOrReplaceIfPristine, initTemplateOpReplaceIfPristine, initTemplateOpMergeJSON:
 	default:
-		return bootstrapTemplateOperation{}, fmt.Errorf("template %q operation %d has unsupported type %q", templateID, index, manifest.Type)
+		return initTemplateOperation{}, fmt.Errorf("template %q operation %d has unsupported type %q", templateID, index, manifest.Type)
 	}
 
-	mode, err := parseBootstrapTemplateMode(manifest.Mode)
+	mode, err := parseInitTemplateMode(manifest.Mode)
 	if err != nil {
-		return bootstrapTemplateOperation{}, fmt.Errorf("template %q operation %d: %w", templateID, index, err)
+		return initTemplateOperation{}, fmt.Errorf("template %q operation %d: %w", templateID, index, err)
 	}
 
 	var source string
-	if requiresBootstrapTemplateSource(strings.TrimSpace(manifest.Type)) {
-		source, err = resolveBootstrapTemplateSource(manifestPath, manifest.Source)
+	if requiresInitTemplateSource(strings.TrimSpace(manifest.Type)) {
+		source, err = resolveInitTemplateSource(manifestPath, manifest.Source)
 		if err != nil {
-			return bootstrapTemplateOperation{}, fmt.Errorf("template %q operation %d: %w", templateID, index, err)
+			return initTemplateOperation{}, fmt.Errorf("template %q operation %d: %w", templateID, index, err)
 		}
 	}
 
-	return bootstrapTemplateOperation{
+	return initTemplateOperation{
 		Type:     strings.TrimSpace(manifest.Type),
 		Target:   target,
 		Source:   source,
@@ -207,16 +200,16 @@ func resolveBootstrapTemplateOperation(manifestPath, templateID string, index in
 	}, nil
 }
 
-func requiresBootstrapTemplateSource(opType string) bool {
+func requiresInitTemplateSource(opType string) bool {
 	switch opType {
-	case bootstrapTemplateOpCreateIfMissing, bootstrapTemplateOpCreateOrReplaceIfPristine, bootstrapTemplateOpReplaceIfPristine, bootstrapTemplateOpMergeJSON:
+	case initTemplateOpCreateIfMissing, initTemplateOpCreateOrReplaceIfPristine, initTemplateOpReplaceIfPristine, initTemplateOpMergeJSON:
 		return true
 	default:
 		return false
 	}
 }
 
-func resolveBootstrapTemplateSource(manifestPath, source string) (string, error) {
+func resolveInitTemplateSource(manifestPath, source string) (string, error) {
 	trimmed := strings.TrimSpace(source)
 	if trimmed == "" {
 		return "", fmt.Errorf("source is required")
@@ -231,7 +224,7 @@ func resolveBootstrapTemplateSource(manifestPath, source string) (string, error)
 	}
 
 	resolved := path.Join(path.Dir(manifestPath), cleaned)
-	info, err := fs.Stat(bootstrapTemplateFS, resolved)
+	info, err := fs.Stat(initTemplateFS, resolved)
 	if err != nil {
 		return "", fmt.Errorf("source %q not found", resolved)
 	}
@@ -241,7 +234,7 @@ func resolveBootstrapTemplateSource(manifestPath, source string) (string, error)
 	return resolved, nil
 }
 
-func parseBootstrapTemplateMode(raw string) (os.FileMode, error) {
+func parseInitTemplateMode(raw string) (os.FileMode, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return 0o644, nil
@@ -258,15 +251,15 @@ func ApplyTemplates(projectRoot, projectID string, templates []Template) (ApplyR
 		return ApplyResult{}, nil
 	}
 
-	ctx := bootstrapTemplateContext{
+	ctx := initTemplateContext{
 		ProjectID: strings.TrimSpace(projectID),
 		RepoName:  filepath.Base(filepath.Clean(projectRoot)),
 	}
 
-	results := make([]v1.BootstrapTemplateResult, 0, len(templates))
+	results := make([]v1.InitTemplateResult, 0, len(templates))
 	candidatePaths := make([]string, 0)
 	for _, template := range templates {
-		result, createdPaths, err := applyBootstrapTemplate(projectRoot, ctx, template)
+		result, createdPaths, err := applyInitTemplate(projectRoot, ctx, template)
 		if err != nil {
 			return ApplyResult{}, fmt.Errorf("apply template %s: %w", template.ID, err)
 		}
@@ -280,14 +273,14 @@ func ApplyTemplates(projectRoot, projectID string, templates []Template) (ApplyR
 	}, nil
 }
 
-func applyBootstrapTemplate(projectRoot string, ctx bootstrapTemplateContext, template Template) (v1.BootstrapTemplateResult, []string, error) {
-	result := v1.BootstrapTemplateResult{TemplateID: template.ID}
+func applyInitTemplate(projectRoot string, ctx initTemplateContext, template Template) (v1.InitTemplateResult, []string, error) {
+	result := v1.InitTemplateResult{TemplateID: template.ID}
 	createdPaths := make([]string, 0)
 
 	for _, operation := range template.Operations {
-		created, err := applyBootstrapTemplateOperation(projectRoot, ctx, operation, &result)
+		created, err := applyInitTemplateOperation(projectRoot, ctx, operation, &result)
 		if err != nil {
-			return v1.BootstrapTemplateResult{}, nil, err
+			return v1.InitTemplateResult{}, nil, err
 		}
 		if created {
 			createdPaths = append(createdPaths, operation.Target)
@@ -297,7 +290,7 @@ func applyBootstrapTemplate(projectRoot string, ctx bootstrapTemplateContext, te
 	result.Created = normalizeRelativePaths(result.Created)
 	result.Updated = normalizeRelativePaths(result.Updated)
 	result.Unchanged = normalizeRelativePaths(result.Unchanged)
-	sortBootstrapTemplateConflicts(result.SkippedConflicts)
+	sortInitTemplateConflicts(result.SkippedConflicts)
 	if len(result.Created) == 0 {
 		result.Created = nil
 	}
@@ -314,29 +307,29 @@ func applyBootstrapTemplate(projectRoot string, ctx bootstrapTemplateContext, te
 	return result, normalizeRelativePaths(createdPaths), nil
 }
 
-func applyBootstrapTemplateOperation(projectRoot string, ctx bootstrapTemplateContext, operation bootstrapTemplateOperation, result *v1.BootstrapTemplateResult) (bool, error) {
+func applyInitTemplateOperation(projectRoot string, ctx initTemplateContext, operation initTemplateOperation, result *v1.InitTemplateResult) (bool, error) {
 	switch operation.Type {
-	case bootstrapTemplateOpCreateIfMissing:
-		return applyBootstrapTemplateCreateIfMissing(projectRoot, ctx, operation, result)
-	case bootstrapTemplateOpCreateOrReplaceIfPristine:
-		return applyBootstrapTemplateCreateOrReplaceIfPristine(projectRoot, ctx, operation, result)
-	case bootstrapTemplateOpReplaceIfPristine:
-		return applyBootstrapTemplateReplaceIfPristine(projectRoot, ctx, operation, result)
-	case bootstrapTemplateOpMergeJSON:
-		return applyBootstrapTemplateMergeJSON(projectRoot, ctx, operation, result)
+	case initTemplateOpCreateIfMissing:
+		return applyInitTemplateCreateIfMissing(projectRoot, ctx, operation, result)
+	case initTemplateOpCreateOrReplaceIfPristine:
+		return applyInitTemplateCreateOrReplaceIfPristine(projectRoot, ctx, operation, result)
+	case initTemplateOpReplaceIfPristine:
+		return applyInitTemplateReplaceIfPristine(projectRoot, ctx, operation, result)
+	case initTemplateOpMergeJSON:
+		return applyInitTemplateMergeJSON(projectRoot, ctx, operation, result)
 	default:
 		return false, fmt.Errorf("unsupported template operation %q", operation.Type)
 	}
 }
 
-func applyBootstrapTemplateCreateIfMissing(projectRoot string, ctx bootstrapTemplateContext, operation bootstrapTemplateOperation, result *v1.BootstrapTemplateResult) (bool, error) {
-	rendered, err := renderBootstrapTemplateAsset(operation.Source, ctx)
+func applyInitTemplateCreateIfMissing(projectRoot string, ctx initTemplateContext, operation initTemplateOperation, result *v1.InitTemplateResult) (bool, error) {
+	rendered, err := renderInitTemplateAsset(operation.Source, ctx)
 	if err != nil {
 		return false, err
 	}
 
 	targetPath := filepath.Join(projectRoot, filepath.FromSlash(operation.Target))
-	status, err := writeBootstrapTemplateFile(targetPath, rendered, operation.Mode)
+	status, err := writeInitTemplateFile(targetPath, rendered, operation.Mode)
 	if err != nil {
 		return false, err
 	}
@@ -352,7 +345,7 @@ func applyBootstrapTemplateCreateIfMissing(projectRoot string, ctx bootstrapTemp
 		result.Unchanged = append(result.Unchanged, operation.Target)
 		return false, nil
 	case "conflict":
-		result.SkippedConflicts = append(result.SkippedConflicts, v1.BootstrapTemplateConflict{
+		result.SkippedConflicts = append(result.SkippedConflicts, v1.InitTemplateConflict{
 			Path:   operation.Target,
 			Reason: "existing file differs",
 		})
@@ -362,8 +355,8 @@ func applyBootstrapTemplateCreateIfMissing(projectRoot string, ctx bootstrapTemp
 	}
 }
 
-func applyBootstrapTemplateCreateOrReplaceIfPristine(projectRoot string, ctx bootstrapTemplateContext, operation bootstrapTemplateOperation, result *v1.BootstrapTemplateResult) (bool, error) {
-	rendered, err := renderBootstrapTemplateAsset(operation.Source, ctx)
+func applyInitTemplateCreateOrReplaceIfPristine(projectRoot string, ctx initTemplateContext, operation initTemplateOperation, result *v1.InitTemplateResult) (bool, error) {
+	rendered, err := renderInitTemplateAsset(operation.Source, ctx)
 	if err != nil {
 		return false, err
 	}
@@ -372,7 +365,7 @@ func applyBootstrapTemplateCreateOrReplaceIfPristine(projectRoot string, ctx boo
 	existing, err := os.ReadFile(targetPath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		if err := writeBootstrapTemplateNewFile(targetPath, rendered, operation.Mode); err != nil {
+		if err := writeInitTemplateNewFile(targetPath, rendered, operation.Mode); err != nil {
 			return false, err
 		}
 		result.Created = append(result.Created, operation.Target)
@@ -382,7 +375,7 @@ func applyBootstrapTemplateCreateOrReplaceIfPristine(projectRoot string, ctx boo
 	}
 
 	if bytes.Equal(existing, rendered) {
-		if modeUpdated, err := ensureBootstrapTemplateMode(targetPath, operation.Mode); err != nil {
+		if modeUpdated, err := ensureInitTemplateMode(targetPath, operation.Mode); err != nil {
 			return false, err
 		} else if modeUpdated {
 			result.Updated = append(result.Updated, operation.Target)
@@ -392,14 +385,14 @@ func applyBootstrapTemplateCreateOrReplaceIfPristine(projectRoot string, ctx boo
 		return false, nil
 	}
 
-	pristineMatch, err := matchesBootstrapPristineContent(existing, operation.Pristine)
+	pristineMatch, err := matchesInitPristineContent(existing, operation.Pristine)
 	if err != nil {
 		return false, err
 	}
 	if !pristineMatch {
-		result.SkippedConflicts = append(result.SkippedConflicts, v1.BootstrapTemplateConflict{
+		result.SkippedConflicts = append(result.SkippedConflicts, v1.InitTemplateConflict{
 			Path:   operation.Target,
-			Reason: "existing file differs from bootstrap scaffold",
+			Reason: "existing file differs from init scaffold",
 		})
 		return false, nil
 	}
@@ -411,7 +404,7 @@ func applyBootstrapTemplateCreateOrReplaceIfPristine(projectRoot string, ctx boo
 	return false, nil
 }
 
-func applyBootstrapTemplateReplaceIfPristine(projectRoot string, ctx bootstrapTemplateContext, operation bootstrapTemplateOperation, result *v1.BootstrapTemplateResult) (bool, error) {
+func applyInitTemplateReplaceIfPristine(projectRoot string, ctx initTemplateContext, operation initTemplateOperation, result *v1.InitTemplateResult) (bool, error) {
 	targetPath := filepath.Join(projectRoot, filepath.FromSlash(operation.Target))
 	existing, err := os.ReadFile(targetPath)
 	switch {
@@ -421,12 +414,12 @@ func applyBootstrapTemplateReplaceIfPristine(projectRoot string, ctx bootstrapTe
 		return false, err
 	}
 
-	rendered, err := renderBootstrapTemplateAsset(operation.Source, ctx)
+	rendered, err := renderInitTemplateAsset(operation.Source, ctx)
 	if err != nil {
 		return false, err
 	}
 	if bytes.Equal(existing, rendered) {
-		if modeUpdated, err := ensureBootstrapTemplateMode(targetPath, operation.Mode); err != nil {
+		if modeUpdated, err := ensureInitTemplateMode(targetPath, operation.Mode); err != nil {
 			return false, err
 		} else if modeUpdated {
 			result.Updated = append(result.Updated, operation.Target)
@@ -436,14 +429,14 @@ func applyBootstrapTemplateReplaceIfPristine(projectRoot string, ctx bootstrapTe
 		return false, nil
 	}
 
-	pristineMatch, err := matchesBootstrapPristineContent(existing, operation.Pristine)
+	pristineMatch, err := matchesInitPristineContent(existing, operation.Pristine)
 	if err != nil {
 		return false, err
 	}
 	if !pristineMatch {
-		result.SkippedConflicts = append(result.SkippedConflicts, v1.BootstrapTemplateConflict{
+		result.SkippedConflicts = append(result.SkippedConflicts, v1.InitTemplateConflict{
 			Path:   operation.Target,
-			Reason: "existing file differs from bootstrap scaffold",
+			Reason: "existing file differs from init scaffold",
 		})
 		return false, nil
 	}
@@ -455,8 +448,8 @@ func applyBootstrapTemplateReplaceIfPristine(projectRoot string, ctx bootstrapTe
 	return false, nil
 }
 
-func applyBootstrapTemplateMergeJSON(projectRoot string, ctx bootstrapTemplateContext, operation bootstrapTemplateOperation, result *v1.BootstrapTemplateResult) (bool, error) {
-	rendered, err := renderBootstrapTemplateAsset(operation.Source, ctx)
+func applyInitTemplateMergeJSON(projectRoot string, ctx initTemplateContext, operation initTemplateOperation, result *v1.InitTemplateResult) (bool, error) {
+	rendered, err := renderInitTemplateAsset(operation.Source, ctx)
 	if err != nil {
 		return false, err
 	}
@@ -470,11 +463,11 @@ func applyBootstrapTemplateMergeJSON(projectRoot string, ctx bootstrapTemplateCo
 	existing, err := os.ReadFile(targetPath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		blob, err := marshalBootstrapTemplateJSON(sourceValue)
+		blob, err := marshalInitTemplateJSON(sourceValue)
 		if err != nil {
 			return false, err
 		}
-		if err := writeBootstrapTemplateNewFile(targetPath, blob, operation.Mode); err != nil {
+		if err := writeInitTemplateNewFile(targetPath, blob, operation.Mode); err != nil {
 			return false, err
 		}
 		result.Created = append(result.Created, operation.Target)
@@ -485,23 +478,23 @@ func applyBootstrapTemplateMergeJSON(projectRoot string, ctx bootstrapTemplateCo
 
 	var targetValue any
 	if err := json.Unmarshal(existing, &targetValue); err != nil {
-		result.SkippedConflicts = append(result.SkippedConflicts, v1.BootstrapTemplateConflict{
+		result.SkippedConflicts = append(result.SkippedConflicts, v1.InitTemplateConflict{
 			Path:   operation.Target,
 			Reason: "existing file is not valid JSON",
 		})
 		return false, nil
 	}
 
-	mergedValue, changed, err := mergeBootstrapJSONValues(targetValue, sourceValue)
+	mergedValue, changed, err := mergeInitJSONValues(targetValue, sourceValue)
 	if err != nil {
-		result.SkippedConflicts = append(result.SkippedConflicts, v1.BootstrapTemplateConflict{
+		result.SkippedConflicts = append(result.SkippedConflicts, v1.InitTemplateConflict{
 			Path:   operation.Target,
 			Reason: err.Error(),
 		})
 		return false, nil
 	}
 	if !changed {
-		if modeUpdated, err := ensureBootstrapTemplateMode(targetPath, operation.Mode); err != nil {
+		if modeUpdated, err := ensureInitTemplateMode(targetPath, operation.Mode); err != nil {
 			return false, err
 		} else if modeUpdated {
 			result.Updated = append(result.Updated, operation.Target)
@@ -511,7 +504,7 @@ func applyBootstrapTemplateMergeJSON(projectRoot string, ctx bootstrapTemplateCo
 		return false, nil
 	}
 
-	blob, err := marshalBootstrapTemplateJSON(mergedValue)
+	blob, err := marshalInitTemplateJSON(mergedValue)
 	if err != nil {
 		return false, err
 	}
@@ -522,8 +515,8 @@ func applyBootstrapTemplateMergeJSON(projectRoot string, ctx bootstrapTemplateCo
 	return false, nil
 }
 
-func renderBootstrapTemplateAsset(source string, ctx bootstrapTemplateContext) ([]byte, error) {
-	raw, err := bootstrapTemplateFS.ReadFile(source)
+func renderInitTemplateAsset(source string, ctx initTemplateContext) ([]byte, error) {
+	raw, err := initTemplateFS.ReadFile(source)
 	if err != nil {
 		return nil, fmt.Errorf("read asset %s: %w", source, err)
 	}
@@ -535,11 +528,11 @@ func renderBootstrapTemplateAsset(source string, ctx bootstrapTemplateContext) (
 	return []byte(replacer.Replace(string(raw))), nil
 }
 
-func writeBootstrapTemplateFile(targetPath string, content []byte, mode os.FileMode) (string, error) {
+func writeInitTemplateFile(targetPath string, content []byte, mode os.FileMode) (string, error) {
 	existing, err := os.ReadFile(targetPath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		if err := writeBootstrapTemplateNewFile(targetPath, content, mode); err != nil {
+		if err := writeInitTemplateNewFile(targetPath, content, mode); err != nil {
 			return "", err
 		}
 		return "created", nil
@@ -550,7 +543,7 @@ func writeBootstrapTemplateFile(targetPath string, content []byte, mode os.FileM
 	if !bytes.Equal(existing, content) {
 		return "conflict", nil
 	}
-	modeUpdated, err := ensureBootstrapTemplateMode(targetPath, mode)
+	modeUpdated, err := ensureInitTemplateMode(targetPath, mode)
 	if err != nil {
 		return "", err
 	}
@@ -560,7 +553,7 @@ func writeBootstrapTemplateFile(targetPath string, content []byte, mode os.FileM
 	return "unchanged", nil
 }
 
-func writeBootstrapTemplateNewFile(targetPath string, content []byte, mode os.FileMode) error {
+func writeInitTemplateNewFile(targetPath string, content []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return err
 	}
@@ -576,7 +569,7 @@ func writeBootstrapTemplateNewFile(targetPath string, content []byte, mode os.Fi
 	return nil
 }
 
-func ensureBootstrapTemplateMode(targetPath string, mode os.FileMode) (bool, error) {
+func ensureInitTemplateMode(targetPath string, mode os.FileMode) (bool, error) {
 	info, err := os.Stat(targetPath)
 	if err != nil {
 		return false, err
@@ -592,9 +585,9 @@ func ensureBootstrapTemplateMode(targetPath string, mode os.FileMode) (bool, err
 	return true, nil
 }
 
-func matchesBootstrapPristineContent(existing []byte, pristineIDs []string) (bool, error) {
+func matchesInitPristineContent(existing []byte, pristineIDs []string) (bool, error) {
 	for _, pristineID := range pristineIDs {
-		pristine, ok := bootstrapPristineContent(pristineID)
+		pristine, ok := initPristineContent(pristineID)
 		if !ok {
 			return false, fmt.Errorf("unknown pristine content %q", pristineID)
 		}
@@ -605,7 +598,7 @@ func matchesBootstrapPristineContent(existing []byte, pristineIDs []string) (boo
 	return false, nil
 }
 
-func bootstrapPristineContent(pristineID string) ([]byte, bool) {
+func initPristineContent(pristineID string) ([]byte, bool) {
 	switch strings.TrimSpace(pristineID) {
 	case "blank_rules_v1":
 		return []byte(BlankRulesContents), true
@@ -614,27 +607,27 @@ func bootstrapPristineContent(pristineID string) ([]byte, bool) {
 	case "blank_workflows_v1":
 		return []byte(BlankWorkflowsContents), true
 	case "starter_contract_agents_v1":
-		return bootstrapPristineEmbeddedContent("bootstrap_templates/starter-contract/files/AGENTS.md")
+		return initPristineEmbeddedContent("bootstrap_templates/starter-contract/files/AGENTS.md")
 	case "starter_contract_claude_v1":
-		return bootstrapPristineEmbeddedContent("bootstrap_templates/starter-contract/files/CLAUDE.md")
+		return initPristineEmbeddedContent("bootstrap_templates/starter-contract/files/CLAUDE.md")
 	case "starter_contract_rules_v1":
-		return bootstrapPristineEmbeddedContent("bootstrap_templates/starter-contract/files/.acm/acm-rules.yaml")
+		return initPristineEmbeddedContent("bootstrap_templates/starter-contract/files/.acm/acm-rules.yaml")
 	case "verify_generic_tests_v1":
-		return bootstrapPristineEmbeddedContent("bootstrap_templates/verify-generic/files/.acm/acm-tests.yaml")
+		return initPristineEmbeddedContent("bootstrap_templates/verify-generic/files/.acm/acm-tests.yaml")
 	default:
 		return nil, false
 	}
 }
 
-func bootstrapPristineEmbeddedContent(source string) ([]byte, bool) {
-	raw, err := bootstrapTemplateFS.ReadFile(source)
+func initPristineEmbeddedContent(source string) ([]byte, bool) {
+	raw, err := initTemplateFS.ReadFile(source)
 	if err != nil {
 		return nil, false
 	}
 	return raw, true
 }
 
-func marshalBootstrapTemplateJSON(value any) ([]byte, error) {
+func marshalInitTemplateJSON(value any) ([]byte, error) {
 	blob, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return nil, err
@@ -642,23 +635,23 @@ func marshalBootstrapTemplateJSON(value any) ([]byte, error) {
 	return append(blob, '\n'), nil
 }
 
-func mergeBootstrapJSONValues(target, source any) (any, bool, error) {
+func mergeInitJSONValues(target, source any) (any, bool, error) {
 	switch typedSource := source.(type) {
 	case map[string]any:
 		typedTarget, ok := target.(map[string]any)
 		if !ok {
 			return nil, false, fmt.Errorf("existing JSON structure conflicts with template")
 		}
-		merged := cloneBootstrapJSONValue(typedTarget).(map[string]any)
+		merged := cloneInitJSONValue(typedTarget).(map[string]any)
 		changed := false
 		for key, sourceValue := range typedSource {
 			targetValue, exists := merged[key]
 			if !exists {
-				merged[key] = cloneBootstrapJSONValue(sourceValue)
+				merged[key] = cloneInitJSONValue(sourceValue)
 				changed = true
 				continue
 			}
-			mergedValue, childChanged, err := mergeBootstrapJSONValues(targetValue, sourceValue)
+			mergedValue, childChanged, err := mergeInitJSONValues(targetValue, sourceValue)
 			if err != nil {
 				return nil, false, err
 			}
@@ -673,13 +666,13 @@ func mergeBootstrapJSONValues(target, source any) (any, bool, error) {
 		if !ok {
 			return nil, false, fmt.Errorf("existing JSON structure conflicts with template")
 		}
-		merged := cloneBootstrapJSONValue(typedTarget).([]any)
+		merged := cloneInitJSONValue(typedTarget).([]any)
 		changed := false
 		for _, sourceValue := range typedSource {
-			if bootstrapJSONArrayContains(merged, sourceValue) {
+			if initJSONArrayContains(merged, sourceValue) {
 				continue
 			}
-			merged = append(merged, cloneBootstrapJSONValue(sourceValue))
+			merged = append(merged, cloneInitJSONValue(sourceValue))
 			changed = true
 		}
 		return merged, changed, nil
@@ -691,7 +684,7 @@ func mergeBootstrapJSONValues(target, source any) (any, bool, error) {
 	}
 }
 
-func bootstrapJSONArrayContains(values []any, candidate any) bool {
+func initJSONArrayContains(values []any, candidate any) bool {
 	for _, value := range values {
 		if reflect.DeepEqual(value, candidate) {
 			return true
@@ -700,18 +693,18 @@ func bootstrapJSONArrayContains(values []any, candidate any) bool {
 	return false
 }
 
-func cloneBootstrapJSONValue(value any) any {
+func cloneInitJSONValue(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
 		cloned := make(map[string]any, len(typed))
 		for key, child := range typed {
-			cloned[key] = cloneBootstrapJSONValue(child)
+			cloned[key] = cloneInitJSONValue(child)
 		}
 		return cloned
 	case []any:
 		cloned := make([]any, 0, len(typed))
 		for _, child := range typed {
-			cloned = append(cloned, cloneBootstrapJSONValue(child))
+			cloned = append(cloned, cloneInitJSONValue(child))
 		}
 		return cloned
 	default:
@@ -719,7 +712,7 @@ func cloneBootstrapJSONValue(value any) any {
 	}
 }
 
-func sortBootstrapTemplateConflicts(conflicts []v1.BootstrapTemplateConflict) {
+func sortInitTemplateConflicts(conflicts []v1.InitTemplateConflict) {
 	sort.Slice(conflicts, func(i, j int) bool {
 		if conflicts[i].Path == conflicts[j].Path {
 			return conflicts[i].Reason < conflicts[j].Reason

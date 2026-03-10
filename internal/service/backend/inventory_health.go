@@ -7,24 +7,38 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
-func (s *Service) Coverage(ctx context.Context, payload v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {
+type inventoryHealthSummary struct {
+	TotalFiles     int
+	IndexedFiles   int
+	UnindexedFiles int
+	StaleFiles     int
+	IndexedPercent float64
+}
+
+type inventoryHealthReport struct {
+	Summary        inventoryHealthSummary
+	UnindexedPaths []string
+	StalePaths     []string
+	UnindexedDirs  []string
+}
+
+func (s *Service) computeInventoryHealth(ctx context.Context, projectID, projectRoot string) (inventoryHealthReport, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.CoverageResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return inventoryHealthReport{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
 	}
 
-	projectRoot := s.effectiveProjectRoot(payload.ProjectRoot)
-	paths, err := s.collectCoveragePaths(ctx, projectRoot)
+	projectRoot = s.effectiveProjectRoot(projectRoot)
+	paths, err := s.collectInventoryPaths(ctx, projectRoot)
 	if err != nil {
-		return v1.CoverageResult{}, coverageInternalError("collect_project_paths", err)
+		return inventoryHealthReport{}, inventoryInternalError("collect_project_paths", err)
 	}
 
-	inventory, err := s.repo.ListPointerInventory(ctx, strings.TrimSpace(payload.ProjectID))
+	inventory, err := s.repo.ListPointerInventory(ctx, strings.TrimSpace(projectID))
 	if err != nil {
-		return v1.CoverageResult{}, coverageInternalError("list_pointer_inventory", err)
+		return inventoryHealthReport{}, inventoryInternalError("list_pointer_inventory", err)
 	}
 
 	pointerByPath := make(map[string]core.PointerInventory, len(inventory))
@@ -61,42 +75,42 @@ func (s *Service) Coverage(ctx context.Context, payload v1.CoveragePayload) (v1.
 	}
 	sort.Strings(stale)
 
-	zeroCoverageDirs := zeroCoverageDirectories(paths, pointerByPath)
+	unindexedDirs := unindexedDirectories(paths, pointerByPath)
 
 	totalFiles := len(paths)
-	coveragePercent := 100.0
+	indexedPercent := 100.0
 	if totalFiles > 0 {
-		coveragePercent = math.Round((float64(indexedCount)/float64(totalFiles)*100.0)*100.0) / 100.0
+		indexedPercent = math.Round((float64(indexedCount)/float64(totalFiles)*100.0)*100.0) / 100.0
 	}
 
-	return v1.CoverageResult{
-		Summary: v1.CoverageSummary{
-			TotalFiles:      totalFiles,
-			IndexedFiles:    indexedCount,
-			UnindexedFiles:  len(unindexed),
-			StaleFiles:      len(stale),
-			CoveragePercent: coveragePercent,
+	return inventoryHealthReport{
+		Summary: inventoryHealthSummary{
+			TotalFiles:     totalFiles,
+			IndexedFiles:   indexedCount,
+			UnindexedFiles: len(unindexed),
+			StaleFiles:     len(stale),
+			IndexedPercent: indexedPercent,
 		},
-		UnindexedPaths:   normalizeValues(unindexed),
-		StalePaths:       normalizeValues(stale),
-		ZeroCoverageDirs: zeroCoverageDirs,
+		UnindexedPaths: normalizeValues(unindexed),
+		StalePaths:     normalizeValues(stale),
+		UnindexedDirs:  unindexedDirs,
 	}, nil
 }
 
-func (s *Service) collectCoveragePaths(ctx context.Context, projectRoot string) ([]string, error) {
+func (s *Service) collectInventoryPaths(ctx context.Context, projectRoot string) ([]string, error) {
 	gitOutput, err := s.runGit(ctx, projectRoot, "ls-files", "--cached", "--others", "--exclude-standard")
 	if err == nil {
-		return parseBootstrapGitPaths(gitOutput), nil
+		return parseInitCandidateGitPaths(gitOutput), nil
 	}
 
-	paths, _, walkErr := collectBootstrapPathsFromWalk(ctx, projectRoot)
+	paths, _, walkErr := collectInitCandidatePathsFromWalk(ctx, projectRoot)
 	if walkErr != nil {
 		return nil, walkErr
 	}
-	return filterBootstrapPaths(paths, nil), nil
+	return filterInitCandidatePaths(paths, nil), nil
 }
 
-func zeroCoverageDirectories(paths []string, pointerByPath map[string]core.PointerInventory) []string {
+func unindexedDirectories(paths []string, pointerByPath map[string]core.PointerInventory) []string {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -128,10 +142,10 @@ func zeroCoverageDirectories(paths []string, pointerByPath map[string]core.Point
 	return out
 }
 
-func coverageInternalError(operation string, err error) *core.APIError {
+func inventoryInternalError(operation string, err error) *core.APIError {
 	return core.NewError(
 		"INTERNAL_ERROR",
-		"failed to compute coverage report",
+		"failed to compute inventory health",
 		map[string]any{
 			"operation": operation,
 			"error":     err.Error(),

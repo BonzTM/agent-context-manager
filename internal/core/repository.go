@@ -35,9 +35,6 @@ type StaleFilter struct {
 
 type CandidatePointerQuery struct {
 	ProjectID   string
-	TaskText    string
-	Phase       string
-	Tags        []string
 	Limit       int
 	Unbounded   bool
 	StaleFilter StaleFilter
@@ -53,23 +50,7 @@ type CandidatePointer struct {
 	Tags        []string
 	IsRule      bool
 	IsStale     bool
-	Rank        float64
 	UpdatedAt   time.Time
-}
-
-type RelatedHopPointersQuery struct {
-	ProjectID   string
-	PointerKeys []string
-	MaxHops     int
-	Limit       int
-	Unbounded   bool
-	StaleFilter StaleFilter
-}
-
-type HopPointer struct {
-	SourceKey string
-	HopCount  int
-	Pointer   CandidatePointer
 }
 
 type ActiveMemoryQuery struct {
@@ -131,14 +112,16 @@ type ReceiptScopeQuery struct {
 }
 
 type ReceiptScope struct {
-	ProjectID    string
-	ReceiptID    string
-	TaskText     string
-	Phase        string
-	ResolvedTags []string
-	PointerKeys  []string
-	MemoryIDs    []int64
-	PointerPaths []string
+	ProjectID         string
+	ReceiptID         string
+	TaskText          string
+	Phase             string
+	ResolvedTags      []string
+	PointerKeys       []string
+	MemoryIDs         []int64
+	InitialScopePaths []string
+	BaselineCaptured  bool
+	BaselinePaths     []SyncPath
 }
 
 type FetchLookupQuery struct {
@@ -181,14 +164,14 @@ type FetchLookup struct {
 	UpdatedAt  time.Time
 }
 
-type ProposeMemoryValidation struct {
+type MemoryValidation struct {
 	HardPassed bool
 	SoftPassed bool
 	Errors     []string
 	Warnings   []string
 }
 
-type ProposeMemoryPersistence struct {
+type MemoryPersistence struct {
 	ProjectID           string
 	ReceiptID           string
 	Category            string
@@ -199,12 +182,12 @@ type ProposeMemoryPersistence struct {
 	RelatedPointerKeys  []string
 	EvidencePointerKeys []string
 	DedupeKey           string
-	Validation          ProposeMemoryValidation
+	Validation          MemoryValidation
 	AutoPromote         bool
 	Promotable          bool
 }
 
-type ProposeMemoryPersistenceResult struct {
+type MemoryPersistenceResult struct {
 	CandidateID      int64
 	Status           string
 	PromotedMemoryID int64
@@ -271,41 +254,43 @@ type WorkPlanStages struct {
 }
 
 type WorkPlan struct {
-	ProjectID     string
-	PlanKey       string
-	ReceiptID     string
-	Title         string
-	Objective     string
-	Kind          string
-	ParentPlanKey string
-	Status        string
-	Stages        WorkPlanStages
-	InScope       []string
-	OutOfScope    []string
-	Constraints   []string
-	References    []string
-	ExternalRefs  []string
-	Tasks         []WorkItem
-	UpdatedAt     time.Time
+	ProjectID       string
+	PlanKey         string
+	ReceiptID       string
+	Title           string
+	Objective       string
+	Kind            string
+	ParentPlanKey   string
+	Status          string
+	Stages          WorkPlanStages
+	InScope         []string
+	OutOfScope      []string
+	DiscoveredPaths []string
+	Constraints     []string
+	References      []string
+	ExternalRefs    []string
+	Tasks           []WorkItem
+	UpdatedAt       time.Time
 }
 
 type WorkPlanUpsertInput struct {
-	ProjectID     string
-	PlanKey       string
-	ReceiptID     string
-	Mode          WorkPlanMode
-	Title         string
-	Objective     string
-	Kind          string
-	ParentPlanKey string
-	Status        string
-	Stages        WorkPlanStages
-	InScope       []string
-	OutOfScope    []string
-	Constraints   []string
-	References    []string
-	ExternalRefs  []string
-	Tasks         []WorkItem
+	ProjectID       string
+	PlanKey         string
+	ReceiptID       string
+	Mode            WorkPlanMode
+	Title           string
+	Objective       string
+	Kind            string
+	ParentPlanKey   string
+	Status          string
+	Stages          WorkPlanStages
+	InScope         []string
+	OutOfScope      []string
+	DiscoveredPaths []string
+	Constraints     []string
+	References      []string
+	ExternalRefs    []string
+	Tasks           []WorkItem
 }
 
 type WorkPlanUpsertResult struct {
@@ -466,7 +451,6 @@ type VerificationTestRun struct {
 
 type Repository interface {
 	FetchCandidatePointers(context.Context, CandidatePointerQuery) ([]CandidatePointer, error)
-	FetchRelatedHopPointers(context.Context, RelatedHopPointersQuery) ([]HopPointer, error)
 	FetchActiveMemories(context.Context, ActiveMemoryQuery) ([]ActiveMemory, error)
 	ListPointerInventory(context.Context, string) ([]PointerInventory, error)
 	UpsertPointerStubs(context.Context, string, []PointerStub) (int, error)
@@ -475,7 +459,7 @@ type Repository interface {
 	LookupFetchState(context.Context, FetchLookupQuery) (FetchLookup, error)
 	LookupPointerByKey(context.Context, PointerLookupQuery) (CandidatePointer, error)
 	LookupMemoryByID(context.Context, MemoryLookupQuery) (ActiveMemory, error)
-	PersistProposedMemory(context.Context, ProposeMemoryPersistence) (ProposeMemoryPersistenceResult, error)
+	PersistMemory(context.Context, MemoryPersistence) (MemoryPersistenceResult, error)
 	SaveRunReceiptSummary(context.Context, RunReceiptSummary) (RunReceiptIDs, error)
 	SaveReviewAttempt(context.Context, ReviewAttempt) (int64, error)
 	ListReviewAttempts(context.Context, ReviewAttemptListQuery) ([]ReviewAttempt, error)

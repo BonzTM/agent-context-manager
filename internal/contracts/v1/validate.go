@@ -56,7 +56,7 @@ func DecodeAndValidateCommandWithDefaults(data []byte, defaults ValidationDefaul
 	return env, payload, nil
 }
 
-func validateGetContextPayload(p *GetContextPayload) error {
+func validateContextPayload(p *ContextPayload) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
@@ -69,11 +69,8 @@ func validateGetContextPayload(p *GetContextPayload) error {
 	if err := validateTagsFile(p.TagsFile); err != nil {
 		return err
 	}
-	if err := validateRetrievalCaps(p.Caps); err != nil {
+	if err := validateRelativePathList(p.InitialScopePaths, 4096, "initial_scope_paths"); err != nil {
 		return err
-	}
-	if p.FallbackMode != "" && p.FallbackMode != "widen_once" && p.FallbackMode != "none" {
-		return fmt.Errorf("fallback_mode must be widen_once|none")
 	}
 	return nil
 }
@@ -122,12 +119,12 @@ func validateFetchPayload(p *FetchPayload, fields map[string]json.RawMessage) er
 	return nil
 }
 
-func validateProposeMemoryPayload(p *ProposeMemoryPayload) error {
+func validateMemoryCommandPayload(p *MemoryCommandPayload) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
-	if !requestIDRe.MatchString(p.ReceiptID) {
-		return fmt.Errorf("receipt_id format is invalid")
+	if err := validateReceiptOrPlanReference(p.ReceiptID, p.PlanKey); err != nil {
+		return err
 	}
 	if err := validateTagsFile(p.TagsFile); err != nil {
 		return err
@@ -165,12 +162,12 @@ func validateMemoryPayload(m *MemoryPayload) error {
 	return nil
 }
 
-func validateReportCompletionPayload(p *ReportCompletionPayload, fields map[string]json.RawMessage) error {
+func validateDonePayload(p *DonePayload, fields map[string]json.RawMessage) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
-	if !requestIDRe.MatchString(p.ReceiptID) {
-		return fmt.Errorf("receipt_id format is invalid")
+	if err := validateReceiptOrPlanReference(p.ReceiptID, p.PlanKey); err != nil {
+		return err
 	}
 	if strings.TrimSpace(p.Outcome) == "" || len(p.Outcome) > 1600 {
 		return fmt.Errorf("outcome must be 1..1600 chars")
@@ -181,11 +178,19 @@ func validateReportCompletionPayload(p *ReportCompletionPayload, fields map[stri
 	if err := validateTagsFile(p.TagsFile); err != nil {
 		return err
 	}
-	if err := validateRequiredArrayField(fields, "files_changed"); err != nil {
-		return err
+	if raw, ok := fields["files_changed"]; ok && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("files_changed must be an array")
+	}
+	if raw, ok := fields["no_file_changes"]; ok && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("no_file_changes must be a boolean")
 	}
 	if err := validateRelativePathList(p.FilesChanged, 256, "files_changed"); err != nil {
 		return err
+	}
+	if p.NoFileChanges {
+		if _, ok := fields["files_changed"]; ok {
+			return fmt.Errorf("files_changed cannot be combined with no_file_changes")
+		}
 	}
 	return nil
 }
@@ -195,22 +200,8 @@ func validateReviewPayload(p *ReviewPayload, fields map[string]json.RawMessage) 
 		return err
 	}
 
-	receiptID := strings.TrimSpace(p.ReceiptID)
-	planKey := strings.TrimSpace(p.PlanKey)
-	if receiptID == "" && planKey == "" {
-		return fmt.Errorf("either receipt_id or plan_key is required")
-	}
-	if receiptID != "" && !requestIDRe.MatchString(receiptID) {
-		return fmt.Errorf("receipt_id format is invalid")
-	}
-	if planKey != "" {
-		if err := validatePlanKeyFormat(planKey, "plan_key"); err != nil {
-			return err
-		}
-		derivedReceiptID := strings.TrimSpace(planKey[len("plan:"):])
-		if receiptID != "" && receiptID != derivedReceiptID {
-			return fmt.Errorf("plan_key and receipt_id must reference the same receipt")
-		}
+	if err := validateReceiptOrPlanReference(p.ReceiptID, p.PlanKey); err != nil {
+		return err
 	}
 	if p.Key != "" {
 		if err := validateBoundedKey(p.Key, 512); err != nil {
@@ -351,6 +342,9 @@ func validateWorkPayload(p *WorkPayload) error {
 			return err
 		}
 		if err := validateStringList(p.Plan.OutOfScope, 128, 600, "plan.out_of_scope"); err != nil {
+			return err
+		}
+		if err := validateRelativePathList(p.Plan.DiscoveredPaths, 4096, "plan.discovered_paths"); err != nil {
 			return err
 		}
 		if err := validateStringList(p.Plan.Constraints, 128, 600, "plan.constraints"); err != nil {
@@ -513,36 +507,12 @@ func validateHistorySearchPayload(p *HistorySearchPayload) error {
 	return nil
 }
 
-func validateHealthCheckPayload(p *HealthCheckPayload) error {
+func validateHealthPayload(p *HealthPayload, fields map[string]json.RawMessage) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
 	if p.MaxFindingsPerCheck != nil && (*p.MaxFindingsPerCheck < 1 || *p.MaxFindingsPerCheck > 500) {
 		return fmt.Errorf("max_findings_per_check must be between 1 and 500")
-	}
-	return nil
-}
-
-func normalizeHistoryEntityValue(raw HistoryEntity) HistoryEntity {
-	switch strings.TrimSpace(string(raw)) {
-	case string(HistoryEntityAll):
-		return HistoryEntityAll
-	case string(HistoryEntityMemory):
-		return HistoryEntityMemory
-	case string(HistoryEntityReceipt):
-		return HistoryEntityReceipt
-	case string(HistoryEntityRun):
-		return HistoryEntityRun
-	case string(HistoryEntityWork):
-		return HistoryEntityWork
-	default:
-		return HistoryEntityAll
-	}
-}
-
-func validateHealthFixPayload(p *HealthFixPayload, fields map[string]json.RawMessage) error {
-	if err := validateProjectID(p.ProjectID); err != nil {
-		return err
 	}
 	if p.ProjectRoot != "" && len(strings.TrimSpace(p.ProjectRoot)) == 0 {
 		return fmt.Errorf("project_root must be non-empty when provided")
@@ -567,25 +537,35 @@ func validateHealthFixPayload(p *HealthFixPayload, fields map[string]json.RawMes
 	}
 	for i, fixer := range p.Fixers {
 		switch fixer {
-		case HealthFixerAll, HealthFixerSyncWorkingTree, HealthFixerIndexUncoveredFile, HealthFixerSyncRuleset:
+		case HealthFixerAll, HealthFixerSyncWorkingTree, HealthFixerIndexUnindexedFile, HealthFixerSyncRuleset:
 		default:
 			return fmt.Errorf("fixers[%d] is invalid", i)
+		}
+	}
+	isFixMode := len(p.Fixers) > 0 || p.Apply != nil || strings.TrimSpace(p.ProjectRoot) != "" || strings.TrimSpace(p.RulesFile) != "" || strings.TrimSpace(p.TagsFile) != ""
+	if isFixMode {
+		if p.IncludeDetails != nil || p.MaxFindingsPerCheck != nil {
+			return fmt.Errorf("include_details and max_findings_per_check are only valid in health inspection mode")
 		}
 	}
 	return nil
 }
 
-func validateCoveragePayload(p *CoveragePayload) error {
-	if err := validateProjectID(p.ProjectID); err != nil {
-		return err
+func normalizeHistoryEntityValue(raw HistoryEntity) HistoryEntity {
+	switch strings.TrimSpace(string(raw)) {
+	case string(HistoryEntityAll):
+		return HistoryEntityAll
+	case string(HistoryEntityMemory):
+		return HistoryEntityMemory
+	case string(HistoryEntityReceipt):
+		return HistoryEntityReceipt
+	case string(HistoryEntityRun):
+		return HistoryEntityRun
+	case string(HistoryEntityWork):
+		return HistoryEntityWork
+	default:
+		return HistoryEntityAll
 	}
-	if p.ProjectRoot != "" && len(strings.TrimSpace(p.ProjectRoot)) == 0 {
-		return fmt.Errorf("project_root must be non-empty when provided")
-	}
-	if len(p.ProjectRoot) > 2048 {
-		return fmt.Errorf("project_root too long")
-	}
-	return nil
 }
 
 func validateStatusPayload(p *StatusPayload) error {
@@ -618,63 +598,16 @@ func validateStatusPayload(p *StatusPayload) error {
 	return nil
 }
 
-func validateEvalPayload(p *EvalPayload) error {
-	if err := validateProjectID(p.ProjectID); err != nil {
-		return err
-	}
-	if p.EvalSuitePath == "" && len(p.EvalSuiteInline) == 0 {
-		return fmt.Errorf("either eval_suite_path or eval_suite_inline is required")
-	}
-	if p.EvalSuitePath != "" && len(p.EvalSuiteInline) > 0 {
-		return fmt.Errorf("use only one of eval_suite_path or eval_suite_inline")
-	}
-	if p.MinimumRecall != nil && (*p.MinimumRecall < 0 || *p.MinimumRecall > 1) {
-		return fmt.Errorf("minimum_recall must be between 0 and 1")
-	}
-	if len(p.EvalSuiteInline) > 500 {
-		return fmt.Errorf("eval_suite_inline may include at most 500 entries")
-	}
-	if p.EvalSuitePath != "" && len(p.EvalSuitePath) > 2048 {
-		return fmt.Errorf("eval_suite_path too long")
-	}
-	if err := validateTagsFile(p.TagsFile); err != nil {
-		return err
-	}
-	for i := range p.EvalSuiteInline {
-		c := p.EvalSuiteInline[i]
-		if strings.TrimSpace(c.TaskText) == "" || len(c.TaskText) > 4000 {
-			return fmt.Errorf("eval_suite_inline[%d].task_text invalid", i)
-		}
-		if c.Phase != PhasePlan && c.Phase != PhaseExecute && c.Phase != PhaseReview {
-			return fmt.Errorf("eval_suite_inline[%d].phase invalid", i)
-		}
-		if err := validatePointerKeyList(c.ExpectedPointerKeys, 0, 64, fmt.Sprintf("eval_suite_inline[%d].expected_pointer_keys", i)); err != nil {
-			return err
-		}
-		if err := validateUniqueBoundedStringList(c.ExpectedMemorySubjects, 64, 160, fmt.Sprintf("eval_suite_inline[%d].expected_memory_subjects", i)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func validateVerifyPayload(p *VerifyPayload, fields map[string]json.RawMessage) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
 
 	receiptID := strings.TrimSpace(p.ReceiptID)
-	if receiptID != "" && !requestIDRe.MatchString(receiptID) {
-		return fmt.Errorf("receipt_id format is invalid")
-	}
 	planKey := strings.TrimSpace(p.PlanKey)
-	if planKey != "" {
-		if err := validatePlanKeyFormat(planKey, "plan_key"); err != nil {
+	if receiptID != "" || planKey != "" {
+		if err := validateReceiptOrPlanReference(receiptID, planKey); err != nil {
 			return err
-		}
-		derivedReceiptID := strings.TrimSpace(planKey[len("plan:"):])
-		if receiptID != "" && receiptID != derivedReceiptID {
-			return fmt.Errorf("plan_key and receipt_id must reference the same receipt")
 		}
 	}
 	if p.Phase != "" && p.Phase != PhasePlan && p.Phase != PhaseExecute && p.Phase != PhaseReview {
@@ -713,7 +646,7 @@ func validateVerifyPayload(p *VerifyPayload, fields map[string]json.RawMessage) 
 	return nil
 }
 
-func validateBootstrapPayload(p *BootstrapPayload, fields map[string]json.RawMessage) error {
+func validateInitPayload(p *InitPayload, fields map[string]json.RawMessage) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
 	}
@@ -794,6 +727,28 @@ func validatePlanKeyFormat(planKey, field string) error {
 	return nil
 }
 
+func validateReceiptOrPlanReference(receiptID, planKey string) error {
+	trimmedReceiptID := strings.TrimSpace(receiptID)
+	trimmedPlanKey := strings.TrimSpace(planKey)
+	if trimmedReceiptID == "" && trimmedPlanKey == "" {
+		return fmt.Errorf("either receipt_id or plan_key is required")
+	}
+	if trimmedReceiptID != "" && !requestIDRe.MatchString(trimmedReceiptID) {
+		return fmt.Errorf("receipt_id format is invalid")
+	}
+	if trimmedPlanKey == "" {
+		return nil
+	}
+	if err := validatePlanKeyFormat(trimmedPlanKey, "plan_key"); err != nil {
+		return err
+	}
+	derivedReceiptID := strings.TrimSpace(trimmedPlanKey[len("plan:"):])
+	if trimmedReceiptID != "" && trimmedReceiptID != derivedReceiptID {
+		return fmt.Errorf("plan_key and receipt_id must reference the same receipt")
+	}
+	return nil
+}
+
 func validateBoundedKey(value string, maxLength int) error {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" || len(trimmed) > maxLength {
@@ -834,10 +789,10 @@ func defaultProjectIDForRoot(projectID, projectRoot string, defaults ValidationD
 
 func validateScopeMode(mode ScopeMode) error {
 	switch mode {
-	case "", ScopeModeStrict, ScopeModeWarn, ScopeModeAutoIndex:
+	case "", ScopeModeStrict, ScopeModeWarn:
 		return nil
 	default:
-		return fmt.Errorf("scope_mode must be strict|warn|auto_index")
+		return fmt.Errorf("scope_mode must be strict|warn")
 	}
 }
 
@@ -894,34 +849,6 @@ func decodeObjectFields(raw json.RawMessage) (map[string]json.RawMessage, error)
 		return nil, err
 	}
 	return fields, nil
-}
-
-func validateRetrievalCaps(caps *RetrievalCaps) error {
-	if caps == nil {
-		return nil
-	}
-	if caps.MaxNonRulePointers != 0 && (caps.MaxNonRulePointers < 1 || caps.MaxNonRulePointers > 32) {
-		return fmt.Errorf("caps.max_non_rule_pointers must be between 1 and 32")
-	}
-	if caps.MaxRulePointers < 0 || caps.MaxRulePointers > 512 {
-		return fmt.Errorf("caps.max_rule_pointers must be between 0 and 512")
-	}
-	if caps.MaxHops < 0 || caps.MaxHops > 3 {
-		return fmt.Errorf("caps.max_hops must be between 0 and 3")
-	}
-	if caps.MaxHopExpansion < 0 || caps.MaxHopExpansion > 32 {
-		return fmt.Errorf("caps.max_hop_expansion must be between 0 and 32")
-	}
-	if caps.MaxMemories < 0 || caps.MaxMemories > 32 {
-		return fmt.Errorf("caps.max_memories must be between 0 and 32")
-	}
-	if caps.MinPointerCount != 0 && (caps.MinPointerCount < 1 || caps.MinPointerCount > 8) {
-		return fmt.Errorf("caps.min_pointer_count must be between 1 and 8")
-	}
-	if caps.WordBudgetLimit != 0 && (caps.WordBudgetLimit < 100 || caps.WordBudgetLimit > 10000) {
-		return fmt.Errorf("caps.word_budget_limit must be between 100 and 10000")
-	}
-	return nil
 }
 
 func validateOptionalArrayField(fields map[string]json.RawMessage, field string, length int) error {

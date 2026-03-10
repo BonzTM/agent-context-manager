@@ -51,6 +51,13 @@ func TestRuntimePostgresIntegration_Step10Evidence(t *testing.T) {
 	projectID := fmt.Sprintf("step10.integration.%d", time.Now().UTC().UnixNano())
 	pointers := []seedPointer{
 		{
+			Key:         "rule.step10.integration",
+			Path:        ".acm/acm-rules.yaml",
+			Label:       "Step 10 integration rule",
+			Description: "Postgres integration evidence must remain receipt scoped for runtime and done flows.",
+			Tags:        []string{"postgres", "integration", "runtime", "done", "enforcement-hard"},
+		},
+		{
 			Key:         "pointer.runtime.init",
 			Path:        "internal/runtime/service_factory.go",
 			Label:       "Runtime Postgres init path",
@@ -62,52 +69,40 @@ func TestRuntimePostgresIntegration_Step10Evidence(t *testing.T) {
 			Path:        "internal/service/backend/service.go",
 			Label:       "Report completion write path",
 			Description: "Report completion persists run summaries tied to receipt scope",
-			Tags:        []string{"postgres", "report_completion", "integration"},
+			Tags:        []string{"postgres", "done", "integration"},
 		},
 	}
 	for _, pointer := range pointers {
 		seedPointerRow(t, ctx, pool, projectID, pointer)
 	}
 
-	getResult, apiErr := svc.GetContext(ctx, v1.GetContextPayload{
-		ProjectID: projectID,
-		TaskText:  "postgres integration evidence for runtime migration and report completion",
-		Phase:     v1.PhaseExecute,
-		Caps: &v1.RetrievalCaps{
-			MaxNonRulePointers: 4,
-			MaxRulePointers:    0,
-			MaxHops:            1,
-			MaxHopExpansion:    0,
-			MaxMemories:        0,
-			MinPointerCount:    2,
-		},
+	getResult, apiErr := svc.Context(ctx, v1.ContextPayload{
+		ProjectID:         projectID,
+		TaskText:          "postgres integration evidence for runtime migration and done",
+		Phase:             v1.PhaseExecute,
+		InitialScopePaths: []string{"internal/runtime/service_factory.go", "internal/service/backend/service.go"},
 	})
 	if apiErr != nil {
-		t.Fatalf("get_context API error: %+v", apiErr)
+		t.Fatalf("context API error: %+v", apiErr)
 	}
 	if getResult.Status != "ok" {
-		t.Fatalf("expected get_context status ok, got %q", getResult.Status)
+		t.Fatalf("expected context status ok, got %q", getResult.Status)
 	}
 	if getResult.Receipt == nil {
 		t.Fatal("expected non-nil receipt")
 	}
-	if got := getResult.Receipt.Meta.RetrievalVersion; got != backendsvc.RetrievalVersion {
-		t.Fatalf("expected retrieval version %q, got %q", backendsvc.RetrievalVersion, got)
+	if got := getResult.Receipt.InitialScopePaths; !reflect.DeepEqual(got, []string{"internal/runtime/service_factory.go", "internal/service/backend/service.go"}) {
+		t.Fatalf("unexpected initial scope paths: got %v", got)
 	}
-
 	pointerKeys := receiptPointerKeys(getResult.Receipt)
-	if len(pointerKeys) < 2 {
-		t.Fatalf("expected at least 2 pointer keys from receipt, got %d", len(pointerKeys))
-	}
-	pointerPaths := lookupPointerPathsByKey(t, ctx, pool, getResult.Receipt.Meta.ProjectID, pointerKeys)
-	if len(pointerPaths) < 1 {
-		t.Fatal("expected at least 1 pointer path from receipt")
+	if len(pointerKeys) == 0 {
+		t.Fatal("expected at least one receipt rule pointer key")
 	}
 
-	upsertReceiptScope(t, ctx, pool, getResult.Receipt, pointerKeys)
+	upsertReceiptScope(t, ctx, pool, getResult.Receipt, nil)
 
 	autoPromote := false
-	proposeResult, apiErr := svc.ProposeMemory(ctx, v1.ProposeMemoryPayload{
+	proposeResult, apiErr := svc.Memory(ctx, v1.MemoryCommandPayload{
 		ProjectID:   projectID,
 		ReceiptID:   getResult.Receipt.Meta.ReceiptID,
 		AutoPromote: &autoPromote,
@@ -122,13 +117,13 @@ func TestRuntimePostgresIntegration_Step10Evidence(t *testing.T) {
 		},
 	})
 	if apiErr != nil {
-		t.Fatalf("propose_memory API error: %+v", apiErr)
+		t.Fatalf("memory API error: %+v", apiErr)
 	}
 	if proposeResult.CandidateID <= 0 {
 		t.Fatalf("expected candidate_id > 0, got %d", proposeResult.CandidateID)
 	}
 	if proposeResult.Status != "pending" {
-		t.Fatalf("expected propose_memory status pending, got %q", proposeResult.Status)
+		t.Fatalf("expected memory status pending, got %q", proposeResult.Status)
 	}
 	if !proposeResult.Validation.HardPassed {
 		t.Fatalf("expected hard_passed=true, got false with errors: %v", proposeResult.Validation.Errors)
@@ -153,15 +148,15 @@ WHERE candidate_id = $1
 		t.Fatalf("expected persisted candidate receipt_id %q, got %q", getResult.Receipt.Meta.ReceiptID, candidateReceiptID)
 	}
 
-	reportOutcome := "step-10 integration report completion accepted"
-	reportResult, apiErr := svc.ReportCompletion(ctx, v1.ReportCompletionPayload{
+	reportOutcome := "step-10 integration done accepted"
+	reportResult, apiErr := svc.Done(ctx, v1.DonePayload{
 		ProjectID:    projectID,
 		ReceiptID:    getResult.Receipt.Meta.ReceiptID,
-		FilesChanged: []string{pointerPaths[0]},
+		FilesChanged: []string{"internal/runtime/service_factory.go"},
 		Outcome:      reportOutcome,
 	})
 	if apiErr != nil {
-		t.Fatalf("report_completion API error: code=%s message=%s details=%v", apiErr.Code, apiErr.Message, apiErr.Details)
+		t.Fatalf("done API error: code=%s message=%s details=%v", apiErr.Code, apiErr.Message, apiErr.Details)
 	}
 	if !reportResult.Accepted {
 		t.Fatalf("expected accepted completion, got violations: %+v", reportResult.Violations)
@@ -186,8 +181,8 @@ WHERE run_id = $1
 	if persistedOutcome != reportOutcome {
 		t.Fatalf("expected persisted run outcome %q, got %q", reportOutcome, persistedOutcome)
 	}
-	if len(persistedFiles) == 0 || !slices.Contains(persistedFiles, pointerPaths[0]) {
-		t.Fatalf("expected persisted files_changed to include %q, got %v", pointerPaths[0], persistedFiles)
+	if len(persistedFiles) == 0 || !slices.Contains(persistedFiles, "internal/runtime/service_factory.go") {
+		t.Fatalf("expected persisted files_changed to include %q, got %v", "internal/runtime/service_factory.go", persistedFiles)
 	}
 }
 
@@ -230,6 +225,9 @@ func assertMigrationsApplied(t *testing.T, ctx context.Context, pool *pgxpool.Po
 		"0007_acm_verification_runs.sql",
 		"0008_acm_run_history_indexes.sql",
 		"0010_acm_review_attempts.sql",
+		"0011_acm_receipt_scope_pointer_paths.sql",
+		"0012_acm_initial_scope_and_baselines.sql",
+		"0013_acm_complete_status.sql",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected migration record set: got %v want %v", got, want)
@@ -311,20 +309,13 @@ func receiptPointerKeys(receipt *v1.ContextReceipt) []string {
 		return nil
 	}
 
-	keys := make(map[string]struct{}, len(receipt.Rules)+len(receipt.Suggestions))
+	keys := make(map[string]struct{}, len(receipt.Rules))
 	for _, rule := range receipt.Rules {
 		key := strings.TrimSpace(rule.Key)
 		if key != "" {
 			keys[key] = struct{}{}
 		}
 	}
-	for _, suggestion := range receipt.Suggestions {
-		key := strings.TrimSpace(suggestion.Key)
-		if key != "" {
-			keys[key] = struct{}{}
-		}
-	}
-
 	out := make([]string, 0, len(keys))
 	for key := range keys {
 		out = append(out, key)

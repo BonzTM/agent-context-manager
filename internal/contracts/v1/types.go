@@ -7,21 +7,18 @@ const Version = "acm.v1"
 type Command string
 
 const (
-	CommandGetContext       Command = "get_context"
-	CommandFetch            Command = "fetch"
-	CommandProposeMemory    Command = "propose_memory"
-	CommandReportCompletion Command = "report_completion"
-	CommandReview           Command = "review"
-	CommandWork             Command = "work"
-	CommandHistorySearch    Command = "history_search"
-	CommandSync             Command = "sync"
-	CommandHealthCheck      Command = "health_check"
-	CommandHealthFix        Command = "health_fix"
-	CommandStatus           Command = "status"
-	CommandCoverage         Command = "coverage"
-	CommandEval             Command = "eval"
-	CommandVerify           Command = "verify"
-	CommandBootstrap        Command = "bootstrap"
+	CommandContext       Command = "context"
+	CommandFetch         Command = "fetch"
+	CommandMemory        Command = "memory"
+	CommandDone          Command = "done"
+	CommandReview        Command = "review"
+	CommandWork          Command = "work"
+	CommandHistorySearch Command = "history"
+	CommandSync          Command = "sync"
+	CommandHealth        Command = "health"
+	CommandStatus        Command = "status"
+	CommandVerify        Command = "verify"
+	CommandInit          Command = "init"
 )
 
 type Phase string
@@ -35,9 +32,8 @@ const (
 type ScopeMode string
 
 const (
-	ScopeModeStrict    ScopeMode = "strict"
-	ScopeModeWarn      ScopeMode = "warn"
-	ScopeModeAutoIndex ScopeMode = "auto_index"
+	ScopeModeStrict ScopeMode = "strict"
+	ScopeModeWarn   ScopeMode = "warn"
 )
 
 type MemoryCategory string
@@ -72,25 +68,12 @@ type ResultEnvelope struct {
 	Error     *ErrorPayload `json:"error,omitempty"`
 }
 
-type RetrievalCaps struct {
-	MaxNonRulePointers int `json:"max_non_rule_pointers,omitempty"`
-	MaxRulePointers    int `json:"max_rule_pointers,omitempty"`
-	MaxHops            int `json:"max_hops,omitempty"`
-	MaxHopExpansion    int `json:"max_hop_expansion,omitempty"`
-	MaxMemories        int `json:"max_memories,omitempty"`
-	MinPointerCount    int `json:"min_pointer_count,omitempty"`
-	WordBudgetLimit    int `json:"word_budget_limit,omitempty"`
-}
-
-type GetContextPayload struct {
-	ProjectID    string         `json:"project_id"`
-	TaskText     string         `json:"task_text"`
-	Phase        Phase          `json:"phase"`
-	TagsFile     string         `json:"tags_file,omitempty"`
-	Unbounded    *bool          `json:"unbounded,omitempty"`
-	Caps         *RetrievalCaps `json:"caps,omitempty"`
-	AllowStale   bool           `json:"allow_stale,omitempty"`
-	FallbackMode string         `json:"fallback_mode,omitempty"`
+type ContextPayload struct {
+	ProjectID         string   `json:"project_id"`
+	TaskText          string   `json:"task_text"`
+	Phase             Phase    `json:"phase"`
+	TagsFile          string   `json:"tags_file,omitempty"`
+	InitialScopePaths []string `json:"initial_scope_paths,omitempty"`
 }
 
 type FetchPayload struct {
@@ -110,21 +93,24 @@ type MemoryPayload struct {
 	EvidencePointerKeys []string       `json:"evidence_pointer_keys"`
 }
 
-type ProposeMemoryPayload struct {
+type MemoryCommandPayload struct {
 	ProjectID   string        `json:"project_id"`
-	ReceiptID   string        `json:"receipt_id"`
+	ReceiptID   string        `json:"receipt_id,omitempty"`
+	PlanKey     string        `json:"plan_key,omitempty"`
 	TagsFile    string        `json:"tags_file,omitempty"`
 	Memory      MemoryPayload `json:"memory"`
 	AutoPromote *bool         `json:"auto_promote,omitempty"`
 }
 
-type ReportCompletionPayload struct {
-	ProjectID    string    `json:"project_id"`
-	ReceiptID    string    `json:"receipt_id"`
-	TagsFile     string    `json:"tags_file,omitempty"`
-	FilesChanged []string  `json:"files_changed"`
-	Outcome      string    `json:"outcome"`
-	ScopeMode    ScopeMode `json:"scope_mode,omitempty"`
+type DonePayload struct {
+	ProjectID     string    `json:"project_id"`
+	ReceiptID     string    `json:"receipt_id,omitempty"`
+	PlanKey       string    `json:"plan_key,omitempty"`
+	TagsFile      string    `json:"tags_file,omitempty"`
+	FilesChanged  []string  `json:"files_changed,omitempty"`
+	NoFileChanges bool      `json:"no_file_changes,omitempty"`
+	Outcome       string    `json:"outcome"`
+	ScopeMode     ScopeMode `json:"scope_mode,omitempty"`
 }
 
 type WorkItemStatus string
@@ -150,17 +136,18 @@ type WorkPlanStagesPayload struct {
 }
 
 type WorkPlanPayload struct {
-	Title         string                 `json:"title,omitempty"`
-	Objective     string                 `json:"objective,omitempty"`
-	Kind          string                 `json:"kind,omitempty"`
-	ParentPlanKey string                 `json:"parent_plan_key,omitempty"`
-	Status        WorkItemStatus         `json:"status,omitempty"`
-	Stages        *WorkPlanStagesPayload `json:"stages,omitempty"`
-	InScope       []string               `json:"in_scope,omitempty"`
-	OutOfScope    []string               `json:"out_of_scope,omitempty"`
-	Constraints   []string               `json:"constraints,omitempty"`
-	References    []string               `json:"references,omitempty"`
-	ExternalRefs  []string               `json:"external_refs,omitempty"`
+	Title           string                 `json:"title,omitempty"`
+	Objective       string                 `json:"objective,omitempty"`
+	Kind            string                 `json:"kind,omitempty"`
+	ParentPlanKey   string                 `json:"parent_plan_key,omitempty"`
+	Status          WorkItemStatus         `json:"status,omitempty"`
+	Stages          *WorkPlanStagesPayload `json:"stages,omitempty"`
+	InScope         []string               `json:"in_scope,omitempty"`
+	OutOfScope      []string               `json:"out_of_scope,omitempty"`
+	DiscoveredPaths []string               `json:"discovered_paths,omitempty"`
+	Constraints     []string               `json:"constraints,omitempty"`
+	References      []string               `json:"references,omitempty"`
+	ExternalRefs    []string               `json:"external_refs,omitempty"`
 }
 
 type WorkTaskPayload struct {
@@ -226,28 +213,24 @@ type SyncPayload struct {
 	InsertNewCandidates *bool  `json:"insert_new_candidates,omitempty"`
 }
 
-type HealthCheckPayload struct {
-	ProjectID           string `json:"project_id"`
-	IncludeDetails      *bool  `json:"include_details,omitempty"`
-	MaxFindingsPerCheck *int   `json:"max_findings_per_check,omitempty"`
-}
-
 type HealthFixer string
 
 const (
 	HealthFixerAll                HealthFixer = "all"
 	HealthFixerSyncWorkingTree    HealthFixer = "sync_working_tree"
-	HealthFixerIndexUncoveredFile HealthFixer = "index_uncovered_files"
+	HealthFixerIndexUnindexedFile HealthFixer = "index_unindexed_files"
 	HealthFixerSyncRuleset        HealthFixer = "sync_ruleset"
 )
 
-type HealthFixPayload struct {
-	ProjectID   string        `json:"project_id"`
-	Apply       *bool         `json:"apply,omitempty"`
-	ProjectRoot string        `json:"project_root,omitempty"`
-	RulesFile   string        `json:"rules_file,omitempty"`
-	TagsFile    string        `json:"tags_file,omitempty"`
-	Fixers      []HealthFixer `json:"fixers,omitempty"`
+type HealthPayload struct {
+	ProjectID           string        `json:"project_id"`
+	IncludeDetails      *bool         `json:"include_details,omitempty"`
+	MaxFindingsPerCheck *int          `json:"max_findings_per_check,omitempty"`
+	Apply               *bool         `json:"apply,omitempty"`
+	ProjectRoot         string        `json:"project_root,omitempty"`
+	RulesFile           string        `json:"rules_file,omitempty"`
+	TagsFile            string        `json:"tags_file,omitempty"`
+	Fixers              []HealthFixer `json:"fixers,omitempty"`
 }
 
 type StatusPayload struct {
@@ -259,26 +242,6 @@ type StatusPayload struct {
 	WorkflowsFile string `json:"workflows_file,omitempty"`
 	TaskText      string `json:"task_text,omitempty"`
 	Phase         Phase  `json:"phase,omitempty"`
-}
-
-type CoveragePayload struct {
-	ProjectID   string `json:"project_id"`
-	ProjectRoot string `json:"project_root,omitempty"`
-}
-
-type EvalCase struct {
-	TaskText               string   `json:"task_text"`
-	Phase                  Phase    `json:"phase"`
-	ExpectedPointerKeys    []string `json:"expected_pointer_keys,omitempty"`
-	ExpectedMemorySubjects []string `json:"expected_memory_subjects,omitempty"`
-}
-
-type EvalPayload struct {
-	ProjectID       string     `json:"project_id"`
-	EvalSuitePath   string     `json:"eval_suite_path,omitempty"`
-	EvalSuiteInline []EvalCase `json:"eval_suite_inline,omitempty"`
-	MinimumRecall   *float64   `json:"minimum_recall,omitempty"`
-	TagsFile        string     `json:"tags_file,omitempty"`
 }
 
 type VerifyPayload struct {
@@ -293,7 +256,7 @@ type VerifyPayload struct {
 	DryRun       bool     `json:"dry_run,omitempty"`
 }
 
-type BootstrapPayload struct {
+type InitPayload struct {
 	ProjectID            string   `json:"project_id"`
 	ProjectRoot          string   `json:"project_root"`
 	RulesFile            string   `json:"rules_file,omitempty"`
@@ -304,24 +267,12 @@ type BootstrapPayload struct {
 	ApplyTemplates       []string `json:"apply_templates,omitempty"`
 }
 
-type ContextBudget struct {
-	Unit      string `json:"unit"`
-	Limit     int    `json:"limit"`
-	Used      int    `json:"used"`
-	Remaining int    `json:"remaining"`
-}
-
 type ContextRule struct {
 	RuleID      string `json:"rule_id"`
 	Key         string `json:"key"`
 	Summary     string `json:"summary"`
 	Enforcement string `json:"enforcement"`
 	Content     string `json:"content,omitempty"`
-}
-
-type ContextSuggestion struct {
-	Key     string `json:"key"`
-	Summary string `json:"summary"`
 }
 
 type ContextMemory struct {
@@ -345,33 +296,25 @@ type ContextPlanTaskCounts struct {
 }
 
 type ContextReceiptMeta struct {
-	ReceiptID        string        `json:"receipt_id"`
-	RetrievalVersion string        `json:"retrieval_version"`
-	ProjectID        string        `json:"project_id"`
-	TaskText         string        `json:"task_text"`
-	Phase            Phase         `json:"phase"`
-	ResolvedTags     []string      `json:"resolved_tags"`
-	Budget           ContextBudget `json:"budget"`
+	ReceiptID        string   `json:"receipt_id"`
+	ProjectID        string   `json:"project_id"`
+	TaskText         string   `json:"task_text"`
+	Phase            Phase    `json:"phase"`
+	ResolvedTags     []string `json:"resolved_tags"`
+	BaselineCaptured bool     `json:"baseline_captured"`
 }
 
 type ContextReceipt struct {
-	Rules       []ContextRule       `json:"rules"`
-	Suggestions []ContextSuggestion `json:"suggestions"`
-	Memories    []ContextMemory     `json:"memories"`
-	Plans       []ContextPlan       `json:"plans"`
-	Meta        ContextReceiptMeta  `json:"_meta"`
+	Rules             []ContextRule      `json:"rules"`
+	Memories          []ContextMemory    `json:"memories"`
+	Plans             []ContextPlan      `json:"plans"`
+	InitialScopePaths []string           `json:"initial_scope_paths,omitempty"`
+	Meta              ContextReceiptMeta `json:"_meta"`
 }
 
-type GetContextDiagnostics struct {
-	InitialPointerCount int    `json:"initial_pointer_count,omitempty"`
-	FallbackUsed        bool   `json:"fallback_used,omitempty"`
-	FallbackMode        string `json:"fallback_mode,omitempty"`
-}
-
-type GetContextResult struct {
-	Status      string                 `json:"status"`
-	Receipt     *ContextReceipt        `json:"receipt,omitempty"`
-	Diagnostics *GetContextDiagnostics `json:"diagnostics,omitempty"`
+type ContextResult struct {
+	Status  string          `json:"status"`
+	Receipt *ContextReceipt `json:"receipt,omitempty"`
 }
 
 type FetchItem struct {
@@ -395,18 +338,18 @@ type FetchResult struct {
 	VersionMismatches []FetchVersionMismatch `json:"version_mismatches,omitempty"`
 }
 
-type ProposeMemoryValidation struct {
+type MemoryValidation struct {
 	HardPassed bool     `json:"hard_passed"`
 	SoftPassed bool     `json:"soft_passed"`
 	Errors     []string `json:"errors"`
 	Warnings   []string `json:"warnings"`
 }
 
-type ProposeMemoryResult struct {
-	CandidateID      int                     `json:"candidate_id"`
-	Status           string                  `json:"status"`
-	PromotedMemoryID int                     `json:"promoted_memory_id,omitempty"`
-	Validation       ProposeMemoryValidation `json:"validation"`
+type MemoryResult struct {
+	CandidateID      int              `json:"candidate_id"`
+	Status           string           `json:"status"`
+	PromotedMemoryID int              `json:"promoted_memory_id,omitempty"`
+	Validation       MemoryValidation `json:"validation"`
 }
 
 type CompletionViolation struct {
@@ -414,7 +357,7 @@ type CompletionViolation struct {
 	Reason string `json:"reason"`
 }
 
-type ReportCompletionResult struct {
+type DoneResult struct {
 	Accepted               bool                  `json:"accepted"`
 	Violations             []CompletionViolation `json:"violations"`
 	DefinitionOfDoneIssues []string              `json:"definition_of_done_issues,omitempty"`
@@ -494,6 +437,12 @@ type HealthFixResult struct {
 	Summary        string            `json:"summary"`
 }
 
+type HealthResult struct {
+	Mode  string             `json:"mode"`
+	Check *HealthCheckResult `json:"check,omitempty"`
+	Fix   *HealthFixResult   `json:"fix,omitempty"`
+}
+
 type StatusSummary struct {
 	Ready        bool `json:"ready"`
 	MissingCount int  `json:"missing_count"`
@@ -529,25 +478,16 @@ type StatusIntegration struct {
 	MissingTargets  []string `json:"missing_targets,omitempty"`
 }
 
-type StatusRetrievalSelection struct {
-	Key     string   `json:"key"`
-	Kind    string   `json:"kind"`
-	IsRule  bool     `json:"is_rule,omitempty"`
-	Reasons []string `json:"reasons,omitempty"`
-}
-
-type StatusRetrieval struct {
-	TaskText         string                     `json:"task_text,omitempty"`
-	Phase            Phase                      `json:"phase,omitempty"`
-	Status           string                     `json:"status"`
-	Diagnostics      *GetContextDiagnostics     `json:"diagnostics,omitempty"`
-	ResolvedTags     []string                   `json:"resolved_tags,omitempty"`
-	RuleCount        int                        `json:"rule_count,omitempty"`
-	SuggestionCount  int                        `json:"suggestion_count,omitempty"`
-	MemoryCount      int                        `json:"memory_count,omitempty"`
-	PlanCount        int                        `json:"plan_count,omitempty"`
-	SelectedPointers []StatusRetrievalSelection `json:"selected_pointers,omitempty"`
-	Error            string                     `json:"error,omitempty"`
+type StatusContextPreview struct {
+	TaskText              string   `json:"task_text,omitempty"`
+	Phase                 Phase    `json:"phase,omitempty"`
+	Status                string   `json:"status"`
+	ResolvedTags          []string `json:"resolved_tags,omitempty"`
+	RuleCount             int      `json:"rule_count,omitempty"`
+	MemoryCount           int      `json:"memory_count,omitempty"`
+	PlanCount             int      `json:"plan_count,omitempty"`
+	InitialScopePathCount int      `json:"initial_scope_path_count,omitempty"`
+	Error                 string   `json:"error,omitempty"`
 }
 
 type StatusMissingItem struct {
@@ -556,49 +496,12 @@ type StatusMissingItem struct {
 }
 
 type StatusResult struct {
-	Summary      StatusSummary       `json:"summary"`
-	Project      StatusProject       `json:"project"`
-	Sources      []StatusSource      `json:"sources"`
-	Integrations []StatusIntegration `json:"integrations"`
-	Retrieval    *StatusRetrieval    `json:"retrieval,omitempty"`
-	Missing      []StatusMissingItem `json:"missing,omitempty"`
-}
-
-type CoverageSummary struct {
-	TotalFiles      int     `json:"total_files"`
-	IndexedFiles    int     `json:"indexed_files"`
-	UnindexedFiles  int     `json:"unindexed_files"`
-	StaleFiles      int     `json:"stale_files"`
-	CoveragePercent float64 `json:"coverage_percent"`
-}
-
-type CoverageResult struct {
-	Summary          CoverageSummary `json:"summary"`
-	UnindexedPaths   []string        `json:"unindexed_paths,omitempty"`
-	StalePaths       []string        `json:"stale_paths,omitempty"`
-	ZeroCoverageDirs []string        `json:"zero_coverage_dirs,omitempty"`
-}
-
-type EvalAggregate struct {
-	Precision float64 `json:"precision"`
-	Recall    float64 `json:"recall"`
-	F1        float64 `json:"f1"`
-}
-
-type EvalCaseResult struct {
-	Index     int     `json:"index"`
-	Precision float64 `json:"precision"`
-	Recall    float64 `json:"recall"`
-	F1        float64 `json:"f1"`
-	Notes     string  `json:"notes,omitempty"`
-}
-
-type EvalResult struct {
-	TotalCases    int              `json:"total_cases"`
-	Aggregate     EvalAggregate    `json:"aggregate"`
-	MinimumRecall float64          `json:"minimum_recall"`
-	Pass          bool             `json:"pass"`
-	Cases         []EvalCaseResult `json:"cases,omitempty"`
+	Summary      StatusSummary         `json:"summary"`
+	Project      StatusProject         `json:"project"`
+	Sources      []StatusSource        `json:"sources"`
+	Integrations []StatusIntegration   `json:"integrations"`
+	Context      *StatusContextPreview `json:"context,omitempty"`
+	Missing      []StatusMissingItem   `json:"missing,omitempty"`
 }
 
 type VerifyStatus string
@@ -645,24 +548,24 @@ type VerifyResult struct {
 	Results         []VerifyTestResult `json:"results,omitempty"`
 }
 
-type BootstrapResult struct {
-	CandidateCount       int                       `json:"candidate_count"`
-	IndexedStubs         int                       `json:"indexed_stubs"`
-	CandidatesPersisted  bool                      `json:"candidates_persisted"`
-	OutputCandidatesPath string                    `json:"output_candidates_path,omitempty"`
-	Warnings             []string                  `json:"warnings,omitempty"`
-	TemplateResults      []BootstrapTemplateResult `json:"template_results,omitempty"`
+type InitResult struct {
+	CandidateCount       int                  `json:"candidate_count"`
+	IndexedStubs         int                  `json:"indexed_stubs"`
+	CandidatesPersisted  bool                 `json:"candidates_persisted"`
+	OutputCandidatesPath string               `json:"output_candidates_path,omitempty"`
+	Warnings             []string             `json:"warnings,omitempty"`
+	TemplateResults      []InitTemplateResult `json:"template_results,omitempty"`
 }
 
-type BootstrapTemplateConflict struct {
+type InitTemplateConflict struct {
 	Path   string `json:"path"`
 	Reason string `json:"reason"`
 }
 
-type BootstrapTemplateResult struct {
-	TemplateID       string                      `json:"template_id"`
-	Created          []string                    `json:"created,omitempty"`
-	Updated          []string                    `json:"updated,omitempty"`
-	Unchanged        []string                    `json:"unchanged,omitempty"`
-	SkippedConflicts []BootstrapTemplateConflict `json:"skipped_conflicts,omitempty"`
+type InitTemplateResult struct {
+	TemplateID       string                 `json:"template_id"`
+	Created          []string               `json:"created,omitempty"`
+	Updated          []string               `json:"updated,omitempty"`
+	Unchanged        []string               `json:"unchanged,omitempty"`
+	SkippedConflicts []InitTemplateConflict `json:"skipped_conflicts,omitempty"`
 }

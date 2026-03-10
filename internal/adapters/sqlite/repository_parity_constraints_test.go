@@ -5,30 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bonztm/agent-context-manager/internal/core"
 )
-
-func TestTextMatchRank_IgnoresNonSearchMetadata(t *testing.T) {
-	score := textMatchRank([]string{"fetch-only-key"}, core.CandidatePointer{
-		Key:         "code:fetch-only-key",
-		Path:        "internal/fetch-only-key/service.go",
-		Anchor:      "fetch-only-key",
-		Kind:        "fetch-only-key",
-		Label:       "Repository service",
-		Description: "Persists receipt scope",
-		Tags:        []string{"backend"},
-	})
-	if score != 0 {
-		t.Fatalf("expected zero score from key/path-only token match, got %d", score)
-	}
-}
-
-func TestPointerKind_TreatsUnderscoreTestExtensionAsTest(t *testing.T) {
-	if got := pointerKind(core.CandidatePointer{Path: "pkg/widget_test.ts"}); got != "test" {
-		t.Fatalf("unexpected pointer kind: got %q want %q", got, "test")
-	}
-}
 
 func TestSQLiteMigrations_EnforcePointerLinkForeignKeys(t *testing.T) {
 	ctx := context.Background()

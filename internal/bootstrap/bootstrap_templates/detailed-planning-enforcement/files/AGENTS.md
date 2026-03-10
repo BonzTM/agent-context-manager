@@ -13,22 +13,24 @@ Operating contract for a repo that uses `acm` and wants enforced detailed featur
 ## Required Task Loop
 
 1. Read this file and the human task.
-2. Run `get_context` before opening or editing project files.
+2. Run `acm context` before opening or editing project files.
 3. Follow all hard rules returned in the receipt.
 4. Use `fetch` only for the pointers, plans, and task keys needed for the current step.
 5. When a task spans multiple steps, multiple files, or a likely handoff, create or update `work`.
 6. For net-new feature work or large capability expansions, create the repo's detailed feature plan before implementation.
-7. If code, config, schema, or other executable behavior changes, run `verify` before `report_completion`.
-8. If `.acm/acm-workflows.yaml` requires review task keys such as `review:cross-llm`, prefer `review --run` when the task defines a `run` block; otherwise use manual `review` fields or `work` before `report_completion`.
-9. End every task with `report_completion`, including every changed file and a concise outcome.
-10. If you learn a reusable decision, gotcha, or preference, record it with `propose_memory`.
+7. If code, config, schema, or other executable behavior changes, run `verify` before `done`.
+8. If `.acm/acm-workflows.yaml` requires review task keys such as `review:cross-llm`, prefer `review --run` when the task defines a `run` block; otherwise use manual `review` fields or `work` before `done`.
+9. End every task with `done`, including every changed file for file-backed work when you know them, or letting ACM derive the task delta from the receipt baseline. When that detected delta is empty, the closeout is effectively no-file.
+10. If you learn a reusable decision, gotcha, or preference, record it with `memory`.
 
-If you need to resume after compaction or inspect archived work, use `work list` or `work search --scope all` for plan discovery. If you need receipts, runs, or durable memories too, use `history search --entity all` or `history search --entity memory`, then `fetch` the returned `fetch_keys`.
-If you need to debug project setup, loaded ACM files, integrations, or why retrieval is behaving a certain way, use `status` (preferred) or `doctor` (alias).
+When the task changes rules, tags, tests, workflows, onboarding, or tool-surface behavior, refresh broker state with `acm sync --mode working_tree --insert-new-candidates` and then run `acm health --include-details` before `done`.
+
+If you need to resume after compaction or inspect archived work, use direct CLI `acm history` with `--entity work` for plan/task discovery or another entity for memories, receipts, and runs, then `acm fetch` the returned `fetch_keys`.
+If you need to debug project setup, loaded ACM files, integrations, or what `context` would load for a task, use `acm status`.
 
 ## Working Rules
 
-- Do not silently expand scope. Refresh context first if the task spills into adjacent systems.
+- Do not silently expand governed file scope. Refresh context first if the task spills into adjacent systems, and use `work.plan.discovered_paths` when later-discovered files must be declared for review/done.
 - Prefer small, reviewable changes over broad cleanup.
 - Do not invent product requirements, compatibility guarantees, or migration behavior when the repo does not define them.
 - If verification fails, either fix the issue or report the failure clearly. Do not claim the task is complete as if checks passed.
@@ -63,8 +65,8 @@ Use thinner plans for bugfixes, narrow maintenance, review-only work, or workflo
 ## Ruleset Maintenance
 
 1. Edit the canonical rules, tags, tests, or workflow files.
-2. Run `sync` or `health --apply`.
-3. Run `health` and resolve blocking findings.
+2. Run `acm sync --mode working_tree --insert-new-candidates` or `acm health --apply`.
+3. Run `acm health --include-details` and resolve blocking findings.
 
 ## Tool-Specific Companions
 

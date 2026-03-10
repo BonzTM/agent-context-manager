@@ -1,11 +1,11 @@
-# Bootstrap Templates
+# Init Templates
 
-`acm bootstrap` accepts repeatable `--apply-template <id>` flags so you can start minimal, then opt into heavier scaffolding later without replacing edited repo files.
+`acm init` accepts repeatable `--apply-template <id>` flags so you can start minimal, then opt into heavier scaffolding later without replacing edited repo files.
 
 Example:
 
 ```bash
-acm bootstrap \
+acm init \
   --apply-template starter-contract \
   --apply-template verify-generic \
   --apply-template claude-command-pack
@@ -37,8 +37,7 @@ Current built-ins:
 - `claude-hooks`
   - merges additive Claude hook settings into `.claude/settings.json`
   - seeds `.claude/hooks/acm-receipt-guard.sh`, `.claude/hooks/acm-receipt-mark.sh`, `.claude/hooks/acm-session-context.sh`, `.claude/hooks/acm-edit-state.sh`, and `.claude/hooks/acm-stop-guard.sh`
-  - injects the ACM loop at session start/compaction, keeps edits blocked until a task-bearing `/acm-get` or equivalent `get_context` request succeeds, nudges `/acm-work` once edits span files, and blocks stop until edited work is reported
-  - the older `claude-receipt-guard` id still resolves to this template as a compatibility alias
+  - injects the ACM loop at session start/compaction, keeps edits blocked until a task-bearing `/acm-context` or equivalent `context` request succeeds, nudges `/acm-work` once edits span files or governed scope expands, and blocks stop until edited work is reported
 - `git-hooks-precommit`
   - seeds `.githooks/pre-commit`
   - forwards staged additions, modifications, renames, type changes, and deletions into `acm verify --phase review`

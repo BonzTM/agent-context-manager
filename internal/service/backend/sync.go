@@ -162,7 +162,7 @@ func (s *Service) collectWorkingTreeSyncPaths(ctx context.Context, projectRoot s
 		}
 		byPath[record.Path] = record
 	}
-	for _, filePath := range parseBootstrapGitPaths(untrackedOutput) {
+	for _, filePath := range parseInitCandidateGitPaths(untrackedOutput) {
 		if filePath == "" {
 			continue
 		}
@@ -561,11 +561,11 @@ func (s *Service) upsertAutoIndexedPaths(ctx context.Context, projectID, project
 	for _, filePath := range unindexedPaths {
 		violations = append(violations, v1.CompletionViolation{
 			Path:   filePath,
-			Reason: "auto-index uncovered file",
+			Reason: "index unindexed file",
 		})
 	}
 
-	return s.repo.UpsertPointerStubs(ctx, projectID, buildAutoIndexPointerStubs(projectID, violations, tagNormalizer))
+	return s.repo.UpsertPointerStubs(ctx, projectID, buildIndexedPointerStubs(projectID, violations, tagNormalizer))
 }
 
 func (s *Service) runGit(ctx context.Context, projectRoot string, args ...string) (string, error) {

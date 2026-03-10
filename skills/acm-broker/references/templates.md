@@ -5,30 +5,31 @@
 These examples assume installed `acm` and `acm-mcp` binaries are available on `PATH`.
 Example payloads show explicit `project_id` values for clarity. In live usage you may omit `project_id` when `ACM_PROJECT_ID` is set or acm can infer the project from the effective repo root.
 
-1. Run `get_context`.
+1. Run `acm context`.
 2. Follow the returned rules block (or rule pointers) as hard requirements.
-3. Treat code pointers as advisory suggestions.
-4. Run `fetch` for indexed artifacts by explicit keys or by `receipt_id` shorthand, which derives the plan fetch key.
+3. Note any `initial_scope_paths` already known at task start and treat them as the initial governed scope, not as a substitute for native repo search.
+4. Run `fetch` only for indexed artifacts you actually need to hydrate, either by explicit keys or by `receipt_id` shorthand, which derives the plan fetch key.
 5. Execute the task.
-6. Run `work` with `receipt_id` (no `plan_key` required) to publish updates. Use `tasks` and include `verify:tests` for executable verification tracking; add other task keys when `.acm/acm-workflows.yaml` requires them.
+6. Run `work` with `receipt_id` (no `plan_key` required) to publish updates. Use `tasks` and include `verify:tests` for executable verification tracking; add other task keys when `.acm/acm-workflows.yaml` requires them. When governed file scope expands after `context`, append those repo-relative files to `plan.discovered_paths`.
 7. Run `review` when you only need to record a single review-gate outcome instead of assembling a broader `work` payload.
-8. Run `verify` before `report_completion` when code changes.
-9. Run `report_completion`.
-10. Run `propose_memory` when the result should persist.
-11. When resuming or auditing prior work, use `history_search` or the CLI `work list`, `work search`, `history search --entity all`, or `history search --entity memory`, then `fetch` the returned `fetch_keys`.
+8. Run `verify` before `done` when code changes.
+9. Run `done` with changed files for file-backed work when you know them, or omit / leave `files_changed` empty to let ACM derive the real task delta from the receipt baseline.
+10. Run `memory` when the result should persist.
+11. When resuming or auditing prior work, use direct CLI `acm history`, setting `--entity work` when you need work-specific `--scope` or `--kind` filters, then `acm fetch` the returned `fetch_keys`.
 
 Maintenance note:
+- When rules, tags, tests, workflows, onboarding, or tool-surface behavior change, run `acm sync --mode working_tree --insert-new-candidates` and then `acm health --include-details` before `done`.
 - `acm health --fix <name>` applies the selected fixer by default.
 - Add `--dry-run` to preview health fixes without changing state.
 - Use `acm health --fix all` to run the default fixer set explicitly.
 
-## CLI `get_context` request
+## CLI `context` request
 
 ```json
 {
   "version": "acm.v1",
-  "command": "get_context",
-  "request_id": "req-get-context-001",
+  "command": "context",
+  "request_id": "req-context-001",
   "payload": {
     "project_id": "customer-portal",
     "task_text": "fix the profile settings save race so stale responses cannot overwrite newer edits",
@@ -37,14 +38,20 @@ Maintenance note:
 }
 ```
 
-Run:
+Run directly:
 
 ```bash
-acm validate --in assets/requests/get_context.execute.json
-acm run --in assets/requests/get_context.execute.json
+acm context --project customer-portal --task-text "fix the profile settings save race so stale responses cannot overwrite newer edits" --phase execute
 ```
 
-## MCP `get_context` input
+Optional structured JSON automation:
+
+```bash
+acm validate --in assets/requests/context.execute.json
+acm run --in assets/requests/context.execute.json
+```
+
+## MCP `context` input
 
 ```json
 {
@@ -57,7 +64,7 @@ acm run --in assets/requests/get_context.execute.json
 Run:
 
 ```bash
-acm-mcp invoke --tool get_context --in assets/requests/mcp_get_context.execute.json
+acm-mcp invoke --tool context --in assets/requests/mcp_context.execute.json
 ```
 
 ## CLI `fetch` request
@@ -69,7 +76,7 @@ acm-mcp invoke --tool get_context --in assets/requests/mcp_get_context.execute.j
   "request_id": "req-fetch-001",
   "payload": {
     "project_id": "customer-portal",
-    "receipt_id": "replace-from-get-context-receipt",
+    "receipt_id": "replace-from-context-receipt",
     "keys": [
       "customer-portal:web/src/features/profile/ProfileForm.tsx",
       "customer-portal:web/src/features/profile/useSaveProfile.ts",
@@ -79,7 +86,13 @@ acm-mcp invoke --tool get_context --in assets/requests/mcp_get_context.execute.j
 }
 ```
 
-Run:
+Run directly:
+
+```bash
+acm fetch --project customer-portal --receipt-id replace-from-context-receipt --key customer-portal:web/src/features/profile/ProfileForm.tsx --key customer-portal:web/src/features/profile/useSaveProfile.ts --key customer-portal:web/src/features/profile/useSaveProfile.test.tsx
+```
+
+Optional structured JSON automation:
 
 ```bash
 acm validate --in assets/requests/fetch.json
@@ -91,7 +104,7 @@ acm run --in assets/requests/fetch.json
 ```json
 {
   "project_id": "customer-portal",
-  "receipt_id": "replace-from-get-context-receipt",
+  "receipt_id": "replace-from-context-receipt",
   "keys": [
     "customer-portal:web/src/features/profile/ProfileForm.tsx",
     "customer-portal:web/src/features/profile/useSaveProfile.ts",
@@ -115,13 +128,16 @@ acm-mcp invoke --tool fetch --in assets/requests/mcp_fetch.json
   "request_id": "req-work-001",
   "payload": {
     "project_id": "customer-portal",
-    "receipt_id": "replace-from-get-context-receipt",
+    "receipt_id": "replace-from-context-receipt",
     "mode": "merge",
     "plan": {
       "title": "Profile settings save race",
       "objective": "Prevent stale save responses from overwriting newer settings and verify the fix",
       "kind": "bugfix",
       "status": "in_progress",
+      "discovered_paths": [
+        "web/src/features/profile/useSaveProfile.test.tsx"
+      ],
       "constraints": [
         "Preserve the existing save API contract",
         "Keep optimistic success feedback for the newest request"
@@ -169,7 +185,15 @@ acm-mcp invoke --tool fetch --in assets/requests/mcp_fetch.json
 }
 ```
 
-Run:
+Run directly:
+
+```bash
+acm work --project customer-portal --receipt-id replace-from-context-receipt --mode merge --plan-json '{"title":"Profile settings save race","objective":"Prevent stale save responses from overwriting newer settings and verify the fix","kind":"bugfix","status":"in_progress","discovered_paths":["web/src/features/profile/useSaveProfile.test.tsx"]}' --tasks-json '[{"key":"guard-stale-saves","summary":"Ignore stale save responses and keep the newest request authoritative","status":"in_progress"},{"key":"verify:tests","summary":"Run targeted frontend verification for profile save behavior","status":"pending"}]'
+```
+
+The example above treats the regression test file as later-discovered governed scope through `plan.discovered_paths`, which is what `review` and `done` validate when work expands beyond the initial receipt.
+
+Optional structured JSON automation:
 
 ```bash
 acm validate --in assets/requests/work.json
@@ -185,7 +209,7 @@ If the repo defines a richer feature-plan contract, use the same `work` surface 
   "request_id": "req-work-feature-001",
   "payload": {
     "project_id": "customer-portal",
-    "receipt_id": "replace-from-get-context-receipt",
+    "receipt_id": "replace-from-context-receipt",
     "mode": "merge",
     "plan": {
       "title": "Offline downloads",
@@ -244,13 +268,16 @@ Repos can enforce that schema through a repo-local `verify` script that inspects
 ```json
 {
   "project_id": "customer-portal",
-  "receipt_id": "replace-from-get-context-receipt",
+  "receipt_id": "replace-from-context-receipt",
   "mode": "merge",
   "plan": {
     "title": "Profile settings save race",
     "objective": "Prevent stale save responses from overwriting newer settings and verify the fix",
     "kind": "bugfix",
-    "status": "in_progress"
+    "status": "in_progress",
+    "discovered_paths": [
+      "web/src/features/profile/useSaveProfile.test.tsx"
+    ]
   },
   "tasks": [
     {
@@ -282,13 +309,19 @@ acm-mcp invoke --tool work --in assets/requests/mcp_work.json
   "request_id": "req-review-001",
   "payload": {
     "project_id": "customer-portal",
-    "receipt_id": "replace-from-get-context-receipt",
+    "receipt_id": "replace-from-context-receipt",
     "run": true
   }
 }
 ```
 
-Run:
+Run directly:
+
+```bash
+acm review --project customer-portal --receipt-id replace-from-context-receipt --run
+```
+
+Optional structured JSON automation:
 
 ```bash
 acm validate --in assets/requests/review.json
@@ -300,7 +333,7 @@ acm run --in assets/requests/review.json
 ```json
 {
   "project_id": "customer-portal",
-  "receipt_id": "replace-from-get-context-receipt",
+  "receipt_id": "replace-from-context-receipt",
   "run": true
 }
 ```
@@ -313,7 +346,7 @@ acm-mcp invoke --tool review --in assets/requests/mcp_review.json
 
 `review` is intentionally thin. It lowers to one `work.tasks[]` merge update. Omitted `key`, `summary`, and `status` default to `review:cross-llm`, `Cross-LLM review`, and `complete`. Prefer `run=true` when the repo workflow defines a runnable review gate. Use `status=blocked` plus `blocked_reason` when the review gate is waiting or failed, and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode. Put repo-local reviewer choices such as script arguments, model ids, or reasoning levels in the workflow `run.argv` block.
 
-When work tasks are present, `report_completion.scope_mode` controls gate behavior: `strict` enforces configured completion tasks (defaulting to `verify:tests`), `warn` surfaces warnings.
+When work tasks are present, `done.scope_mode` controls gate behavior: `strict` enforces configured completion tasks from `.acm/acm-workflows.yaml`, and `warn` surfaces warnings. ACM uses the receipt baseline delta as the authoritative file set when it is available. If you also supply `files_changed`, ACM cross-checks that list and surfaces mismatches as violations. When changed files are present and no workflow gates are configured, ACM falls back to `verify:tests`; a detected empty delta behaves like a no-file closure but still honors explicit workflow gates.
 
 ## CLI `verify` request
 
@@ -324,7 +357,7 @@ When work tasks are present, `report_completion.scope_mode` controls gate behavi
   "request_id": "req-verify-001",
   "payload": {
     "project_id": "customer-portal",
-    "receipt_id": "replace-from-get-context-receipt",
+    "receipt_id": "replace-from-context-receipt",
     "phase": "review",
     "files_changed": [
       "web/src/features/profile/ProfileForm.tsx",
@@ -335,7 +368,13 @@ When work tasks are present, `report_completion.scope_mode` controls gate behavi
 }
 ```
 
-Run:
+Run directly:
+
+```bash
+acm verify --project customer-portal --receipt-id replace-from-context-receipt --phase review --file-changed web/src/features/profile/ProfileForm.tsx --file-changed web/src/features/profile/useSaveProfile.ts --file-changed web/src/features/profile/useSaveProfile.test.tsx
+```
+
+Optional structured JSON automation:
 
 ```bash
 acm validate --in assets/requests/verify.json
@@ -347,7 +386,7 @@ acm run --in assets/requests/verify.json
 ```json
 {
   "project_id": "customer-portal",
-  "receipt_id": "replace-from-get-context-receipt",
+  "receipt_id": "replace-from-context-receipt",
   "phase": "review",
   "files_changed": [
     "web/src/features/profile/ProfileForm.tsx",
@@ -363,16 +402,16 @@ Run:
 acm-mcp invoke --tool verify --in assets/requests/mcp_verify.json
 ```
 
-## CLI `report_completion` request
+## CLI `done` request
 
 ```json
 {
   "version": "acm.v1",
-  "command": "report_completion",
-  "request_id": "req-report-001",
+  "command": "done",
+  "request_id": "req-done-001",
   "payload": {
     "project_id": "customer-portal",
-    "receipt_id": "replace-from-get-context-receipt",
+    "receipt_id": "replace-from-context-receipt",
     "files_changed": [
       "web/src/features/profile/ProfileForm.tsx",
       "web/src/features/profile/useSaveProfile.ts",
@@ -383,19 +422,25 @@ acm-mcp invoke --tool verify --in assets/requests/mcp_verify.json
 }
 ```
 
-Run:
+Run directly:
 
 ```bash
-acm validate --in assets/requests/report_completion.json
-acm run --in assets/requests/report_completion.json
+acm done --project customer-portal --receipt-id replace-from-context-receipt --file-changed web/src/features/profile/ProfileForm.tsx --file-changed web/src/features/profile/useSaveProfile.ts --file-changed web/src/features/profile/useSaveProfile.test.tsx --outcome "Ignored stale profile save responses, preserved optimistic UI feedback, and added regression coverage."
 ```
 
-## MCP `report_completion` input
+Optional structured JSON automation:
+
+```bash
+acm validate --in assets/requests/done.json
+acm run --in assets/requests/done.json
+```
+
+## MCP `done` input
 
 ```json
 {
   "project_id": "customer-portal",
-  "receipt_id": "replace-from-get-context-receipt",
+  "receipt_id": "replace-from-context-receipt",
   "files_changed": [
     "web/src/features/profile/ProfileForm.tsx",
     "web/src/features/profile/useSaveProfile.ts",
@@ -408,19 +453,34 @@ acm run --in assets/requests/report_completion.json
 Run:
 
 ```bash
-acm-mcp invoke --tool report_completion --in assets/requests/mcp_report_completion.json
+acm-mcp invoke --tool done --in assets/requests/mcp_done.json
 ```
 
-## CLI `propose_memory` request
+When the detected task delta is empty, the closeout is effectively no-file:
 
 ```json
 {
   "version": "acm.v1",
-  "command": "propose_memory",
+  "command": "done",
+  "request_id": "req-done-no-files-001",
+  "payload": {
+    "project_id": "customer-portal",
+    "receipt_id": "replace-from-context-receipt",
+    "outcome": "Drafted the rollout plan, recorded follow-up review work, and closed the no-file planning task."
+  }
+}
+```
+
+## CLI `memory` request
+
+```json
+{
+  "version": "acm.v1",
+  "command": "memory",
   "request_id": "req-memory-001",
   "payload": {
     "project_id": "customer-portal",
-    "receipt_id": "replace-from-get-context-receipt",
+    "receipt_id": "replace-from-context-receipt",
     "memory": {
       "category": "gotcha",
       "subject": "profile save hook must ignore stale request completions",
@@ -445,19 +505,27 @@ acm-mcp invoke --tool report_completion --in assets/requests/mcp_report_completi
 }
 ```
 
-Run:
+Run directly:
 
 ```bash
-acm validate --in assets/requests/propose_memory.json
-acm run --in assets/requests/propose_memory.json
+acm memory --project customer-portal --receipt-id replace-from-context-receipt --category gotcha --subject "profile save hook must ignore stale request completions" --content "Concurrent profile saves can resolve out of order. The save hook must treat the newest request as authoritative or stale responses will overwrite fresh form state." --related-path web/src/features/profile/useSaveProfile.ts --related-path web/src/features/profile/ProfileForm.tsx --memory-tag frontend --memory-tag api --memory-tag test --confidence 4 --evidence-path web/src/features/profile/useSaveProfile.ts --evidence-path web/src/features/profile/useSaveProfile.test.tsx --auto-promote
 ```
 
-## MCP `propose_memory` input
+For CLI calls, prefer `--evidence-path` / `--related-path` when you only know governed repo-relative files. JSON/MCP payloads still carry the explicit pointer-key arrays because the wire contract uses exact keys rather than path shorthands.
+
+Optional structured JSON automation:
+
+```bash
+acm validate --in assets/requests/memory.json
+acm run --in assets/requests/memory.json
+```
+
+## MCP `memory` input
 
 ```json
 {
   "project_id": "customer-portal",
-  "receipt_id": "replace-from-get-context-receipt",
+  "receipt_id": "replace-from-context-receipt",
   "memory": {
     "category": "gotcha",
     "subject": "profile save hook must ignore stale request completions",
@@ -484,15 +552,15 @@ acm run --in assets/requests/propose_memory.json
 Run:
 
 ```bash
-acm-mcp invoke --tool propose_memory --in assets/requests/mcp_propose_memory.json
+acm-mcp invoke --tool memory --in assets/requests/mcp_memory.json
 ```
 
-## CLI `history search` request
+## CLI `acm history` request
 
 ```json
 {
   "version": "acm.v1",
-  "command": "history_search",
+  "command": "history",
   "request_id": "req-history-001",
   "payload": {
     "project_id": "customer-portal",
@@ -503,24 +571,30 @@ acm-mcp invoke --tool propose_memory --in assets/requests/mcp_propose_memory.jso
 }
 ```
 
-Run:
+Run directly:
 
 ```bash
-acm validate --in assets/requests/history_search.json
-acm run --in assets/requests/history_search.json
+acm history --project customer-portal --entity all --query "profile save" --limit 20
+```
+
+Optional structured JSON automation:
+
+```bash
+acm validate --in assets/requests/history.json
+acm run --in assets/requests/history.json
 ```
 
 Convenience CLI equivalents:
 
 ```bash
-acm work list --project customer-portal --scope current
-acm work search --project customer-portal --query "profile save"
-acm work search --project customer-portal --query "profile save" --scope completed --kind bugfix
-acm history search --project customer-portal --entity all --query "profile save" --limit 20
-acm history search --project customer-portal --entity memory --query "profile save"
+acm history --project customer-portal --entity work --scope current
+acm history --project customer-portal --entity work --query "profile save"
+acm history --project customer-portal --entity work --query "profile save" --scope completed --kind bugfix
+acm history --project customer-portal --entity all --query "profile save" --limit 20
+acm history --project customer-portal --entity memory --query "profile save"
 ```
 
-## MCP `history_search` input
+## MCP `history` input
 
 ```json
 {
@@ -534,5 +608,5 @@ acm history search --project customer-portal --entity memory --query "profile sa
 Run:
 
 ```bash
-acm-mcp invoke --tool history_search --in assets/requests/mcp_history_search.json
+acm-mcp invoke --tool history --in assets/requests/mcp_history.json
 ```

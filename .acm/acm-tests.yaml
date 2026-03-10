@@ -7,6 +7,9 @@ tests:
     summary: Run critical CLI, runtime, and service tests on every verification pass
     command:
       argv: ["go", "test", "./cmd/acm", "./cmd/acm-mcp", "./internal/runtime", "./internal/service/backend", "-count=1"]
+      env:
+        GOCACHE: "/tmp/agent-context-manager-gocache"
+        GOMODCACHE: "/tmp/agent-context-manager-gomodcache"
     select:
       always_run: true
     expected:
@@ -36,6 +39,9 @@ tests:
     summary: Ensure both CLI entrypoints still build
     command:
       argv: ["go", "build", "./cmd/acm", "./cmd/acm-mcp"]
+      env:
+        GOCACHE: "/tmp/agent-context-manager-gocache"
+        GOMODCACHE: "/tmp/agent-context-manager-gomodcache"
     select:
       phases: ["execute", "review"]
       changed_paths_any: ["cmd/**", "internal/**", "go.mod", "go.sum"]
@@ -48,6 +54,8 @@ tests:
       argv: ["go", "test", "./..."]
       env:
         GOFLAGS: "-count=1"
+        GOCACHE: "/tmp/agent-context-manager-gocache"
+        GOMODCACHE: "/tmp/agent-context-manager-gomodcache"
     select:
       phases: ["review"]
       changed_paths_any: ["cmd/**", "internal/**", "spec/**", "skills/**", "scripts/**", "go.mod", "go.sum"]

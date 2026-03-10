@@ -85,11 +85,11 @@ acm work --project <project-id> --receipt-id <feature-receipt-id> --mode merge  
     },
     "in_scope":["CLI export command", "MCP parity", "history run summaries"],
     "out_of_scope":["new storage backend", "UI dashboard"],
-    "constraints":["Keep existing history search payloads backward compatible"],
+    "constraints":["Keep existing history-discovery payloads backward compatible"],
     "references":["README.md", "internal/service/backend/history.go", "cmd/acm/routes.go"]
   }'   --tasks-json '[
     {"key":"stage:spec-outline","summary":"Spec outline","status":"complete"},
-    {"key":"spec:export-capabilities","summary":"Define required export capabilities","status":"complete","parent_task_key":"stage:spec-outline","acceptance_criteria":["Capabilities cover CLI, MCP, and report-completion impact"]},
+    {"key":"spec:export-capabilities","summary":"Define required export capabilities","status":"complete","parent_task_key":"stage:spec-outline","acceptance_criteria":["Capabilities cover CLI, MCP, and done impact"]},
     {"key":"stage:refined-spec","summary":"Refined spec","status":"complete"},
     {"key":"spec:scope-constraints","summary":"Define scope and compatibility boundaries","status":"complete","parent_task_key":"stage:refined-spec","acceptance_criteria":["Scope guarantees and compatibility limits are explicit"]},
     {"key":"stage:implementation-plan","summary":"Implementation plan","status":"in_progress"},

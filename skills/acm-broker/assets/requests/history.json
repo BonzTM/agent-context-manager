@@ -1,6 +1,6 @@
 {
   "version": "acm.v1",
-  "command": "history_search",
+  "command": "history",
   "request_id": "req-history-001",
   "payload": {
     "project_id": "customer-portal",

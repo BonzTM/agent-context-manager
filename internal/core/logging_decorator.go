@@ -35,9 +35,9 @@ func WithLoggingClock(next Service, logger logging.Logger, now func() time.Time)
 	}
 }
 
-func (s *loggingService) GetContext(ctx context.Context, payload v1.GetContextPayload) (v1.GetContextResult, *APIError) {
-	return withOperation(ctx, s.now, s.logger, logging.OperationGetContext, payload.ProjectID, func() (v1.GetContextResult, *APIError) {
-		return s.next.GetContext(ctx, payload)
+func (s *loggingService) Context(ctx context.Context, payload v1.ContextPayload) (v1.ContextResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationContext, payload.ProjectID, func() (v1.ContextResult, *APIError) {
+		return s.next.Context(ctx, payload)
 	})
 }
 
@@ -47,9 +47,9 @@ func (s *loggingService) Fetch(ctx context.Context, payload v1.FetchPayload) (v1
 	})
 }
 
-func (s *loggingService) ProposeMemory(ctx context.Context, payload v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *APIError) {
-	return withOperation(ctx, s.now, s.logger, logging.OperationProposeMemory, payload.ProjectID, func() (v1.ProposeMemoryResult, *APIError) {
-		return s.next.ProposeMemory(ctx, payload)
+func (s *loggingService) Memory(ctx context.Context, payload v1.MemoryCommandPayload) (v1.MemoryResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationMemory, payload.ProjectID, func() (v1.MemoryResult, *APIError) {
+		return s.next.Memory(ctx, payload)
 	})
 }
 
@@ -71,9 +71,9 @@ func (s *loggingService) HistorySearch(ctx context.Context, payload v1.HistorySe
 	})
 }
 
-func (s *loggingService) ReportCompletion(ctx context.Context, payload v1.ReportCompletionPayload) (v1.ReportCompletionResult, *APIError) {
-	return withOperation(ctx, s.now, s.logger, logging.OperationReportCompletion, payload.ProjectID, func() (v1.ReportCompletionResult, *APIError) {
-		return s.next.ReportCompletion(ctx, payload)
+func (s *loggingService) Done(ctx context.Context, payload v1.DonePayload) (v1.DoneResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationDone, payload.ProjectID, func() (v1.DoneResult, *APIError) {
+		return s.next.Done(ctx, payload)
 	})
 }
 
@@ -83,15 +83,9 @@ func (s *loggingService) Sync(ctx context.Context, payload v1.SyncPayload) (v1.S
 	})
 }
 
-func (s *loggingService) HealthCheck(ctx context.Context, payload v1.HealthCheckPayload) (v1.HealthCheckResult, *APIError) {
-	return withOperation(ctx, s.now, s.logger, logging.OperationHealthCheck, payload.ProjectID, func() (v1.HealthCheckResult, *APIError) {
-		return s.next.HealthCheck(ctx, payload)
-	})
-}
-
-func (s *loggingService) HealthFix(ctx context.Context, payload v1.HealthFixPayload) (v1.HealthFixResult, *APIError) {
-	return withOperation(ctx, s.now, s.logger, logging.OperationHealthFix, payload.ProjectID, func() (v1.HealthFixResult, *APIError) {
-		return s.next.HealthFix(ctx, payload)
+func (s *loggingService) Health(ctx context.Context, payload v1.HealthPayload) (v1.HealthResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationHealth, payload.ProjectID, func() (v1.HealthResult, *APIError) {
+		return s.next.Health(ctx, payload)
 	})
 }
 
@@ -101,27 +95,15 @@ func (s *loggingService) Status(ctx context.Context, payload v1.StatusPayload) (
 	})
 }
 
-func (s *loggingService) Coverage(ctx context.Context, payload v1.CoveragePayload) (v1.CoverageResult, *APIError) {
-	return withOperation(ctx, s.now, s.logger, logging.OperationCoverage, payload.ProjectID, func() (v1.CoverageResult, *APIError) {
-		return s.next.Coverage(ctx, payload)
-	})
-}
-
-func (s *loggingService) Eval(ctx context.Context, payload v1.EvalPayload) (v1.EvalResult, *APIError) {
-	return withOperation(ctx, s.now, s.logger, logging.OperationEval, payload.ProjectID, func() (v1.EvalResult, *APIError) {
-		return s.next.Eval(ctx, payload)
-	})
-}
-
 func (s *loggingService) Verify(ctx context.Context, payload v1.VerifyPayload) (v1.VerifyResult, *APIError) {
 	return withOperation(ctx, s.now, s.logger, logging.OperationVerify, payload.ProjectID, func() (v1.VerifyResult, *APIError) {
 		return s.next.Verify(ctx, payload)
 	})
 }
 
-func (s *loggingService) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v1.BootstrapResult, *APIError) {
-	return withOperation(ctx, s.now, s.logger, logging.OperationBootstrap, payload.ProjectID, func() (v1.BootstrapResult, *APIError) {
-		return s.next.Bootstrap(ctx, payload)
+func (s *loggingService) Init(ctx context.Context, payload v1.InitPayload) (v1.InitResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationInit, payload.ProjectID, func() (v1.InitResult, *APIError) {
+		return s.next.Init(ctx, payload)
 	})
 }
 

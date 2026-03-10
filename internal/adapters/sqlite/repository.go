@@ -22,10 +22,8 @@ import (
 
 const (
 	defaultCandidateLimit = 32
-	defaultHopLimit       = 64
 	defaultMemoryLimit    = 16
 	maxQueryLimit         = 512
-	maxHopDepth           = 6
 	defaultPhase          = "execute"
 
 	candidateStatusPending  = "pending"
@@ -36,7 +34,6 @@ const (
 	workItemStatusInProgress = core.WorkItemStatusInProgress
 	workItemStatusBlocked    = core.WorkItemStatusBlocked
 	workItemStatusComplete   = core.WorkItemStatusComplete
-	workItemStatusCompleted  = core.WorkItemStatusCompleted
 )
 
 type Repository struct {
@@ -72,6 +69,10 @@ func New(ctx context.Context, cfg Config) (*Repository, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply sqlite migrations: %w", err)
 	}
+	if err := enableWAL(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("enable sqlite wal: %w", err)
+	}
 
 	return &Repository{db: db}, nil
 }
@@ -84,9 +85,18 @@ func sqliteDSN(dbPath string) string {
 	q := u.Query()
 	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_pragma", "busy_timeout(5000)")
-	q.Add("_pragma", "journal_mode(WAL)")
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+func enableWAL(ctx context.Context, db *sql.DB) error {
+	if db == nil {
+		return fmt.Errorf("sqlite db is required")
+	}
+	if _, err := db.ExecContext(ctx, `PRAGMA journal_mode=WAL`); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Repository) Close() error {
@@ -106,7 +116,6 @@ func (r *Repository) FetchCandidatePointers(_ context.Context, input core.Candid
 		return nil, fmt.Errorf("project_id is required")
 	}
 
-	phase := normalizePhase(input.Phase)
 	input.StaleFilter.StaleBefore = normalizeStaleBefore(input.StaleFilter.StaleBefore)
 
 	rows, err := r.db.Query(`
@@ -180,157 +189,7 @@ WHERE project_id = ?
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate candidate pointers: %w", err)
 	}
-	input.Phase = phase
-	return storagedomain.RankCandidatePointers(candidates, input, defaultCandidateLimit), nil
-}
-
-func (r *Repository) FetchRelatedHopPointers(_ context.Context, input core.RelatedHopPointersQuery) ([]core.HopPointer, error) {
-	if r == nil || r.db == nil {
-		return nil, fmt.Errorf("sqlite db is required")
-	}
-
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required")
-	}
-	origins := normalizeStringList(input.PointerKeys)
-	if len(origins) == 0 {
-		return nil, fmt.Errorf("pointer_keys is required")
-	}
-
-	maxHops := input.MaxHops
-	if maxHops <= 0 {
-		maxHops = 1
-	}
-	if maxHops > maxHopDepth {
-		maxHops = maxHopDepth
-	}
-	limit := normalizeLimit(input.Limit, defaultHopLimit)
-	input.StaleFilter.StaleBefore = normalizeStaleBefore(input.StaleFilter.StaleBefore)
-
-	type link struct {
-		From string
-		To   string
-	}
-	linkRows, err := r.db.Query(`
-SELECT from_key, to_key
-FROM acm_pointer_links
-WHERE project_id = ?
-`, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("query pointer links: %w", err)
-	}
-	defer linkRows.Close()
-
-	adjacency := make(map[string][]string)
-	for linkRows.Next() {
-		var current link
-		if err := linkRows.Scan(&current.From, &current.To); err != nil {
-			return nil, fmt.Errorf("scan pointer link: %w", err)
-		}
-		adjacency[current.From] = append(adjacency[current.From], current.To)
-	}
-	if err := linkRows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate pointer links: %w", err)
-	}
-	for key := range adjacency {
-		sort.Strings(adjacency[key])
-	}
-
-	type bfsNode struct {
-		Key string
-		Hop int
-	}
-	type hopKey struct {
-		Origin string
-		Target string
-	}
-	bestHopByPair := make(map[hopKey]int)
-	targetKeys := make(map[string]struct{})
-
-	for _, origin := range origins {
-		visited := map[string]struct{}{origin: {}}
-		queue := []bfsNode{{Key: origin, Hop: 0}}
-
-		for len(queue) > 0 {
-			node := queue[0]
-			queue = queue[1:]
-			if node.Hop >= maxHops {
-				continue
-			}
-
-			for _, next := range adjacency[node.Key] {
-				if _, seen := visited[next]; seen {
-					continue
-				}
-				visited[next] = struct{}{}
-
-				nextHop := node.Hop + 1
-				pair := hopKey{Origin: origin, Target: next}
-				if current, exists := bestHopByPair[pair]; !exists || nextHop < current {
-					bestHopByPair[pair] = nextHop
-				}
-				targetKeys[next] = struct{}{}
-				queue = append(queue, bfsNode{Key: next, Hop: nextHop})
-			}
-		}
-	}
-
-	if len(targetKeys) == 0 {
-		return nil, nil
-	}
-
-	targetList := mapKeysSorted(targetKeys)
-	pointerByKey, err := r.loadPointersByKey(projectID, targetList)
-	if err != nil {
-		return nil, err
-	}
-
-	hops := make([]core.HopPointer, 0, len(bestHopByPair))
-	for pair, hopCount := range bestHopByPair {
-		pointer, ok := pointerByKey[pair.Target]
-		if !ok {
-			continue
-		}
-		var staleAt *time.Time
-		if !pointer.staleAt.IsZero() {
-			t := pointer.staleAt
-			staleAt = &t
-		}
-		if !matchesStaleFilter(pointer.IsStale, staleAt, input.StaleFilter) {
-			continue
-		}
-		hops = append(hops, core.HopPointer{
-			SourceKey: pair.Origin,
-			HopCount:  hopCount,
-			Pointer: core.CandidatePointer{
-				Key:         pointer.Key,
-				Path:        pointer.Path,
-				Anchor:      pointer.Anchor,
-				Kind:        pointer.Kind,
-				Label:       pointer.Label,
-				Description: pointer.Description,
-				Tags:        append([]string(nil), pointer.Tags...),
-				IsRule:      pointer.IsRule,
-				IsStale:     pointer.IsStale,
-				UpdatedAt:   pointer.UpdatedAt,
-			},
-		})
-	}
-
-	sort.Slice(hops, func(i, j int) bool {
-		if hops[i].HopCount != hops[j].HopCount {
-			return hops[i].HopCount < hops[j].HopCount
-		}
-		if hops[i].SourceKey != hops[j].SourceKey {
-			return hops[i].SourceKey < hops[j].SourceKey
-		}
-		return hops[i].Pointer.Key < hops[j].Pointer.Key
-	})
-	if !input.Unbounded && len(hops) > limit {
-		hops = hops[:limit]
-	}
-	return hops, nil
+	return storagedomain.SortAndLimitCandidatePointers(candidates, input, defaultCandidateLimit), nil
 }
 
 func (r *Repository) FetchActiveMemories(_ context.Context, input core.ActiveMemoryQuery) ([]core.ActiveMemory, error) {
@@ -564,23 +423,26 @@ func (r *Repository) FetchReceiptScope(ctx context.Context, input core.ReceiptSc
 	}
 
 	var (
-		taskText         string
-		phase            string
-		resolvedTagsJSON string
-		pointerKeysJSON  string
-		memoryIDsJSON    string
+		taskText              string
+		phase                 string
+		resolvedTagsJSON      string
+		pointerKeysJSON       string
+		memoryIDsJSON         string
+		initialScopePathsJSON string
+		baselineCaptured      int
+		baselinePathsJSON     string
 	)
 	err := r.db.QueryRowContext(
 		ctx,
 		`
-SELECT task_text, phase, resolved_tags_json, pointer_keys_json, memory_ids_json
+SELECT task_text, phase, resolved_tags_json, pointer_keys_json, memory_ids_json, initial_scope_paths_json, baseline_captured, baseline_paths_json
 FROM acm_receipts
 WHERE project_id = ?
 	AND receipt_id = ?
 `,
 		projectID,
 		receiptID,
-	).Scan(&taskText, &phase, &resolvedTagsJSON, &pointerKeysJSON, &memoryIDsJSON)
+	).Scan(&taskText, &phase, &resolvedTagsJSON, &pointerKeysJSON, &memoryIDsJSON, &initialScopePathsJSON, &baselineCaptured, &baselinePathsJSON)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return core.ReceiptScope{}, core.ErrReceiptScopeNotFound
@@ -600,20 +462,26 @@ WHERE project_id = ?
 	if err != nil {
 		return core.ReceiptScope{}, fmt.Errorf("decode memory_ids: %w", err)
 	}
-	pointerPaths, err := r.pointerPathsByKeys(ctx, projectID, pointerKeys)
+	initialScopePaths, err := decodeStringList(initialScopePathsJSON)
 	if err != nil {
-		return core.ReceiptScope{}, err
+		return core.ReceiptScope{}, fmt.Errorf("decode initial_scope_paths: %w", err)
+	}
+	baselinePaths, err := decodeSyncPathList(baselinePathsJSON)
+	if err != nil {
+		return core.ReceiptScope{}, fmt.Errorf("decode baseline_paths: %w", err)
 	}
 
 	return core.ReceiptScope{
-		ProjectID:    projectID,
-		ReceiptID:    receiptID,
-		TaskText:     strings.TrimSpace(taskText),
-		Phase:        strings.TrimSpace(phase),
-		ResolvedTags: resolvedTags,
-		PointerKeys:  pointerKeys,
-		MemoryIDs:    memoryIDs,
-		PointerPaths: pointerPaths,
+		ProjectID:         projectID,
+		ReceiptID:         receiptID,
+		TaskText:          strings.TrimSpace(taskText),
+		Phase:             strings.TrimSpace(phase),
+		ResolvedTags:      resolvedTags,
+		PointerKeys:       pointerKeys,
+		MemoryIDs:         memoryIDs,
+		InitialScopePaths: initialScopePaths,
+		BaselineCaptured:  baselineCaptured == 1,
+		BaselinePaths:     baselinePaths,
 	}, nil
 }
 
@@ -965,13 +833,19 @@ func (r *Repository) UpsertWorkPlan(ctx context.Context, input core.WorkPlanUpse
 	if err != nil {
 		return core.WorkPlanUpsertResult{}, err
 	}
+	if found && mode == core.WorkPlanModeMerge && len(input.Tasks) > 0 {
+		current.Tasks, err = listWorkPlanTasksTx(ctx, tx, projectID, planKey)
+		if err != nil {
+			return core.WorkPlanUpsertResult{}, err
+		}
+	}
 	next := buildNextWorkPlanState(current, found, input, mode)
 	if err := upsertWorkPlanRowTx(ctx, tx, next); err != nil {
 		return core.WorkPlanUpsertResult{}, err
 	}
 
 	updated := 0
-	normalizedTasks := normalizeWorkPlanTasks(input.Tasks)
+	normalizedTasks := storagedomain.MergeIncomingWorkPlanTasks(current.Tasks, input.Tasks, mode)
 	if mode == core.WorkPlanModeReplace {
 		tag, err := tx.ExecContext(ctx, `
 DELETE FROM acm_work_plan_tasks
@@ -1167,7 +1041,7 @@ SELECT
 	SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) AS task_count_pending,
 	SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) AS task_count_in_progress,
 	SUM(CASE WHEN t.status = 'blocked' THEN 1 ELSE 0 END) AS task_count_blocked,
-	SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS task_count_completed,
+	SUM(CASE WHEN t.status = 'complete' THEN 1 ELSE 0 END) AS task_count_completed,
 	p.updated_at
 FROM acm_work_plans p
 LEFT JOIN acm_work_plan_tasks t
@@ -1183,7 +1057,7 @@ WHERE p.project_id = ?
 	case workPlanListScopeDeferred:
 		query.WriteString("  AND p.status = 'blocked'\n")
 	case workPlanListScopeCompleted:
-		query.WriteString("  AND p.status = 'completed'\n")
+		query.WriteString("  AND p.status = 'complete'\n")
 	}
 
 	if trimmedKind := strings.TrimSpace(input.Kind); trimmedKind != "" {
@@ -1709,7 +1583,7 @@ SELECT
 FROM acm_work_plan_tasks
 WHERE project_id = ?
 	AND plan_key IN (` + placeholders(len(planKeys)) + `)
-	AND status <> 'completed'
+	AND status <> 'complete'
 ORDER BY
 	plan_key ASC,
 	CASE status
@@ -1753,17 +1627,17 @@ ORDER BY
 	return out, nil
 }
 
-func (r *Repository) PersistProposedMemory(ctx context.Context, input core.ProposeMemoryPersistence) (core.ProposeMemoryPersistenceResult, error) {
+func (r *Repository) PersistMemory(ctx context.Context, input core.MemoryPersistence) (core.MemoryPersistenceResult, error) {
 	if r == nil || r.db == nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("sqlite db is required")
+		return core.MemoryPersistenceResult{}, fmt.Errorf("sqlite db is required")
 	}
 
-	normalized, err := normalizeProposeMemoryPersistence(input)
+	normalized, err := normalizeMemoryPersistence(input)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 	if normalized.Promotable && (!normalized.Validation.HardPassed || !normalized.Validation.SoftPassed) {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("promotable requires hard and soft validation pass")
+		return core.MemoryPersistenceResult{}, fmt.Errorf("promotable requires hard and soft validation pass")
 	}
 
 	initialStatus := candidateStatusPending
@@ -1773,28 +1647,28 @@ func (r *Repository) PersistProposedMemory(ctx context.Context, input core.Propo
 
 	tagsJSON, err := encodeStringList(nonNilStringList(normalized.Tags))
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 	relatedJSON, err := encodeStringList(nonNilStringList(normalized.RelatedPointerKeys))
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 	evidenceJSON, err := encodeStringList(normalized.EvidencePointerKeys)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 	errorsJSON, err := encodeStringList(nonNilStringList(normalized.Validation.Errors))
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 	warningsJSON, err := encodeStringList(nonNilStringList(normalized.Validation.Warnings))
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("begin tx: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -1840,20 +1714,20 @@ INSERT INTO acm_memory_candidates (
 		boolToInt(normalized.Promotable),
 	)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("insert memory candidate: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("insert memory candidate: %w", err)
 	}
 	candidateID, err := insertResult.LastInsertId()
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("read memory candidate id: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("read memory candidate id: %w", err)
 	}
 
-	out := core.ProposeMemoryPersistenceResult{
+	out := core.MemoryPersistenceResult{
 		CandidateID: candidateID,
 		Status:      initialStatus,
 	}
 	if !normalized.Promotable {
 		if err := tx.Commit(); err != nil {
-			return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
+			return core.MemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
 		}
 		return out, nil
 	}
@@ -1885,18 +1759,18 @@ INSERT OR IGNORE INTO acm_memories (
 		normalized.DedupeKey,
 	)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("insert durable memory: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("insert durable memory: %w", err)
 	}
 	insertedRows, err := insertMemoryResult.RowsAffected()
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("read durable memory rows affected: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("read durable memory rows affected: %w", err)
 	}
 
 	finalStatus := candidateStatusRejected
 	if insertedRows > 0 {
 		promotedMemoryID, err := insertMemoryResult.LastInsertId()
 		if err != nil {
-			return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("read durable memory id: %w", err)
+			return core.MemoryPersistenceResult{}, fmt.Errorf("read durable memory id: %w", err)
 		}
 		out.PromotedMemoryID = promotedMemoryID
 		finalStatus = candidateStatusPromoted
@@ -1916,12 +1790,12 @@ WHERE candidate_id = ?
 		candidateID,
 	)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("update memory candidate status: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("update memory candidate status: %w", err)
 	}
 
 	out.Status = finalStatus
 	if err := tx.Commit(); err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
 	}
 	return out, nil
 }
@@ -2092,6 +1966,14 @@ func (r *Repository) UpsertReceiptScope(ctx context.Context, input core.ReceiptS
 	if err != nil {
 		return fmt.Errorf("encode memory_ids: %w", err)
 	}
+	initialScopePathsJSON, err := encodeStringList(normalized.InitialScopePaths)
+	if err != nil {
+		return fmt.Errorf("encode initial_scope_paths: %w", err)
+	}
+	baselinePathsJSON, err := encodeSyncPathList(normalized.BaselinePaths)
+	if err != nil {
+		return fmt.Errorf("encode baseline_paths: %w", err)
+	}
 
 	_, err = r.db.ExecContext(ctx, `
 INSERT INTO acm_receipts (
@@ -2102,9 +1984,12 @@ INSERT INTO acm_receipts (
 	resolved_tags_json,
 	pointer_keys_json,
 	memory_ids_json,
+	initial_scope_paths_json,
+	baseline_captured,
+	baseline_paths_json,
 	summary_json,
 	created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, '{}', unixepoch())
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', unixepoch())
 ON CONFLICT(receipt_id) DO UPDATE
 SET
 	project_id = excluded.project_id,
@@ -2112,7 +1997,10 @@ SET
 	phase = excluded.phase,
 	resolved_tags_json = excluded.resolved_tags_json,
 	pointer_keys_json = excluded.pointer_keys_json,
-	memory_ids_json = excluded.memory_ids_json
+	memory_ids_json = excluded.memory_ids_json,
+	initial_scope_paths_json = excluded.initial_scope_paths_json,
+	baseline_captured = excluded.baseline_captured,
+	baseline_paths_json = excluded.baseline_paths_json
 `,
 		normalized.ReceiptID,
 		normalized.ProjectID,
@@ -2121,6 +2009,9 @@ SET
 		resolvedTagsJSON,
 		pointerKeysJSON,
 		memoryIDsJSON,
+		initialScopePathsJSON,
+		boolToInt(normalized.BaselineCaptured),
+		baselinePathsJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert receipt scope: %w", err)
@@ -2673,43 +2564,6 @@ WHERE project_id = ?
 	return out, nil
 }
 
-func (r *Repository) pointerPathsByKeys(ctx context.Context, projectID string, pointerKeys []string) ([]string, error) {
-	if len(pointerKeys) == 0 {
-		return nil, nil
-	}
-
-	query := `
-SELECT path
-FROM acm_pointers
-WHERE project_id = ?
-	AND pointer_key IN (` + placeholders(len(pointerKeys)) + `)
-`
-	args := make([]any, 0, len(pointerKeys)+1)
-	args = append(args, projectID)
-	for _, key := range pointerKeys {
-		args = append(args, key)
-	}
-
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query pointer paths by keys: %w", err)
-	}
-	defer rows.Close()
-
-	paths := make([]string, 0, len(pointerKeys))
-	for rows.Next() {
-		var pointerPath string
-		if err := rows.Scan(&pointerPath); err != nil {
-			return nil, fmt.Errorf("scan pointer path: %w", err)
-		}
-		paths = append(paths, normalizeSyncPath(pointerPath))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate pointer paths: %w", err)
-	}
-	return normalizeStringList(paths), nil
-}
-
 func normalizePointerStubs(projectID string, stubs []core.PointerStub) ([]core.PointerStub, error) {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -2818,22 +2672,6 @@ func placeholders(n int) string {
 	return strings.Join(parts, ", ")
 }
 
-func textMatchRank(tokens []string, pointer core.CandidatePointer) int {
-	return storagedomain.CandidateTextMatchRank(tokens, pointer)
-}
-
-func phaseWeight(phase string, pointer core.CandidatePointer) float64 {
-	return storagedomain.CandidatePhaseWeight(phase, pointer)
-}
-
-func pointerKind(pointer core.CandidatePointer) string {
-	return storagedomain.CandidatePointerKind(pointer)
-}
-
-func tokenize(raw string) []string {
-	return storagedomain.TokenizeCandidateQuery(raw)
-}
-
 func overlapCount(values, targets []string) int {
 	return storagedomain.CandidateTagOverlap(values, targets)
 }
@@ -2906,6 +2744,26 @@ func decodeInt64List(raw string) ([]int64, error) {
 	return normalizeInt64List(values), nil
 }
 
+func encodeSyncPathList(values []core.SyncPath) (string, error) {
+	raw, err := json.Marshal(values)
+	if err != nil {
+		return "", fmt.Errorf("marshal sync path list: %w", err)
+	}
+	return string(raw), nil
+}
+
+func decodeSyncPathList(raw string) ([]core.SyncPath, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var values []core.SyncPath
+	if err := json.Unmarshal([]byte(trimmed), &values); err != nil {
+		return nil, fmt.Errorf("unmarshal sync path list: %w", err)
+	}
+	return storagedomain.NormalizeSyncPathList(values), nil
+}
+
 func boolToInt(v bool) int {
 	if v {
 		return 1
@@ -2966,6 +2824,10 @@ func upsertWorkPlanRowTx(ctx context.Context, tx *sql.Tx, plan core.WorkPlan) er
 	if err != nil {
 		return fmt.Errorf("encode plan out_of_scope: %w", err)
 	}
+	discoveredPathsJSON, err := encodeStringList(nonNilStringList(plan.DiscoveredPaths))
+	if err != nil {
+		return fmt.Errorf("encode plan discovered_paths: %w", err)
+	}
 	constraintsJSON, err := encodeStringList(nonNilStringList(plan.Constraints))
 	if err != nil {
 		return fmt.Errorf("encode plan constraints: %w", err)
@@ -2998,13 +2860,14 @@ INSERT INTO acm_work_plans (
 	stage_implementation_plan,
 	in_scope_json,
 	out_of_scope_json,
+	discovered_paths_json,
 	constraints_json,
 	references_json,
 	external_refs_json,
 	created_at,
 	updated_at
 ) VALUES (
-	?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()
+	?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()
 )
 ON CONFLICT(project_id, plan_key) DO UPDATE SET
 	receipt_id = excluded.receipt_id,
@@ -3018,11 +2881,12 @@ ON CONFLICT(project_id, plan_key) DO UPDATE SET
 	stage_implementation_plan = excluded.stage_implementation_plan,
 	in_scope_json = excluded.in_scope_json,
 	out_of_scope_json = excluded.out_of_scope_json,
+	discovered_paths_json = excluded.discovered_paths_json,
 	constraints_json = excluded.constraints_json,
 	references_json = excluded.references_json,
 	external_refs_json = excluded.external_refs_json,
 	updated_at = unixepoch()
-`, strings.TrimSpace(plan.ProjectID), strings.TrimSpace(plan.PlanKey), receiptValue, strings.TrimSpace(plan.Title), strings.TrimSpace(plan.Objective), strings.ToLower(strings.TrimSpace(plan.Kind)), strings.TrimSpace(plan.ParentPlanKey), storageWorkItemStatus(plan.Status), storageWorkItemStatus(plan.Stages.SpecOutline), storageWorkItemStatus(plan.Stages.RefinedSpec), storageWorkItemStatus(plan.Stages.ImplementationPlan), inScopeJSON, outOfScopeJSON, constraintsJSON, referencesJSON, externalRefsJSON); err != nil {
+`, strings.TrimSpace(plan.ProjectID), strings.TrimSpace(plan.PlanKey), receiptValue, strings.TrimSpace(plan.Title), strings.TrimSpace(plan.Objective), strings.ToLower(strings.TrimSpace(plan.Kind)), strings.TrimSpace(plan.ParentPlanKey), storageWorkItemStatus(plan.Status), storageWorkItemStatus(plan.Stages.SpecOutline), storageWorkItemStatus(plan.Stages.RefinedSpec), storageWorkItemStatus(plan.Stages.ImplementationPlan), inScopeJSON, outOfScopeJSON, discoveredPathsJSON, constraintsJSON, referencesJSON, externalRefsJSON); err != nil {
 		return fmt.Errorf("upsert work plan: %w", err)
 	}
 	return nil
@@ -3050,6 +2914,7 @@ func lookupWorkPlan(ctx context.Context, q sqlRowsQuerier, projectID, planKey st
 		stageImplementation string
 		inScopeJSON         string
 		outOfScopeJSON      string
+		discoveredPathsJSON string
 		constraintsJSON     string
 		referencesJSON      string
 		externalRefsJSON    string
@@ -3068,6 +2933,7 @@ SELECT
 	stage_implementation_plan,
 	in_scope_json,
 	out_of_scope_json,
+	discovered_paths_json,
 	constraints_json,
 	references_json,
 	external_refs_json,
@@ -3075,7 +2941,7 @@ SELECT
 FROM acm_work_plans
 WHERE project_id = ?
 	AND plan_key = ?
-`, projectID, planKey).Scan(&receiptID, &title, &objective, &kind, &parentPlanKey, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScopeJSON, &outOfScopeJSON, &constraintsJSON, &referencesJSON, &externalRefsJSON, &updatedAt); err != nil {
+`, projectID, planKey).Scan(&receiptID, &title, &objective, &kind, &parentPlanKey, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScopeJSON, &outOfScopeJSON, &discoveredPathsJSON, &constraintsJSON, &referencesJSON, &externalRefsJSON, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return core.WorkPlan{}, false, nil
 		}
@@ -3088,6 +2954,10 @@ WHERE project_id = ?
 	outOfScope, err := decodeStringList(outOfScopeJSON)
 	if err != nil {
 		return core.WorkPlan{}, false, fmt.Errorf("decode plan out_of_scope: %w", err)
+	}
+	discoveredPaths, err := decodeStringList(discoveredPathsJSON)
+	if err != nil {
+		return core.WorkPlan{}, false, fmt.Errorf("decode plan discovered_paths: %w", err)
 	}
 	constraints, err := decodeStringList(constraintsJSON)
 	if err != nil {
@@ -3103,21 +2973,22 @@ WHERE project_id = ?
 	}
 
 	return core.WorkPlan{
-		ProjectID:     projectID,
-		PlanKey:       planKey,
-		ReceiptID:     strings.TrimSpace(receiptID.String),
-		Title:         strings.TrimSpace(title),
-		Objective:     strings.TrimSpace(objective),
-		Kind:          strings.TrimSpace(kind),
-		ParentPlanKey: strings.TrimSpace(parentPlanKey),
-		Status:        normalizeWorkItemStatus(status),
-		Stages:        normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
-		InScope:       normalizeStringList(inScope),
-		OutOfScope:    normalizeStringList(outOfScope),
-		Constraints:   normalizeStringList(constraints),
-		References:    normalizeStringList(references),
-		ExternalRefs:  normalizeStringList(externalRefs),
-		UpdatedAt:     unixTime(updatedAt),
+		ProjectID:       projectID,
+		PlanKey:         planKey,
+		ReceiptID:       strings.TrimSpace(receiptID.String),
+		Title:           strings.TrimSpace(title),
+		Objective:       strings.TrimSpace(objective),
+		Kind:            strings.TrimSpace(kind),
+		ParentPlanKey:   strings.TrimSpace(parentPlanKey),
+		Status:          normalizeWorkItemStatus(status),
+		Stages:          normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
+		InScope:         normalizeStringList(inScope),
+		OutOfScope:      normalizeStringList(outOfScope),
+		DiscoveredPaths: normalizeStringList(discoveredPaths),
+		Constraints:     normalizeStringList(constraints),
+		References:      normalizeStringList(references),
+		ExternalRefs:    normalizeStringList(externalRefs),
+		UpdatedAt:       unixTime(updatedAt),
 	}, true, nil
 }
 

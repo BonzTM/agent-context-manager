@@ -13,16 +13,16 @@ type decoratorFakeService struct {
 	errorsByOperation map[string]*APIError
 }
 
-func (f decoratorFakeService) GetContext(_ context.Context, _ v1.GetContextPayload) (v1.GetContextResult, *APIError) {
-	return v1.GetContextResult{}, f.errorFor(logging.OperationGetContext)
+func (f decoratorFakeService) Context(_ context.Context, _ v1.ContextPayload) (v1.ContextResult, *APIError) {
+	return v1.ContextResult{}, f.errorFor(logging.OperationContext)
 }
 
 func (f decoratorFakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult, *APIError) {
 	return v1.FetchResult{}, f.errorFor(logging.OperationFetch)
 }
 
-func (f decoratorFakeService) ProposeMemory(_ context.Context, _ v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *APIError) {
-	return v1.ProposeMemoryResult{}, f.errorFor(logging.OperationProposeMemory)
+func (f decoratorFakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *APIError) {
+	return v1.MemoryResult{}, f.errorFor(logging.OperationMemory)
 }
 
 func (f decoratorFakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *APIError) {
@@ -37,40 +37,31 @@ func (f decoratorFakeService) HistorySearch(_ context.Context, _ v1.HistorySearc
 	return v1.HistorySearchResult{}, f.errorFor(logging.OperationHistorySearch)
 }
 
-func (f decoratorFakeService) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *APIError) {
-	return v1.ReportCompletionResult{}, f.errorFor(logging.OperationReportCompletion)
+func (f decoratorFakeService) Done(_ context.Context, _ v1.DonePayload) (v1.DoneResult, *APIError) {
+	return v1.DoneResult{}, f.errorFor(logging.OperationDone)
 }
 
 func (f decoratorFakeService) Sync(_ context.Context, _ v1.SyncPayload) (v1.SyncResult, *APIError) {
 	return v1.SyncResult{}, f.errorFor(logging.OperationSync)
 }
 
-func (f decoratorFakeService) HealthCheck(_ context.Context, _ v1.HealthCheckPayload) (v1.HealthCheckResult, *APIError) {
-	return v1.HealthCheckResult{}, f.errorFor(logging.OperationHealthCheck)
-}
-
-func (f decoratorFakeService) HealthFix(_ context.Context, _ v1.HealthFixPayload) (v1.HealthFixResult, *APIError) {
-	return v1.HealthFixResult{}, f.errorFor(logging.OperationHealthFix)
+func (f decoratorFakeService) Health(_ context.Context, payload v1.HealthPayload) (v1.HealthResult, *APIError) {
+	if len(payload.Fixers) > 0 || payload.Apply != nil {
+		return v1.HealthResult{}, f.errorFor(logging.OperationHealth)
+	}
+	return v1.HealthResult{}, f.errorFor(logging.OperationHealth)
 }
 
 func (f decoratorFakeService) Status(_ context.Context, _ v1.StatusPayload) (v1.StatusResult, *APIError) {
 	return v1.StatusResult{}, f.errorFor(logging.OperationStatus)
 }
 
-func (f decoratorFakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.CoverageResult, *APIError) {
-	return v1.CoverageResult{}, f.errorFor(logging.OperationCoverage)
-}
-
-func (f decoratorFakeService) Eval(_ context.Context, _ v1.EvalPayload) (v1.EvalResult, *APIError) {
-	return v1.EvalResult{}, f.errorFor(logging.OperationEval)
-}
-
 func (f decoratorFakeService) Verify(_ context.Context, _ v1.VerifyPayload) (v1.VerifyResult, *APIError) {
 	return v1.VerifyResult{}, f.errorFor(logging.OperationVerify)
 }
 
-func (f decoratorFakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.BootstrapResult, *APIError) {
-	return v1.BootstrapResult{}, f.errorFor(logging.OperationBootstrap)
+func (f decoratorFakeService) Init(_ context.Context, _ v1.InitPayload) (v1.InitResult, *APIError) {
+	return v1.InitResult{}, f.errorFor(logging.OperationInit)
 }
 
 func (f decoratorFakeService) errorFor(operation string) *APIError {
@@ -166,9 +157,9 @@ type decoratorOperationCase struct {
 func decoratorOperationCases() []decoratorOperationCase {
 	return []decoratorOperationCase{
 		{
-			operation: logging.OperationGetContext,
+			operation: logging.OperationContext,
 			call: func(ctx context.Context, svc Service) *APIError {
-				_, apiErr := svc.GetContext(ctx, v1.GetContextPayload{
+				_, apiErr := svc.Context(ctx, v1.ContextPayload{
 					ProjectID: "project.alpha",
 					TaskText:  "x",
 					Phase:     v1.PhaseExecute,
@@ -187,9 +178,9 @@ func decoratorOperationCases() []decoratorOperationCase {
 			},
 		},
 		{
-			operation: logging.OperationProposeMemory,
+			operation: logging.OperationMemory,
 			call: func(ctx context.Context, svc Service) *APIError {
-				_, apiErr := svc.ProposeMemory(ctx, v1.ProposeMemoryPayload{
+				_, apiErr := svc.Memory(ctx, v1.MemoryCommandPayload{
 					ProjectID: "project.alpha",
 					ReceiptID: "receipt-12345",
 				})
@@ -231,9 +222,9 @@ func decoratorOperationCases() []decoratorOperationCase {
 			},
 		},
 		{
-			operation: logging.OperationReportCompletion,
+			operation: logging.OperationDone,
 			call: func(ctx context.Context, svc Service) *APIError {
-				_, apiErr := svc.ReportCompletion(ctx, v1.ReportCompletionPayload{
+				_, apiErr := svc.Done(ctx, v1.DonePayload{
 					ProjectID: "project.alpha",
 					ReceiptID: "receipt-12345",
 				})
@@ -250,18 +241,9 @@ func decoratorOperationCases() []decoratorOperationCase {
 			},
 		},
 		{
-			operation: logging.OperationHealthCheck,
+			operation: logging.OperationHealth,
 			call: func(ctx context.Context, svc Service) *APIError {
-				_, apiErr := svc.HealthCheck(ctx, v1.HealthCheckPayload{
-					ProjectID: "project.alpha",
-				})
-				return apiErr
-			},
-		},
-		{
-			operation: logging.OperationHealthFix,
-			call: func(ctx context.Context, svc Service) *APIError {
-				_, apiErr := svc.HealthFix(ctx, v1.HealthFixPayload{
+				_, apiErr := svc.Health(ctx, v1.HealthPayload{
 					ProjectID: "project.alpha",
 				})
 				return apiErr
@@ -277,27 +259,9 @@ func decoratorOperationCases() []decoratorOperationCase {
 			},
 		},
 		{
-			operation: logging.OperationCoverage,
+			operation: logging.OperationInit,
 			call: func(ctx context.Context, svc Service) *APIError {
-				_, apiErr := svc.Coverage(ctx, v1.CoveragePayload{
-					ProjectID: "project.alpha",
-				})
-				return apiErr
-			},
-		},
-		{
-			operation: logging.OperationEval,
-			call: func(ctx context.Context, svc Service) *APIError {
-				_, apiErr := svc.Eval(ctx, v1.EvalPayload{
-					ProjectID: "project.alpha",
-				})
-				return apiErr
-			},
-		},
-		{
-			operation: logging.OperationBootstrap,
-			call: func(ctx context.Context, svc Service) *APIError {
-				_, apiErr := svc.Bootstrap(ctx, v1.BootstrapPayload{
+				_, apiErr := svc.Init(ctx, v1.InitPayload{
 					ProjectID: "project.alpha",
 				})
 				return apiErr

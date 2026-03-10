@@ -15,7 +15,7 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 
 	output := buf.String()
 	requiredSnippets := []string{
-		"Entry Points:",
+		"Structured JSON Automation:",
 		"Agent Workflow Commands:",
 		"Maintenance Commands:",
 		"acm --version | -v",
@@ -25,32 +25,44 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 		"Environment Variables:",
 		"Managed Repo Files:",
 		"First-Run Recovery:",
-		"acm get-context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--unbounded[=true|false]] [flags]",
-		"acm work list [--project <id>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
-		"acm work search [--project <id>] (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
-		"acm history search [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--limit <n>] [--unbounded[=true|false]]",
+		"acm context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--scope-path <path>]...",
+		"acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
 		"acm review [--project <id>] [--receipt-id <id>|--plan-key <key>] [--run] [--key <task-key>] [--summary <text>] [--status <pending|in_progress|complete|blocked>] [--outcome <text>|--outcome-file <path>] [--blocked-reason <text>] [--evidence <text>]... [--evidence-file <path>|--evidence-json <json>] [--tags-file <path>]",
 		"acm health [--project <id>] [--include-details[=true|false]] [--max-findings-per-check <n>] | [--fix <name>]... [--dry-run[=true|false]] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]",
 		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
 		"acm verify [--project <id>] [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]",
-		"acm bootstrap",
-		"acm bootstrap --apply-template starter-contract --apply-template verify-generic",
+		"acm init",
+		"acm init --apply-template starter-contract --apply-template verify-generic",
 		"export ACM_PG_DSN='postgres://user:pass@localhost:5432/agents_context?sslmode=disable'",
 		"export ACM_PROJECT_ID=myproject",
 		"`ACM_PROJECT_ID`: Optional default project identifier for convenience, run, validate, and MCP tool calls.",
-		"`ACM_UNBOUNDED`: `true|false`. When true, retrieval/list surfaces stop applying built-in result caps.",
+		"`ACM_UNBOUNDED`: `true|false`. When true, history surfaces stop applying built-in result caps.",
 		"`.acm/acm-workflows.yaml` or `acm-workflows.yaml`: repo-local completion gate definitions.",
-		"`--request` and `--request-id` are aliases on convenience commands.",
 		"Run `acm health --help` to list available fixers and preview/apply examples.",
-		"Convenience commands accept optional `--project` or `--project-id`; explicit values override env and repo-root defaults.",
+		"Convenience commands accept optional `--project`; explicit values override env and repo-root defaults.",
 		"Optional bool flags accept `--flag`, `--flag=true`, or `--flag=false`.",
+		"`context` requires one of `--task-text` or `--task-file`.",
+		"`memory` requires `--receipt-id` or `--plan-key`, `--category`, `--subject`, `--confidence`, one of `--content` or `--content-file`, and at least one evidence key.",
+		"`done` requires `--receipt-id` or `--plan-key` and one of `--outcome` or `--outcome-file`.",
 	}
 	for _, snippet := range requiredSnippets {
 		if !strings.Contains(output, snippet) {
 			t.Fatalf("main usage is missing snippet %q\noutput:\n%s", snippet, output)
 		}
 	}
-	for _, hiddenSnippet := range []string{"acm health-check", "acm health-fix"} {
+	for _, hiddenSnippet := range []string{
+		"acm get-context",
+		"acm propose-memory",
+		"acm report-completion",
+		"acm bootstrap",
+		"acm doctor",
+		"acm history-search",
+		"acm history --entity",
+		"acm work-list",
+		"acm work-search",
+		"acm health-check",
+		"acm health-fix",
+	} {
 		if strings.Contains(output, hiddenSnippet) {
 			t.Fatalf("main usage should not advertise %q\noutput:\n%s", hiddenSnippet, output)
 		}
@@ -81,25 +93,5 @@ func TestValidateHelpReturnsSuccess(t *testing.T) {
 	code := validate(context.Background(), logging.NewRecorder(), []string{"--help"})
 	if code != 0 {
 		t.Fatalf("unexpected exit code for validate --help: got %d want 0", code)
-	}
-}
-
-func TestNestedConvenienceSubcommand(t *testing.T) {
-	tests := []struct {
-		command string
-		args    []string
-		want    string
-		ok      bool
-	}{
-		{command: "work", args: []string{"list"}, want: "work-list", ok: true},
-		{command: "work", args: []string{"search"}, want: "work-search", ok: true},
-		{command: "work", args: []string{"--project", "x"}, want: "", ok: false},
-		{command: "history", args: []string{"search"}, want: "history-search", ok: true},
-	}
-	for _, tc := range tests {
-		got, ok := nestedConvenienceSubcommand(tc.command, tc.args)
-		if got != tc.want || ok != tc.ok {
-			t.Fatalf("nestedConvenienceSubcommand(%q, %v) = (%q, %v), want (%q, %v)", tc.command, tc.args, got, ok, tc.want, tc.ok)
-		}
 	}
 }

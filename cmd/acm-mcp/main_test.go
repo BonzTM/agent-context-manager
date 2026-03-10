@@ -5,10 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/bonztm/agent-context-manager/internal/adapters/mcp"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
@@ -20,7 +24,7 @@ func TestInvokeWithDeps_SuccessWritesResultEnvelope(t *testing.T) {
 	code := invokeWithDeps(
 		context.Background(),
 		logging.NewRecorder(),
-		[]string{"--tool", "get_context"},
+		[]string{"--tool", "context"},
 		strings.NewReader(`{"project_id":"my-cool-app","task_text":"fix drift","phase":"execute"}`),
 		&out,
 		fixedMCPNow,
@@ -39,7 +43,7 @@ func TestInvokeWithDeps_SuccessWritesResultEnvelope(t *testing.T) {
 	if !env.OK {
 		t.Fatalf("expected ok=true, got error %+v", env.Error)
 	}
-	if env.Command != v1.CommandGetContext {
+	if env.Command != v1.CommandContext {
 		t.Fatalf("unexpected command: %q", env.Command)
 	}
 	if env.RequestID != mcpInvokeRequestID {
@@ -55,7 +59,7 @@ func TestInvokeWithDeps_ServiceFailureWritesResultEnvelope(t *testing.T) {
 	code := invokeWithDeps(
 		context.Background(),
 		logging.NewRecorder(),
-		[]string{"--tool", "get_context"},
+		[]string{"--tool", "context"},
 		strings.NewReader(`{"project_id":"my-cool-app","task_text":"fix drift","phase":"execute"}`),
 		&out,
 		fixedMCPNow,
@@ -77,17 +81,17 @@ func TestInvokeWithDeps_ServiceFailureWritesResultEnvelope(t *testing.T) {
 	if env.Error == nil || env.Error.Code != "NOT_IMPLEMENTED" {
 		t.Fatalf("unexpected error payload: %+v", env.Error)
 	}
-	if env.Command != v1.CommandGetContext {
+	if env.Command != v1.CommandContext {
 		t.Fatalf("unexpected command: %q", env.Command)
 	}
 }
 
-func TestInvokeWithDeps_HistorySearchDispatchesThroughWrapper(t *testing.T) {
+func TestInvokeWithDeps_HistoryDispatchesThroughWrapper(t *testing.T) {
 	var out bytes.Buffer
 	code := invokeWithDeps(
 		context.Background(),
 		logging.NewRecorder(),
-		[]string{"--tool", "history_search"},
+		[]string{"--tool", "history"},
 		strings.NewReader(`{"project_id":"my-cool-app","entity":"memory","query":"bootstrap"}`),
 		&out,
 		fixedMCPNow,
@@ -272,6 +276,43 @@ func TestInvokeWithDeps_UnknownToolWritesStructuredError(t *testing.T) {
 	}
 }
 
+func TestInvokeWithDeps_RemovedLegacyToolsWriteStructuredError(t *testing.T) {
+	for _, tool := range []string{"get_context", "propose_memory", "report_completion", "bootstrap"} {
+		t.Run(tool, func(t *testing.T) {
+			var out bytes.Buffer
+			code := invokeWithDeps(
+				context.Background(),
+				logging.NewRecorder(),
+				[]string{"--tool", tool},
+				strings.NewReader(`{}`),
+				&out,
+				fixedMCPNow,
+				func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+					t.Fatal("service factory should not be called")
+					return nil, nil, nil
+				},
+			)
+			if code != 2 {
+				t.Fatalf("unexpected exit code: got %d want 2", code)
+			}
+
+			var env invokeWrapperEnvelope
+			if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+				t.Fatalf("unmarshal envelope: %v", err)
+			}
+			if env.OK {
+				t.Fatal("expected ok=false")
+			}
+			if env.Tool != tool {
+				t.Fatalf("unexpected tool: %q", env.Tool)
+			}
+			if env.Error == nil || env.Error.Code != "UNKNOWN_TOOL" {
+				t.Fatalf("unexpected error payload: %+v", env.Error)
+			}
+		})
+	}
+}
+
 func TestInvokeWithDeps_HelpWritesUsage(t *testing.T) {
 	var out bytes.Buffer
 	code := invokeWithDeps(
@@ -296,8 +337,8 @@ func TestInvokeWithDeps_HelpWritesUsage(t *testing.T) {
 	if !strings.Contains(text, "--tool <name>") {
 		t.Fatalf("unexpected help output: %q", text)
 	}
-	if !strings.Contains(text, "history_search") {
-		t.Fatalf("expected history_search in help output: %q", text)
+	if !strings.Contains(text, "history") {
+		t.Fatalf("expected history in help output: %q", text)
 	}
 	if !strings.Contains(text, "review") {
 		t.Fatalf("expected review in help output: %q", text)
@@ -310,6 +351,41 @@ func TestUsage_IncludesVersionFlag(t *testing.T) {
 	text := out.String()
 	if !strings.Contains(text, "acm-mcp --version | -v") {
 		t.Fatalf("expected version usage line, got %q", text)
+	}
+}
+
+func TestWriteToolsJSON_MatchesRuntimeAndSpec(t *testing.T) {
+	var out bytes.Buffer
+	writeToolsJSON(&out)
+
+	var got struct {
+		Version string        `json:"version"`
+		Tools   []mcp.ToolDef `json:"tools"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal tools json: %v", err)
+	}
+	if got.Version != v1.Version {
+		t.Fatalf("unexpected version: got %q want %q", got.Version, v1.Version)
+	}
+	if gotTools := got.Tools; !reflect.DeepEqual(gotTools, mcp.ToolDefinitions()) {
+		t.Fatalf("tools output drift detected\noutput: %+v\nruntime: %+v", gotTools, mcp.ToolDefinitions())
+	}
+
+	specPath := filepath.Join("..", "..", "spec", "v1", "mcp.tools.v1.json")
+	specRaw, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatalf("read spec file: %v", err)
+	}
+	var spec struct {
+		Version string        `json:"version"`
+		Tools   []mcp.ToolDef `json:"tools"`
+	}
+	if err := json.Unmarshal(specRaw, &spec); err != nil {
+		t.Fatalf("unmarshal spec file: %v", err)
+	}
+	if !reflect.DeepEqual(got.Tools, spec.Tools) {
+		t.Fatalf("tools output drift detected against spec\noutput: %+v\nspec: %+v", got.Tools, spec.Tools)
 	}
 }
 
@@ -328,24 +404,24 @@ func fixedMCPNow() time.Time {
 
 type mcpMainFakeService struct{}
 
-func (mcpMainFakeService) GetContext(_ context.Context, _ v1.GetContextPayload) (v1.GetContextResult, *core.APIError) {
-	return v1.GetContextResult{Status: "insufficient_context"}, nil
+func (mcpMainFakeService) Context(_ context.Context, _ v1.ContextPayload) (v1.ContextResult, *core.APIError) {
+	return v1.ContextResult{Status: "ok"}, nil
 }
 
 func (mcpMainFakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult, *core.APIError) {
 	return v1.FetchResult{}, nil
 }
 
-func (mcpMainFakeService) ProposeMemory(_ context.Context, _ v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *core.APIError) {
-	return v1.ProposeMemoryResult{}, nil
+func (mcpMainFakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
+	return v1.MemoryResult{}, nil
 }
 
 func (mcpMainFakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
 	return v1.ReviewResult{}, nil
 }
 
-func (mcpMainFakeService) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
-	return v1.ReportCompletionResult{}, nil
+func (mcpMainFakeService) Done(_ context.Context, _ v1.DonePayload) (v1.DoneResult, *core.APIError) {
+	return v1.DoneResult{}, nil
 }
 
 func (mcpMainFakeService) Work(_ context.Context, _ v1.WorkPayload) (v1.WorkResult, *core.APIError) {
@@ -360,40 +436,28 @@ func (mcpMainFakeService) Sync(_ context.Context, _ v1.SyncPayload) (v1.SyncResu
 	return v1.SyncResult{}, nil
 }
 
-func (mcpMainFakeService) HealthCheck(_ context.Context, _ v1.HealthCheckPayload) (v1.HealthCheckResult, *core.APIError) {
-	return v1.HealthCheckResult{}, nil
-}
-
-func (mcpMainFakeService) HealthFix(_ context.Context, _ v1.HealthFixPayload) (v1.HealthFixResult, *core.APIError) {
-	return v1.HealthFixResult{}, nil
+func (mcpMainFakeService) Health(_ context.Context, _ v1.HealthPayload) (v1.HealthResult, *core.APIError) {
+	return v1.HealthResult{Mode: "check", Check: &v1.HealthCheckResult{}}, nil
 }
 
 func (mcpMainFakeService) Status(_ context.Context, _ v1.StatusPayload) (v1.StatusResult, *core.APIError) {
 	return v1.StatusResult{}, nil
 }
 
-func (mcpMainFakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {
-	return v1.CoverageResult{}, nil
-}
-
-func (mcpMainFakeService) Eval(_ context.Context, _ v1.EvalPayload) (v1.EvalResult, *core.APIError) {
-	return v1.EvalResult{}, nil
-}
-
 func (mcpMainFakeService) Verify(_ context.Context, _ v1.VerifyPayload) (v1.VerifyResult, *core.APIError) {
 	return v1.VerifyResult{}, nil
 }
 
-func (mcpMainFakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {
-	return v1.BootstrapResult{}, nil
+func (mcpMainFakeService) Init(_ context.Context, _ v1.InitPayload) (v1.InitResult, *core.APIError) {
+	return v1.InitResult{}, nil
 }
 
 type mcpMainFailingService struct {
 	mcpMainFakeService
 }
 
-func (mcpMainFailingService) GetContext(_ context.Context, _ v1.GetContextPayload) (v1.GetContextResult, *core.APIError) {
-	return v1.GetContextResult{}, core.NewError("NOT_IMPLEMENTED", errors.New("boom").Error(), nil)
+func (mcpMainFailingService) Context(_ context.Context, _ v1.ContextPayload) (v1.ContextResult, *core.APIError) {
+	return v1.ContextResult{}, core.NewError("NOT_IMPLEMENTED", errors.New("boom").Error(), nil)
 }
 
 type mcpMainReviewCaptureService struct {

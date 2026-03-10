@@ -140,83 +140,7 @@ func (r *Repository) FetchCandidatePointers(ctx context.Context, input core.Cand
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate candidate pointers: %w", err)
 	}
-	return storagedomain.RankCandidatePointers(results, input, defaultCandidateLimit), nil
-}
-
-func (r *Repository) FetchRelatedHopPointers(ctx context.Context, input core.RelatedHopPointersQuery) ([]core.HopPointer, error) {
-	if r == nil || r.pool == nil {
-		return nil, fmt.Errorf("postgres pool is required")
-	}
-
-	input.StaleFilter.StaleBefore = normalizeStaleBefore(input.StaleFilter.StaleBefore)
-
-	query, args, err := buildRelatedHopPointersQuery(input)
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := r.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query related hop pointers: %w", err)
-	}
-	defer rows.Close()
-
-	results := make([]core.HopPointer, 0)
-	for rows.Next() {
-		var row struct {
-			SourceKey   string
-			HopCount    int
-			Key         string
-			Path        string
-			Anchor      string
-			Kind        string
-			Label       string
-			Description string
-			Tags        []string
-			IsRule      bool
-			IsStale     bool
-			UpdatedAt   time.Time
-		}
-		if err := rows.Scan(
-			&row.SourceKey,
-			&row.HopCount,
-			&row.Key,
-			&row.Path,
-			&row.Anchor,
-			&row.Kind,
-			&row.Label,
-			&row.Description,
-			&row.Tags,
-			&row.IsRule,
-			&row.IsStale,
-			&row.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan related hop pointer: %w", err)
-		}
-
-		results = append(results, core.HopPointer{
-			SourceKey: row.SourceKey,
-			HopCount:  row.HopCount,
-			Pointer: core.CandidatePointer{
-				Key:         row.Key,
-				Path:        row.Path,
-				Anchor:      row.Anchor,
-				Kind:        row.Kind,
-				Label:       row.Label,
-				Description: row.Description,
-				Tags:        row.Tags,
-				IsRule:      row.IsRule,
-				IsStale:     row.IsStale,
-				Rank:        0,
-				UpdatedAt:   row.UpdatedAt,
-			},
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate related hop pointers: %w", err)
-	}
-
-	return results, nil
+	return storagedomain.SortAndLimitCandidatePointers(results, input, defaultCandidateLimit), nil
 }
 
 func (r *Repository) FetchActiveMemories(ctx context.Context, input core.ActiveMemoryQuery) ([]core.ActiveMemory, error) {
@@ -413,13 +337,15 @@ func (r *Repository) FetchReceiptScope(ctx context.Context, input core.ReceiptSc
 	}
 
 	var row struct {
-		ReceiptID    string
-		TaskText     string
-		Phase        string
-		ResolvedTags []string
-		PointerKeys  []string
-		MemoryIDs    []int64
-		PointerPaths []string
+		ReceiptID         string
+		TaskText          string
+		Phase             string
+		ResolvedTags      []string
+		PointerKeys       []string
+		MemoryIDs         []int64
+		InitialScopePaths []string
+		BaselineCaptured  bool
+		BaselinePathsJSON []byte
 	}
 	if err := r.pool.QueryRow(ctx, query, args...).Scan(
 		&row.ReceiptID,
@@ -428,7 +354,9 @@ func (r *Repository) FetchReceiptScope(ctx context.Context, input core.ReceiptSc
 		&row.ResolvedTags,
 		&row.PointerKeys,
 		&row.MemoryIDs,
-		&row.PointerPaths,
+		&row.InitialScopePaths,
+		&row.BaselineCaptured,
+		&row.BaselinePathsJSON,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return core.ReceiptScope{}, core.ErrReceiptScopeNotFound
@@ -436,15 +364,22 @@ func (r *Repository) FetchReceiptScope(ctx context.Context, input core.ReceiptSc
 		return core.ReceiptScope{}, fmt.Errorf("query receipt scope: %w", err)
 	}
 
+	baselinePaths, err := decodeSyncPathsJSON(row.BaselinePathsJSON)
+	if err != nil {
+		return core.ReceiptScope{}, fmt.Errorf("decode baseline_paths: %w", err)
+	}
+
 	return core.ReceiptScope{
-		ProjectID:    strings.TrimSpace(input.ProjectID),
-		ReceiptID:    row.ReceiptID,
-		TaskText:     strings.TrimSpace(row.TaskText),
-		Phase:        strings.TrimSpace(row.Phase),
-		ResolvedTags: normalizeStringList(row.ResolvedTags),
-		PointerKeys:  normalizeStringList(row.PointerKeys),
-		MemoryIDs:    normalizeInt64List(row.MemoryIDs),
-		PointerPaths: normalizeStringList(row.PointerPaths),
+		ProjectID:         strings.TrimSpace(input.ProjectID),
+		ReceiptID:         row.ReceiptID,
+		TaskText:          strings.TrimSpace(row.TaskText),
+		Phase:             strings.TrimSpace(row.Phase),
+		ResolvedTags:      normalizeStringList(row.ResolvedTags),
+		PointerKeys:       normalizeStringList(row.PointerKeys),
+		MemoryIDs:         normalizeInt64List(row.MemoryIDs),
+		InitialScopePaths: normalizeStringList(row.InitialScopePaths),
+		BaselineCaptured:  row.BaselineCaptured,
+		BaselinePaths:     baselinePaths,
 	}, nil
 }
 
@@ -674,6 +609,12 @@ func (r *Repository) UpsertWorkPlan(ctx context.Context, input core.WorkPlanUpse
 	if err != nil {
 		return core.WorkPlanUpsertResult{}, err
 	}
+	if found && mode == core.WorkPlanModeMerge && len(input.Tasks) > 0 {
+		current.Tasks, err = listWorkPlanTasksTx(ctx, tx, projectID, planKey)
+		if err != nil {
+			return core.WorkPlanUpsertResult{}, err
+		}
+	}
 
 	next := buildNextWorkPlanState(current, found, input, mode)
 	if err := upsertWorkPlanRowTx(ctx, tx, next); err != nil {
@@ -681,7 +622,7 @@ func (r *Repository) UpsertWorkPlan(ctx context.Context, input core.WorkPlanUpse
 	}
 
 	updated := 0
-	normalizedTasks := normalizeWorkPlanTasks(input.Tasks)
+	normalizedTasks := storagedomain.MergeIncomingWorkPlanTasks(current.Tasks, input.Tasks, mode)
 	if mode == core.WorkPlanModeReplace {
 		tag, err := tx.Exec(ctx, `
 DELETE FROM acm_work_plan_tasks
@@ -853,7 +794,7 @@ SELECT
 	COUNT(*) FILTER (WHERE t.status = 'pending')::bigint AS task_count_pending,
 	COUNT(*) FILTER (WHERE t.status = 'in_progress')::bigint AS task_count_in_progress,
 	COUNT(*) FILTER (WHERE t.status = 'blocked')::bigint AS task_count_blocked,
-	COUNT(*) FILTER (WHERE t.status = 'completed')::bigint AS task_count_completed,
+	COUNT(*) FILTER (WHERE t.status = 'complete')::bigint AS task_count_completed,
 	p.updated_at
 FROM acm_work_plans p
 LEFT JOIN acm_work_plan_tasks t
@@ -870,7 +811,7 @@ WHERE p.project_id = $1
 	case workPlanListScopeDeferred:
 		query.WriteString("  AND p.status = 'blocked'\n")
 	case workPlanListScopeCompleted:
-		query.WriteString("  AND p.status = 'completed'\n")
+		query.WriteString("  AND p.status = 'complete'\n")
 	}
 
 	if trimmedKind := strings.TrimSpace(input.Kind); trimmedKind != "" {
@@ -1390,7 +1331,7 @@ SELECT
 FROM acm_work_plan_tasks
 WHERE project_id = $1
 	AND plan_key = ANY($2)
-	AND status <> 'completed'
+	AND status <> 'complete'
 ORDER BY
 	plan_key ASC,
 	CASE status
@@ -1427,17 +1368,17 @@ ORDER BY
 	return out, nil
 }
 
-func (r *Repository) PersistProposedMemory(ctx context.Context, input core.ProposeMemoryPersistence) (core.ProposeMemoryPersistenceResult, error) {
+func (r *Repository) PersistMemory(ctx context.Context, input core.MemoryPersistence) (core.MemoryPersistenceResult, error) {
 	if r == nil || r.pool == nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("postgres pool is required")
+		return core.MemoryPersistenceResult{}, fmt.Errorf("postgres pool is required")
 	}
 
-	normalized, err := normalizeProposeMemoryPersistence(input)
+	normalized, err := normalizeMemoryPersistence(input)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 	if normalized.Promotable && (!normalized.Validation.HardPassed || !normalized.Validation.SoftPassed) {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("promotable requires hard and soft validation pass")
+		return core.MemoryPersistenceResult{}, fmt.Errorf("promotable requires hard and soft validation pass")
 	}
 
 	initialStatus := candidateStatusPending
@@ -1447,41 +1388,41 @@ func (r *Repository) PersistProposedMemory(ctx context.Context, input core.Propo
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("begin tx: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	insertCandidateSQL, insertCandidateArgs, err := buildInsertMemoryCandidateQuery(normalized, initialStatus)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 
 	var candidateID int64
 	if err := tx.QueryRow(ctx, insertCandidateSQL, insertCandidateArgs...).Scan(&candidateID); err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("insert memory candidate: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("insert memory candidate: %w", err)
 	}
 
-	out := core.ProposeMemoryPersistenceResult{
+	out := core.MemoryPersistenceResult{
 		CandidateID: candidateID,
 		Status:      initialStatus,
 	}
 
 	if !normalized.Promotable {
 		if err := tx.Commit(ctx); err != nil {
-			return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
+			return core.MemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
 		}
 		return out, nil
 	}
 
 	insertMemorySQL, insertMemoryArgs, err := buildInsertDurableMemoryQuery(normalized)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 
 	var promotedMemoryID int64
 	insertErr := tx.QueryRow(ctx, insertMemorySQL, insertMemoryArgs...).Scan(&promotedMemoryID)
 	if insertErr != nil && !errors.Is(insertErr, pgx.ErrNoRows) {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("insert durable memory: %w", insertErr)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("insert durable memory: %w", insertErr)
 	}
 
 	finalStatus := candidateStatusRejected
@@ -1492,15 +1433,15 @@ func (r *Repository) PersistProposedMemory(ctx context.Context, input core.Propo
 
 	updateCandidateSQL, updateCandidateArgs, err := buildUpdateMemoryCandidateStatusQuery(candidateID, finalStatus, out.PromotedMemoryID)
 	if err != nil {
-		return core.ProposeMemoryPersistenceResult{}, err
+		return core.MemoryPersistenceResult{}, err
 	}
 	if _, err := tx.Exec(ctx, updateCandidateSQL, updateCandidateArgs...); err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("update memory candidate status: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("update memory candidate status: %w", err)
 	}
 
 	out.Status = finalStatus
 	if err := tx.Commit(ctx); err != nil {
-		return core.ProposeMemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
+		return core.MemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
 	}
 
 	return out, nil
@@ -1624,6 +1565,11 @@ func (r *Repository) UpsertReceiptScope(ctx context.Context, input core.ReceiptS
 		return err
 	}
 
+	baselinePathsJSON, err := encodeSyncPathsJSON(normalized.BaselinePaths)
+	if err != nil {
+		return fmt.Errorf("encode baseline_paths: %w", err)
+	}
+
 	_, err = r.pool.Exec(ctx, `
 INSERT INTO acm_receipts (
 	receipt_id,
@@ -1633,8 +1579,11 @@ INSERT INTO acm_receipts (
 	resolved_tags,
 	pointer_keys,
 	memory_ids,
+	initial_scope_paths,
+	baseline_captured,
+	baseline_paths_json,
 	summary_json
-) VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::jsonb)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, '{}'::jsonb)
 ON CONFLICT (receipt_id) DO UPDATE
 SET
 	project_id = EXCLUDED.project_id,
@@ -1642,8 +1591,11 @@ SET
 	phase = EXCLUDED.phase,
 	resolved_tags = EXCLUDED.resolved_tags,
 	pointer_keys = EXCLUDED.pointer_keys,
-	memory_ids = EXCLUDED.memory_ids
-`, normalized.ReceiptID, normalized.ProjectID, normalized.TaskText, normalized.Phase, nonNilStringList(normalized.ResolvedTags), nonNilStringList(normalized.PointerKeys), nonNilInt64List(normalized.MemoryIDs))
+	memory_ids = EXCLUDED.memory_ids,
+	initial_scope_paths = EXCLUDED.initial_scope_paths,
+	baseline_captured = EXCLUDED.baseline_captured,
+	baseline_paths_json = EXCLUDED.baseline_paths_json
+`, normalized.ReceiptID, normalized.ProjectID, normalized.TaskText, normalized.Phase, nonNilStringList(normalized.ResolvedTags), nonNilStringList(normalized.PointerKeys), nonNilInt64List(normalized.MemoryIDs), nonNilStringList(normalized.InitialScopePaths), normalized.BaselineCaptured, baselinePathsJSON)
 	if err != nil {
 		return fmt.Errorf("upsert receipt scope: %w", err)
 	}
@@ -2045,13 +1997,14 @@ INSERT INTO acm_work_plans (
 	stage_implementation_plan,
 	in_scope,
 	out_of_scope,
+	discovered_paths,
 	constraints_list,
 	references_list,
 	external_refs,
 	created_at,
 	updated_at
 ) VALUES (
-	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW()
+	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW()
 )
 ON CONFLICT(project_id, plan_key) DO UPDATE SET
 	receipt_id = EXCLUDED.receipt_id,
@@ -2065,11 +2018,12 @@ ON CONFLICT(project_id, plan_key) DO UPDATE SET
 	stage_implementation_plan = EXCLUDED.stage_implementation_plan,
 	in_scope = EXCLUDED.in_scope,
 	out_of_scope = EXCLUDED.out_of_scope,
+	discovered_paths = EXCLUDED.discovered_paths,
 	constraints_list = EXCLUDED.constraints_list,
 	references_list = EXCLUDED.references_list,
 	external_refs = EXCLUDED.external_refs,
 	updated_at = NOW()
-`, strings.TrimSpace(plan.ProjectID), strings.TrimSpace(plan.PlanKey), receiptValue, strings.TrimSpace(plan.Title), strings.TrimSpace(plan.Objective), strings.ToLower(strings.TrimSpace(plan.Kind)), strings.TrimSpace(plan.ParentPlanKey), storageWorkItemStatus(plan.Status), storageWorkItemStatus(plan.Stages.SpecOutline), storageWorkItemStatus(plan.Stages.RefinedSpec), storageWorkItemStatus(plan.Stages.ImplementationPlan), nonNilStringList(plan.InScope), nonNilStringList(plan.OutOfScope), nonNilStringList(plan.Constraints), nonNilStringList(plan.References), nonNilStringList(plan.ExternalRefs))
+`, strings.TrimSpace(plan.ProjectID), strings.TrimSpace(plan.PlanKey), receiptValue, strings.TrimSpace(plan.Title), strings.TrimSpace(plan.Objective), strings.ToLower(strings.TrimSpace(plan.Kind)), strings.TrimSpace(plan.ParentPlanKey), storageWorkItemStatus(plan.Status), storageWorkItemStatus(plan.Stages.SpecOutline), storageWorkItemStatus(plan.Stages.RefinedSpec), storageWorkItemStatus(plan.Stages.ImplementationPlan), nonNilStringList(plan.InScope), nonNilStringList(plan.OutOfScope), nonNilStringList(plan.DiscoveredPaths), nonNilStringList(plan.Constraints), nonNilStringList(plan.References), nonNilStringList(plan.ExternalRefs))
 	if err != nil {
 		return fmt.Errorf("upsert work plan: %w", err)
 	}
@@ -2090,6 +2044,7 @@ SELECT
 	stage_implementation_plan,
 	in_scope,
 	out_of_scope,
+	discovered_paths,
 	constraints_list,
 	references_list,
 	external_refs,
@@ -2111,12 +2066,13 @@ WHERE project_id = $1
 		stageImplementation string
 		inScope             []string
 		outOfScope          []string
+		discoveredPaths     []string
 		constraints         []string
 		references          []string
 		externalRefs        []string
 		updatedAt           time.Time
 	)
-	if err := row.Scan(&receiptID, &title, &objective, &kind, &parentPlanKey, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScope, &outOfScope, &constraints, &references, &externalRefs, &updatedAt); err != nil {
+	if err := row.Scan(&receiptID, &title, &objective, &kind, &parentPlanKey, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScope, &outOfScope, &discoveredPaths, &constraints, &references, &externalRefs, &updatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return core.WorkPlan{}, false, nil
 		}
@@ -2124,21 +2080,22 @@ WHERE project_id = $1
 	}
 
 	return core.WorkPlan{
-		ProjectID:     projectID,
-		PlanKey:       planKey,
-		ReceiptID:     strings.TrimSpace(receiptID),
-		Title:         strings.TrimSpace(title),
-		Objective:     strings.TrimSpace(objective),
-		Kind:          strings.TrimSpace(kind),
-		ParentPlanKey: strings.TrimSpace(parentPlanKey),
-		Status:        normalizeWorkItemStatus(status),
-		Stages:        normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
-		InScope:       normalizeStringList(inScope),
-		OutOfScope:    normalizeStringList(outOfScope),
-		Constraints:   normalizeStringList(constraints),
-		References:    normalizeStringList(references),
-		ExternalRefs:  normalizeStringList(externalRefs),
-		UpdatedAt:     updatedAt.UTC(),
+		ProjectID:       projectID,
+		PlanKey:         planKey,
+		ReceiptID:       strings.TrimSpace(receiptID),
+		Title:           strings.TrimSpace(title),
+		Objective:       strings.TrimSpace(objective),
+		Kind:            strings.TrimSpace(kind),
+		ParentPlanKey:   strings.TrimSpace(parentPlanKey),
+		Status:          normalizeWorkItemStatus(status),
+		Stages:          normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
+		InScope:         normalizeStringList(inScope),
+		OutOfScope:      normalizeStringList(outOfScope),
+		DiscoveredPaths: normalizeStringList(discoveredPaths),
+		Constraints:     normalizeStringList(constraints),
+		References:      normalizeStringList(references),
+		ExternalRefs:    normalizeStringList(externalRefs),
+		UpdatedAt:       updatedAt.UTC(),
 	}, true, nil
 }
 
@@ -2210,6 +2167,7 @@ SELECT
 	stage_implementation_plan,
 	in_scope,
 	out_of_scope,
+	discovered_paths,
 	constraints_list,
 	references_list,
 	external_refs,
@@ -2231,12 +2189,13 @@ WHERE project_id = $1
 		stageImplementation string
 		inScope             []string
 		outOfScope          []string
+		discoveredPaths     []string
 		constraints         []string
 		references          []string
 		externalRefs        []string
 		updatedAt           time.Time
 	)
-	if err := row.Scan(&receiptID, &title, &objective, &kind, &parentPlanKey, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScope, &outOfScope, &constraints, &references, &externalRefs, &updatedAt); err != nil {
+	if err := row.Scan(&receiptID, &title, &objective, &kind, &parentPlanKey, &status, &stageSpecOutline, &stageRefinedSpec, &stageImplementation, &inScope, &outOfScope, &discoveredPaths, &constraints, &references, &externalRefs, &updatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return core.WorkPlan{}, false, nil
 		}
@@ -2244,21 +2203,22 @@ WHERE project_id = $1
 	}
 
 	return core.WorkPlan{
-		ProjectID:     projectID,
-		PlanKey:       planKey,
-		ReceiptID:     strings.TrimSpace(receiptID),
-		Title:         strings.TrimSpace(title),
-		Objective:     strings.TrimSpace(objective),
-		Kind:          strings.TrimSpace(kind),
-		ParentPlanKey: strings.TrimSpace(parentPlanKey),
-		Status:        normalizeWorkItemStatus(status),
-		Stages:        normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
-		InScope:       normalizeStringList(inScope),
-		OutOfScope:    normalizeStringList(outOfScope),
-		Constraints:   normalizeStringList(constraints),
-		References:    normalizeStringList(references),
-		ExternalRefs:  normalizeStringList(externalRefs),
-		UpdatedAt:     updatedAt.UTC(),
+		ProjectID:       projectID,
+		PlanKey:         planKey,
+		ReceiptID:       strings.TrimSpace(receiptID),
+		Title:           strings.TrimSpace(title),
+		Objective:       strings.TrimSpace(objective),
+		Kind:            strings.TrimSpace(kind),
+		ParentPlanKey:   strings.TrimSpace(parentPlanKey),
+		Status:          normalizeWorkItemStatus(status),
+		Stages:          normalizeWorkPlanStages(core.WorkPlanStages{SpecOutline: stageSpecOutline, RefinedSpec: stageRefinedSpec, ImplementationPlan: stageImplementation}),
+		InScope:         normalizeStringList(inScope),
+		OutOfScope:      normalizeStringList(outOfScope),
+		DiscoveredPaths: normalizeStringList(discoveredPaths),
+		Constraints:     normalizeStringList(constraints),
+		References:      normalizeStringList(references),
+		ExternalRefs:    normalizeStringList(externalRefs),
+		UpdatedAt:       updatedAt.UTC(),
 	}, true, nil
 }
 
@@ -2330,6 +2290,25 @@ func nonNilStringListPreserveOrder(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+func encodeSyncPathsJSON(values []core.SyncPath) ([]byte, error) {
+	raw, err := json.Marshal(values)
+	if err != nil {
+		return nil, fmt.Errorf("marshal sync path list: %w", err)
+	}
+	return raw, nil
+}
+
+func decodeSyncPathsJSON(raw []byte) ([]core.SyncPath, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var values []core.SyncPath
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, fmt.Errorf("unmarshal sync path list: %w", err)
+	}
+	return storagedomain.NormalizeSyncPathList(values), nil
 }
 
 func newReceiptID() (string, error) {

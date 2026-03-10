@@ -33,6 +33,19 @@ type NormalizedRunSummary struct {
 	Outcome                string
 }
 
+type NormalizedReceiptScope struct {
+	ProjectID         string
+	ReceiptID         string
+	TaskText          string
+	Phase             string
+	ResolvedTags      []string
+	PointerKeys       []string
+	MemoryIDs         []int64
+	InitialScopePaths []string
+	BaselineCaptured  bool
+	BaselinePaths     []core.SyncPath
+}
+
 type NormalizedVerificationBatch struct {
 	BatchRunID      string
 	ProjectID       string
@@ -90,130 +103,29 @@ func NormalizePhase(raw string) string {
 	}
 }
 
-func RankCandidatePointers(candidates []core.CandidatePointer, input core.CandidatePointerQuery, defaultLimit int) []core.CandidatePointer {
+func SortAndLimitCandidatePointers(candidates []core.CandidatePointer, input core.CandidatePointerQuery, defaultLimit int) []core.CandidatePointer {
 	if len(candidates) == 0 {
 		return nil
 	}
 
-	phase := NormalizePhase(input.Phase)
 	limit := input.Limit
 	if limit <= 0 {
 		limit = defaultLimit
 	}
-	taskTokens := TokenizeCandidateQuery(input.TaskText)
-	queryTags := NormalizeStringList(input.Tags)
 
-	ranked := make([]core.CandidatePointer, 0, len(candidates))
-	for _, candidate := range candidates {
-		textRank := CandidateTextMatchRank(taskTokens, candidate)
-		tagOverlap := CandidateTagOverlap(candidate.Tags, queryTags)
-		if len(taskTokens) > 0 || len(queryTags) > 0 {
-			if textRank == 0 && tagOverlap == 0 {
-				continue
-			}
+	sorted := append([]core.CandidatePointer(nil), candidates...)
+	sort.Slice(sorted, func(i, j int) bool {
+		leftPath := strings.TrimSpace(sorted[i].Path)
+		rightPath := strings.TrimSpace(sorted[j].Path)
+		if leftPath != rightPath {
+			return leftPath < rightPath
 		}
-
-		candidate.Rank = ((float64(tagOverlap) * 10.0) + (float64(textRank) * 5.0)) * CandidatePhaseWeight(phase, candidate)
-		ranked = append(ranked, candidate)
-	}
-
-	sort.Slice(ranked, func(i, j int) bool {
-		if ranked[i].IsRule != ranked[j].IsRule {
-			return ranked[i].IsRule
-		}
-		if ranked[i].Rank != ranked[j].Rank {
-			return ranked[i].Rank > ranked[j].Rank
-		}
-		return ranked[i].Key < ranked[j].Key
+		return sorted[i].Key < sorted[j].Key
 	})
-	if !input.Unbounded && len(ranked) > limit {
-		ranked = ranked[:limit]
+	if !input.Unbounded && len(sorted) > limit {
+		sorted = sorted[:limit]
 	}
-	return ranked
-}
-
-func CandidateTextMatchRank(tokens []string, pointer core.CandidatePointer) int {
-	if len(tokens) == 0 {
-		return 0
-	}
-	searchSpace := strings.ToLower(strings.Join([]string{
-		pointer.Label,
-		pointer.Description,
-		strings.Join(pointer.Tags, " "),
-	}, " "))
-	score := 0
-	for _, token := range tokens {
-		if strings.Contains(searchSpace, token) {
-			score++
-		}
-	}
-	return score
-}
-
-func CandidatePhaseWeight(phase string, pointer core.CandidatePointer) float64 {
-	switch phase {
-	case "plan":
-		switch CandidatePointerKind(pointer) {
-		case "rule":
-			return 3
-		case "doc":
-			return 2
-		default:
-			return 1
-		}
-	case "execute":
-		switch CandidatePointerKind(pointer) {
-		case "code":
-			return 3
-		case "test":
-			return 2
-		case "rule":
-			return 1
-		default:
-			return 1
-		}
-	case "review":
-		switch CandidatePointerKind(pointer) {
-		case "rule":
-			return 3
-		case "test":
-			return 2
-		case "code":
-			return 1
-		default:
-			return 1
-		}
-	default:
-		return 1
-	}
-}
-
-func CandidatePointerKind(pointer core.CandidatePointer) string {
-	if pointer.IsRule {
-		return "rule"
-	}
-	kind := strings.ToLower(strings.TrimSpace(pointer.Kind))
-	switch kind {
-	case "doc", "docs", "documentation":
-		return "doc"
-	case "test", "tests":
-		return "test"
-	}
-	if strings.Contains(strings.ToLower(pointer.Path), "_test.") {
-		return "test"
-	}
-	return "code"
-}
-
-func TokenizeCandidateQuery(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	fields := strings.FieldsFunc(strings.ToLower(raw), func(r rune) bool {
-		return !(r == '.' || r == '_' || r == '-' || r == '/' || r == ':' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z'))
-	})
-	return NormalizeStringList(fields)
+	return sorted
 }
 
 func CandidateTagOverlap(values, targets []string) int {
@@ -332,6 +244,107 @@ func NormalizeWorkPlanTasks(tasks []core.WorkItem) []core.WorkItem {
 	return out
 }
 
+func MergeIncomingWorkPlanTasks(current, incoming []core.WorkItem, mode core.WorkPlanMode) []core.WorkItem {
+	if mode == core.WorkPlanModeReplace {
+		return NormalizeWorkPlanTasks(incoming)
+	}
+	if len(incoming) == 0 {
+		return nil
+	}
+
+	currentByKey := make(map[string]core.WorkItem, len(current))
+	for _, item := range NormalizeWorkPlanTasks(current) {
+		currentByKey[item.ItemKey] = item
+	}
+
+	mergedByKey := make(map[string]core.WorkItem, len(incoming))
+	for _, raw := range incoming {
+		itemKey := strings.TrimSpace(raw.ItemKey)
+		if itemKey == "" {
+			continue
+		}
+		base, found := currentByKey[itemKey]
+		if prior, ok := mergedByKey[itemKey]; ok {
+			base = prior
+			found = true
+		}
+		mergedByKey[itemKey] = mergeWorkPlanTask(base, raw, found)
+	}
+	if len(mergedByKey) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(mergedByKey))
+	for key := range mergedByKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	out := make([]core.WorkItem, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, mergedByKey[key])
+	}
+	return out
+}
+
+func mergeWorkPlanTask(current, incoming core.WorkItem, found bool) core.WorkItem {
+	itemKey := strings.TrimSpace(incoming.ItemKey)
+	merged := core.WorkItem{}
+	if found {
+		merged = current
+	}
+	merged.ItemKey = itemKey
+
+	if summary := strings.TrimSpace(incoming.Summary); summary != "" || !found {
+		merged.Summary = summary
+	}
+
+	if status := strings.TrimSpace(incoming.Status); status != "" {
+		merged.Status = NormalizeWorkItemStatus(status)
+	} else if !found || strings.TrimSpace(merged.Status) == "" {
+		merged.Status = core.WorkItemStatusPending
+	} else {
+		merged.Status = NormalizeWorkItemStatus(merged.Status)
+	}
+
+	if parent := strings.TrimSpace(incoming.ParentTaskKey); parent != "" {
+		merged.ParentTaskKey = parent
+	}
+	if incoming.DependsOn != nil {
+		merged.DependsOn = NormalizeStringList(incoming.DependsOn)
+	}
+	if incoming.AcceptanceCriteria != nil {
+		merged.AcceptanceCriteria = NormalizeStringList(incoming.AcceptanceCriteria)
+	}
+	if incoming.References != nil {
+		merged.References = NormalizeStringList(incoming.References)
+	}
+	if incoming.ExternalRefs != nil {
+		merged.ExternalRefs = NormalizeStringList(incoming.ExternalRefs)
+	}
+
+	if blocked := strings.TrimSpace(incoming.BlockedReason); blocked != "" {
+		merged.BlockedReason = blocked
+	} else if strings.TrimSpace(incoming.Status) != "" && NormalizeWorkItemStatus(incoming.Status) != core.WorkItemStatusBlocked {
+		merged.BlockedReason = ""
+	}
+
+	if outcome := strings.TrimSpace(incoming.Outcome); outcome != "" {
+		merged.Outcome = outcome
+	}
+	if incoming.Evidence != nil {
+		merged.Evidence = NormalizeStringList(incoming.Evidence)
+	}
+
+	if !incoming.UpdatedAt.IsZero() {
+		merged.UpdatedAt = incoming.UpdatedAt.UTC()
+	} else if found {
+		merged.UpdatedAt = current.UpdatedAt.UTC()
+	}
+
+	return merged
+}
+
 func BuildNextWorkPlanState(current core.WorkPlan, found bool, input core.WorkPlanUpsertInput, mode core.WorkPlanMode) core.WorkPlan {
 	projectID := strings.TrimSpace(input.ProjectID)
 	planKey := strings.TrimSpace(input.PlanKey)
@@ -408,6 +421,9 @@ func BuildNextWorkPlanState(current core.WorkPlan, found bool, input core.WorkPl
 	if input.OutOfScope != nil || mode == core.WorkPlanModeReplace {
 		next.OutOfScope = NormalizeStringList(input.OutOfScope)
 	}
+	if input.DiscoveredPaths != nil || mode == core.WorkPlanModeReplace {
+		next.DiscoveredPaths = NormalizeRepoPathList(input.DiscoveredPaths)
+	}
 	if input.Constraints != nil || mode == core.WorkPlanModeReplace {
 		next.Constraints = NormalizeStringList(input.Constraints)
 	}
@@ -470,27 +486,30 @@ func NormalizeRunReceiptSummary(input core.RunReceiptSummary) (NormalizedRunSumm
 	}, nil
 }
 
-func NormalizeReceiptScope(input core.ReceiptScope) (NormalizedRunSummary, error) {
+func NormalizeReceiptScope(input core.ReceiptScope) (NormalizedReceiptScope, error) {
 	projectID := strings.TrimSpace(input.ProjectID)
 	if projectID == "" {
-		return NormalizedRunSummary{}, fmt.Errorf("project_id is required")
+		return NormalizedReceiptScope{}, fmt.Errorf("project_id is required")
 	}
 	receiptID := strings.TrimSpace(input.ReceiptID)
 	if receiptID == "" {
-		return NormalizedRunSummary{}, fmt.Errorf("receipt_id is required")
+		return NormalizedReceiptScope{}, fmt.Errorf("receipt_id is required")
 	}
 	phase := strings.TrimSpace(input.Phase)
 	if phase == "" {
 		phase = "execute"
 	}
-	return NormalizedRunSummary{
-		ProjectID:    projectID,
-		ReceiptID:    receiptID,
-		TaskText:     strings.TrimSpace(input.TaskText),
-		Phase:        phase,
-		ResolvedTags: NormalizeStringList(input.ResolvedTags),
-		PointerKeys:  NormalizeStringList(input.PointerKeys),
-		MemoryIDs:    NormalizeInt64List(input.MemoryIDs),
+	return NormalizedReceiptScope{
+		ProjectID:         projectID,
+		ReceiptID:         receiptID,
+		TaskText:          strings.TrimSpace(input.TaskText),
+		Phase:             phase,
+		ResolvedTags:      NormalizeStringList(input.ResolvedTags),
+		PointerKeys:       NormalizeStringList(input.PointerKeys),
+		MemoryIDs:         NormalizeInt64List(input.MemoryIDs),
+		InitialScopePaths: NormalizeRepoPathList(input.InitialScopePaths),
+		BaselineCaptured:  input.BaselineCaptured,
+		BaselinePaths:     NormalizeSyncPathList(input.BaselinePaths),
 	}, nil
 }
 
@@ -642,40 +661,40 @@ func NormalizeReviewAttempt(input core.ReviewAttempt) (NormalizedReviewAttempt, 
 	}, nil
 }
 
-func NormalizeProposeMemoryPersistence(input core.ProposeMemoryPersistence) (core.ProposeMemoryPersistence, error) {
+func NormalizeMemoryPersistence(input core.MemoryPersistence) (core.MemoryPersistence, error) {
 	projectID := strings.TrimSpace(input.ProjectID)
 	if projectID == "" {
-		return core.ProposeMemoryPersistence{}, fmt.Errorf("project_id is required")
+		return core.MemoryPersistence{}, fmt.Errorf("project_id is required")
 	}
 	receiptID := strings.TrimSpace(input.ReceiptID)
 	if receiptID == "" {
-		return core.ProposeMemoryPersistence{}, fmt.Errorf("receipt_id is required")
+		return core.MemoryPersistence{}, fmt.Errorf("receipt_id is required")
 	}
 	category := strings.TrimSpace(input.Category)
 	if category == "" {
-		return core.ProposeMemoryPersistence{}, fmt.Errorf("category is required")
+		return core.MemoryPersistence{}, fmt.Errorf("category is required")
 	}
 	subject := strings.TrimSpace(input.Subject)
 	if subject == "" {
-		return core.ProposeMemoryPersistence{}, fmt.Errorf("subject is required")
+		return core.MemoryPersistence{}, fmt.Errorf("subject is required")
 	}
 	content := strings.TrimSpace(input.Content)
 	if content == "" {
-		return core.ProposeMemoryPersistence{}, fmt.Errorf("content is required")
+		return core.MemoryPersistence{}, fmt.Errorf("content is required")
 	}
 	if input.Confidence < 1 || input.Confidence > 5 {
-		return core.ProposeMemoryPersistence{}, fmt.Errorf("confidence must be 1..5")
+		return core.MemoryPersistence{}, fmt.Errorf("confidence must be 1..5")
 	}
 	evidencePointerKeys := NormalizeStringList(input.EvidencePointerKeys)
 	if len(evidencePointerKeys) == 0 {
-		return core.ProposeMemoryPersistence{}, fmt.Errorf("evidence_pointer_keys is required")
+		return core.MemoryPersistence{}, fmt.Errorf("evidence_pointer_keys is required")
 	}
 	dedupeKey := strings.TrimSpace(input.DedupeKey)
 	if dedupeKey == "" {
-		return core.ProposeMemoryPersistence{}, fmt.Errorf("dedupe_key is required")
+		return core.MemoryPersistence{}, fmt.Errorf("dedupe_key is required")
 	}
 
-	return core.ProposeMemoryPersistence{
+	return core.MemoryPersistence{
 		ProjectID:           projectID,
 		ReceiptID:           receiptID,
 		Category:            category,
@@ -686,7 +705,7 @@ func NormalizeProposeMemoryPersistence(input core.ProposeMemoryPersistence) (cor
 		RelatedPointerKeys:  NormalizeStringList(input.RelatedPointerKeys),
 		EvidencePointerKeys: evidencePointerKeys,
 		DedupeKey:           dedupeKey,
-		Validation: core.ProposeMemoryValidation{
+		Validation: core.MemoryValidation{
 			HardPassed: input.Validation.HardPassed,
 			SoftPassed: input.Validation.SoftPassed,
 			Errors:     NormalizeStringList(input.Validation.Errors),
@@ -833,12 +852,7 @@ func DerivePlanStatus(items []core.WorkItem) string {
 }
 
 func StorageWorkItemStatus(raw string) string {
-	switch NormalizeWorkItemStatus(raw) {
-	case core.WorkItemStatusComplete:
-		return core.WorkItemStatusCompleted
-	default:
-		return NormalizeWorkItemStatus(raw)
-	}
+	return NormalizeWorkItemStatus(raw)
 }
 
 func NormalizeWorkItemStatus(raw string) string {
@@ -865,6 +879,65 @@ func NormalizeRepoPath(raw string) string {
 		return ""
 	}
 	return cleaned
+}
+
+func NormalizeRepoPathList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		normalized := NormalizeRepoPath(raw)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func NormalizeSyncPathList(values []core.SyncPath) []core.SyncPath {
+	if len(values) == 0 {
+		return nil
+	}
+
+	byPath := make(map[string]core.SyncPath, len(values))
+	for _, raw := range values {
+		path := NormalizeRepoPath(raw.Path)
+		if path == "" {
+			continue
+		}
+		entry := core.SyncPath{
+			Path:        path,
+			ContentHash: strings.TrimSpace(raw.ContentHash),
+			Deleted:     raw.Deleted,
+		}
+		if entry.Deleted {
+			entry.ContentHash = ""
+		}
+		byPath[path] = entry
+	}
+	if len(byPath) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(byPath))
+	for key := range byPath {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	out := make([]core.SyncPath, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, byPath[key])
+	}
+	return out
 }
 
 func NormalizeStringList(values []string) []string {

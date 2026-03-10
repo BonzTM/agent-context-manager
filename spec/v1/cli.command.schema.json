@@ -25,56 +25,7 @@
     }
   },
   "$defs": {
-    "retrievalCaps": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "max_non_rule_pointers": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 32,
-          "default": 8
-        },
-        "max_rule_pointers": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 512,
-          "default": 0,
-          "description": "0 means uncapped"
-        },
-        "max_hops": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3,
-          "default": 1
-        },
-        "max_hop_expansion": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 32,
-          "default": 5
-        },
-        "max_memories": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 32,
-          "default": 6
-        },
-        "min_pointer_count": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 8,
-          "default": 2
-        },
-        "word_budget_limit": {
-          "type": "integer",
-          "minimum": 100,
-          "maximum": 10000,
-          "default": 1200
-        }
-      }
-    },
-    "getContextPayload": {
+    "contextPayload": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -96,32 +47,20 @@
         "tags_file": {
           "$ref": "shared.schema.json#/$defs/overrideFilePath"
         },
-        "unbounded": {
-          "type": "boolean",
-          "default": false
-        },
-        "caps": {
-          "$ref": "#/$defs/retrievalCaps"
-        },
-        "allow_stale": {
-          "type": "boolean",
-          "default": false
-        },
-        "fallback_mode": {
-          "type": "string",
-          "enum": [
-            "widen_once",
-            "none"
-          ],
-          "default": "widen_once"
+        "initial_scope_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 4096,
+          "uniqueItems": true
         }
       }
     },
-    "proposeMemoryPayload": {
+    "memoryPayload": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "receipt_id",
         "memory"
       ],
       "properties": {
@@ -129,9 +68,10 @@
           "$ref": "shared.schema.json#/$defs/projectId"
         },
         "receipt_id": {
-          "type": "string",
-          "minLength": 8,
-          "maxLength": 128
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
         },
         "tags_file": {
           "$ref": "shared.schema.json#/$defs/overrideFilePath"
@@ -143,14 +83,28 @@
           "type": "boolean",
           "default": true
         }
-      }
+      },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "receipt_id"
+              ]
+            },
+            {
+              "required": [
+                "plan_key"
+              ]
+            }
+          ]
+        }
+      ]
     },
-    "reportCompletionPayload": {
+    "donePayload": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "receipt_id",
-        "files_changed",
         "outcome"
       ],
       "properties": {
@@ -158,9 +112,10 @@
           "$ref": "shared.schema.json#/$defs/projectId"
         },
         "receipt_id": {
-          "type": "string",
-          "minLength": 8,
-          "maxLength": 128
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
         },
         "tags_file": {
           "$ref": "shared.schema.json#/$defs/overrideFilePath"
@@ -173,6 +128,10 @@
           "maxItems": 256,
           "uniqueItems": true
         },
+        "no_file_changes": {
+          "type": "boolean",
+          "default": false
+        },
         "outcome": {
           "type": "string",
           "minLength": 1,
@@ -182,12 +141,40 @@
           "type": "string",
           "enum": [
             "strict",
-            "warn",
-            "auto_index"
+            "warn"
           ],
           "default": "warn"
         }
-      }
+      },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "receipt_id"
+              ]
+            },
+            {
+              "required": [
+                "plan_key"
+              ]
+            }
+          ]
+        },
+        {
+          "not": {
+            "required": [
+              "files_changed",
+              "no_file_changes"
+            ],
+            "properties": {
+              "no_file_changes": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
     },
     "reviewPayload": {
       "type": "object",
@@ -214,7 +201,8 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 600,
-          "pattern": "^.*\\S.*$"
+          "pattern": "^.*\\S.*$",
+          "default": "Cross-LLM review"
         },
         "status": {
           "allOf": [
@@ -348,7 +336,7 @@
         }
       }
     },
-    "healthCheckPayload": {
+    "healthPayload": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -364,15 +352,6 @@
           "minimum": 1,
           "maximum": 500,
           "default": 100
-        }
-      }
-    },
-    "healthFixPayload": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "project_id": {
-          "$ref": "shared.schema.json#/$defs/projectId"
         },
         "apply": {
           "type": "boolean",
@@ -390,7 +369,7 @@
             "enum": [
               "all",
               "sync_working_tree",
-              "index_uncovered_files",
+              "index_unindexed_files",
               "sync_ruleset"
             ]
           },
@@ -437,84 +416,6 @@
         },
         "phase": {
           "$ref": "shared.schema.json#/$defs/phase"
-        }
-      }
-    },
-    "evalPayload": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "project_id": {
-          "$ref": "shared.schema.json#/$defs/projectId"
-        },
-        "eval_suite_path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
-        },
-        "eval_suite_inline": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/evalCase"
-          },
-          "maxItems": 500
-        },
-        "minimum_recall": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1,
-          "default": 0.8
-        },
-        "tags_file": {
-          "$ref": "shared.schema.json#/$defs/overrideFilePath"
-        }
-      },
-      "oneOf": [
-        {
-          "required": [
-            "eval_suite_path"
-          ]
-        },
-        {
-          "required": [
-            "eval_suite_inline"
-          ]
-        }
-      ]
-    },
-    "evalCase": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "task_text",
-        "phase"
-      ],
-      "properties": {
-        "task_text": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
-        },
-        "phase": {
-          "$ref": "shared.schema.json#/$defs/phase"
-        },
-        "expected_pointer_keys": {
-          "type": "array",
-          "items": {
-            "$ref": "shared.schema.json#/$defs/pointerKey"
-          },
-          "maxItems": 64,
-          "uniqueItems": true
-        },
-        "expected_memory_subjects": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          },
-          "maxItems": 64,
-          "uniqueItems": true
         }
       }
     },
@@ -599,7 +500,7 @@
         }
       ]
     },
-    "bootstrapPayload": {
+    "initPayload": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -640,20 +541,6 @@
         "persist_candidates": {
           "type": "boolean",
           "default": false
-        }
-      }
-    },
-    "coveragePayload": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "project_id": {
-          "$ref": "shared.schema.json#/$defs/projectId"
-        },
-        "project_root": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
         }
       }
     },
@@ -828,7 +715,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "get_context"
+            "const": "context"
           }
         },
         "required": [
@@ -838,7 +725,7 @@
       "then": {
         "properties": {
           "payload": {
-            "$ref": "#/$defs/getContextPayload"
+            "$ref": "#/$defs/contextPayload"
           }
         }
       }
@@ -866,7 +753,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "propose_memory"
+            "const": "memory"
           }
         },
         "required": [
@@ -876,7 +763,7 @@
       "then": {
         "properties": {
           "payload": {
-            "$ref": "#/$defs/proposeMemoryPayload"
+            "$ref": "#/$defs/memoryPayload"
           }
         }
       }
@@ -885,7 +772,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "report_completion"
+            "const": "done"
           }
         },
         "required": [
@@ -895,7 +782,7 @@
       "then": {
         "properties": {
           "payload": {
-            "$ref": "#/$defs/reportCompletionPayload"
+            "$ref": "#/$defs/donePayload"
           }
         }
       }
@@ -961,7 +848,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "health_check"
+            "const": "health"
           }
         },
         "required": [
@@ -971,26 +858,7 @@
       "then": {
         "properties": {
           "payload": {
-            "$ref": "#/$defs/healthCheckPayload"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "command": {
-            "const": "health_fix"
-          }
-        },
-        "required": [
-          "command"
-        ]
-      },
-      "then": {
-        "properties": {
-          "payload": {
-            "$ref": "#/$defs/healthFixPayload"
+            "$ref": "#/$defs/healthPayload"
           }
         }
       }
@@ -1018,44 +886,6 @@
       "if": {
         "properties": {
           "command": {
-            "const": "coverage"
-          }
-        },
-        "required": [
-          "command"
-        ]
-      },
-      "then": {
-        "properties": {
-          "payload": {
-            "$ref": "#/$defs/coveragePayload"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "command": {
-            "const": "eval"
-          }
-        },
-        "required": [
-          "command"
-        ]
-      },
-      "then": {
-        "properties": {
-          "payload": {
-            "$ref": "#/$defs/evalPayload"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "command": {
             "const": "verify"
           }
         },
@@ -1075,7 +905,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "bootstrap"
+            "const": "init"
           }
         },
         "required": [
@@ -1085,7 +915,7 @@
       "then": {
         "properties": {
           "payload": {
-            "$ref": "#/$defs/bootstrapPayload"
+            "$ref": "#/$defs/initPayload"
           }
         }
       }

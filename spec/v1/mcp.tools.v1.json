@@ -17,8 +17,8 @@
       "items": {
         "$ref": "#/$defs/toolContract"
       },
-      "minItems": 15,
-      "maxItems": 15
+      "minItems": 12,
+      "maxItems": 12
     }
   },
   "$defs": {
@@ -36,21 +36,18 @@
         "name": {
           "type": "string",
           "enum": [
-            "get_context",
+            "context",
             "fetch",
-            "propose_memory",
-            "report_completion",
+            "memory",
+            "done",
             "review",
             "work",
-            "history_search",
+            "history",
             "sync",
-            "health_check",
-            "health_fix",
+            "health",
             "status",
-            "coverage",
-            "eval",
             "verify",
-            "bootstrap"
+            "init"
           ]
         },
         "title": {
@@ -71,11 +68,11 @@
         }
       }
     },
-    "getContextInput": {
-      "$ref": "cli.command.schema.json#/$defs/getContextPayload"
+    "contextInput": {
+      "$ref": "cli.command.schema.json#/$defs/contextPayload"
     },
-    "getContextOutput": {
-      "$ref": "cli.result.schema.json#/$defs/getContextResult"
+    "contextOutput": {
+      "$ref": "cli.result.schema.json#/$defs/contextResult"
     },
     "fetchInput": {
       "$ref": "cli.command.schema.json#/$defs/fetchPayload"
@@ -83,17 +80,17 @@
     "fetchOutput": {
       "$ref": "cli.result.schema.json#/$defs/fetchResult"
     },
-    "proposeMemoryInput": {
-      "$ref": "cli.command.schema.json#/$defs/proposeMemoryPayload"
+    "memoryInput": {
+      "$ref": "cli.command.schema.json#/$defs/memoryPayload"
     },
-    "proposeMemoryOutput": {
-      "$ref": "cli.result.schema.json#/$defs/proposeMemoryResult"
+    "memoryOutput": {
+      "$ref": "cli.result.schema.json#/$defs/memoryResult"
     },
-    "reportCompletionInput": {
-      "$ref": "cli.command.schema.json#/$defs/reportCompletionPayload"
+    "doneInput": {
+      "$ref": "cli.command.schema.json#/$defs/donePayload"
     },
-    "reportCompletionOutput": {
-      "$ref": "cli.result.schema.json#/$defs/reportCompletionResult"
+    "doneOutput": {
+      "$ref": "cli.result.schema.json#/$defs/doneResult"
     },
     "reviewInput": {
       "$ref": "cli.command.schema.json#/$defs/reviewPayload"
@@ -113,17 +110,11 @@
     "syncOutput": {
       "$ref": "cli.result.schema.json#/$defs/syncResult"
     },
-    "healthCheckInput": {
-      "$ref": "cli.command.schema.json#/$defs/healthCheckPayload"
+    "healthInput": {
+      "$ref": "cli.command.schema.json#/$defs/healthPayload"
     },
-    "healthCheckOutput": {
-      "$ref": "cli.result.schema.json#/$defs/healthCheckResult"
-    },
-    "healthFixInput": {
-      "$ref": "cli.command.schema.json#/$defs/healthFixPayload"
-    },
-    "healthFixOutput": {
-      "$ref": "cli.result.schema.json#/$defs/healthFixResult"
+    "healthOutput": {
+      "$ref": "cli.result.schema.json#/$defs/healthResult"
     },
     "statusInput": {
       "$ref": "cli.command.schema.json#/$defs/statusPayload"
@@ -131,29 +122,17 @@
     "statusOutput": {
       "$ref": "cli.result.schema.json#/$defs/statusResult"
     },
-    "coverageInput": {
-      "$ref": "cli.command.schema.json#/$defs/coveragePayload"
-    },
-    "coverageOutput": {
-      "$ref": "cli.result.schema.json#/$defs/coverageResult"
-    },
-    "evalInput": {
-      "$ref": "cli.command.schema.json#/$defs/evalPayload"
-    },
-    "evalOutput": {
-      "$ref": "cli.result.schema.json#/$defs/evalResult"
-    },
     "verifyInput": {
       "$ref": "cli.command.schema.json#/$defs/verifyPayload"
     },
     "verifyOutput": {
       "$ref": "cli.result.schema.json#/$defs/verifyResult"
     },
-    "bootstrapInput": {
-      "$ref": "cli.command.schema.json#/$defs/bootstrapPayload"
+    "initInput": {
+      "$ref": "cli.command.schema.json#/$defs/initPayload"
     },
-    "bootstrapOutput": {
-      "$ref": "cli.result.schema.json#/$defs/bootstrapResult"
+    "initOutput": {
+      "$ref": "cli.result.schema.json#/$defs/initResult"
     },
     "historySearchInput": {
       "$ref": "cli.command.schema.json#/$defs/historySearchPayload"
@@ -165,22 +144,22 @@
   "version": "acm.v1",
   "tools": [
     {
-      "name": "get_context",
+      "name": "context",
       "title": "Get Task Context",
-      "description": "Deterministically resolve task-scoped pointers, rules, and memories.",
+      "description": "Resolve task-scoped rules, durable memory, active plans, and optional known scope paths.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/getContextPayload"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/contextPayload"
       },
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/getContextResult"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/contextResult"
       }
     },
     {
       "name": "fetch",
-      "title": "Fetch Task Context",
-      "description": "Fetch deterministic task context by pointer keys and optional expected versions.",
+      "title": "Fetch Stored Artifacts",
+      "description": "Fetch receipt, plan, memory, or indexed artifacts by key with optional expected versions.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/fetchPayload"
@@ -191,29 +170,29 @@
       }
     },
     {
-      "name": "propose_memory",
+      "name": "memory",
       "title": "Propose Durable Memory",
-      "description": "Submit a memory candidate tied to evidence and receipt scope.",
+      "description": "Submit a memory candidate tied to evidence and the task's effective scope.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/proposeMemoryPayload"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/memoryPayload"
       },
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/proposeMemoryResult"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/memoryResult"
       }
     },
     {
-      "name": "report_completion",
-      "title": "Report Task Completion",
-      "description": "Validate changed files against the active receipt and persist run summary.",
+      "name": "done",
+      "title": "Close Task",
+      "description": "Validate the task delta against effective scope and persist completion history, with explicit no-file closeout support when needed.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reportCompletionPayload"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/donePayload"
       },
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reportCompletionResult"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/doneResult"
       }
     },
     {
@@ -231,8 +210,8 @@
     },
     {
       "name": "work",
-      "title": "Submit Completion Work",
-      "description": "Submit plan-scoped work task updates with status and optional outcomes.",
+      "title": "Update Work Plan",
+      "description": "Create or update plan-scoped work state, tasks, and discovered paths.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/workPayload"
@@ -243,7 +222,7 @@
       }
     },
     {
-      "name": "history_search",
+      "name": "history",
       "title": "Search History",
       "description": "List or search work plans, memories, receipts, and runs without direct database access.",
       "input_schema": {
@@ -269,35 +248,22 @@
       }
     },
     {
-      "name": "health_check",
-      "title": "Check Project Health",
-      "description": "Inspect ACM repository health and return findings without making changes.",
+      "name": "health",
+      "title": "Inspect Or Fix Project Health",
+      "description": "Inspect ACM repository health or run selected repair actions through one public health surface.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/healthCheckPayload"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/healthPayload"
       },
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthCheckResult"
-      }
-    },
-    {
-      "name": "health_fix",
-      "title": "Fix Project Health",
-      "description": "Plan or apply ACM health fixes such as ruleset sync and working tree repair.",
-      "input_schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/healthFixPayload"
-      },
-      "output_schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthFixResult"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthResult"
       }
     },
     {
       "name": "status",
       "title": "Inspect ACM Status",
-      "description": "Explain current project/runtime state, loaded ACM files, installed integrations, and optional get_context retrieval reasoning.",
+      "description": "Explain current project/runtime state, loaded ACM files, installed integrations, and governance inputs.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/statusPayload"
@@ -305,32 +271,6 @@
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/statusResult"
-      }
-    },
-    {
-      "name": "coverage",
-      "title": "Measure Coverage",
-      "description": "Report repository indexing coverage against the current project tree.",
-      "input_schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/coveragePayload"
-      },
-      "output_schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/coverageResult"
-      }
-    },
-    {
-      "name": "eval",
-      "title": "Run Retrieval Evaluation",
-      "description": "Run retrieval evaluation cases against ACM context selection behavior.",
-      "input_schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/evalPayload"
-      },
-      "output_schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/evalResult"
       }
     },
     {
@@ -347,16 +287,16 @@
       }
     },
     {
-      "name": "bootstrap",
-      "title": "Bootstrap Repository",
-      "description": "Scan a repository, seed ACM files, and optionally apply additive bootstrap templates.",
+      "name": "init",
+      "title": "Initialize Repository",
+      "description": "Scan a repository, initialize ACM files, and optionally apply additive templates.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/bootstrapPayload"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/initPayload"
       },
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/bootstrapResult"
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/initResult"
       }
     }
   ]

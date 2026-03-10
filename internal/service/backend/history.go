@@ -93,7 +93,7 @@ func (s *Service) listMemoryHistoryItems(ctx context.Context, projectID, query s
 		return nil, core.NewError(
 			"NOT_IMPLEMENTED",
 			"memory history search requires history storage support",
-			map[string]any{"operation": "history_search", "entity": "memory"},
+			map[string]any{"operation": "history", "entity": "memory"},
 		)
 	}
 
@@ -136,7 +136,7 @@ func (s *Service) listWorkHistoryItems(ctx context.Context, projectID string, sc
 		return nil, core.NewError(
 			"NOT_IMPLEMENTED",
 			"work history search requires plan storage support",
-			map[string]any{"operation": "history_search", "entity": "work"},
+			map[string]any{"operation": "history", "entity": "work"},
 		)
 	}
 
@@ -192,7 +192,7 @@ func (s *Service) listReceiptHistoryItems(ctx context.Context, projectID, query 
 		return nil, core.NewError(
 			"NOT_IMPLEMENTED",
 			"receipt history search requires history storage support",
-			map[string]any{"operation": "history_search", "entity": "receipt"},
+			map[string]any{"operation": "history", "entity": "receipt"},
 		)
 	}
 
@@ -236,7 +236,7 @@ func (s *Service) listRunHistoryItems(ctx context.Context, projectID, query stri
 		return nil, core.NewError(
 			"NOT_IMPLEMENTED",
 			"run history search requires history storage support",
-			map[string]any{"operation": "history_search", "entity": "run"},
+			map[string]any{"operation": "history", "entity": "run"},
 		)
 	}
 

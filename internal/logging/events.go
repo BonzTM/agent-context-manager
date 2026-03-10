@@ -1,21 +1,18 @@
 package logging
 
 const (
-	OperationGetContext       = "get_context"
-	OperationFetch            = "fetch"
-	OperationProposeMemory    = "propose_memory"
-	OperationReview           = "review"
-	OperationWork             = "work"
-	OperationHistorySearch    = "history_search"
-	OperationReportCompletion = "report_completion"
-	OperationSync             = "sync"
-	OperationHealthCheck      = "health_check"
-	OperationHealthFix        = "health_fix"
-	OperationStatus           = "status"
-	OperationCoverage         = "coverage"
-	OperationEval             = "eval"
-	OperationVerify           = "verify"
-	OperationBootstrap        = "bootstrap"
+	OperationContext       = "context"
+	OperationFetch         = "fetch"
+	OperationMemory        = "memory"
+	OperationReview        = "review"
+	OperationWork          = "work"
+	OperationHistorySearch = "history"
+	OperationDone          = "done"
+	OperationSync          = "sync"
+	OperationHealth        = "health"
+	OperationStatus        = "status"
+	OperationVerify        = "verify"
+	OperationInit          = "init"
 )
 
 const (

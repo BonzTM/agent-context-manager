@@ -2,7 +2,6 @@ package backend
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -74,120 +73,59 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 
 	workItems := workPayloadTasks(payload)
 
-	if s.planRepo != nil {
-		upsertInput := core.WorkPlanUpsertInput{
-			ProjectID: projectID,
-			PlanKey:   planKey,
-			ReceiptID: receiptID,
-			Mode:      normalizeWorkPlanMode(payload.Mode),
-			Title:     strings.TrimSpace(payload.PlanTitle),
-			Tasks:     workItems,
-		}
-		if payload.Plan != nil {
-			upsertInput.Title = coalesceNonEmpty(strings.TrimSpace(payload.Plan.Title), upsertInput.Title)
-			upsertInput.Objective = strings.TrimSpace(payload.Plan.Objective)
-			upsertInput.Kind = strings.TrimSpace(payload.Plan.Kind)
-			upsertInput.ParentPlanKey = strings.TrimSpace(payload.Plan.ParentPlanKey)
-			upsertInput.Status = string(payload.Plan.Status)
-			if payload.Plan.Stages != nil {
-				upsertInput.Stages = core.WorkPlanStages{
-					SpecOutline:        string(payload.Plan.Stages.SpecOutline),
-					RefinedSpec:        string(payload.Plan.Stages.RefinedSpec),
-					ImplementationPlan: string(payload.Plan.Stages.ImplementationPlan),
-				}
-			}
-			upsertInput.InScope = normalizeValues(payload.Plan.InScope)
-			upsertInput.OutOfScope = normalizeValues(payload.Plan.OutOfScope)
-			upsertInput.Constraints = normalizeValues(payload.Plan.Constraints)
-			upsertInput.References = normalizeValues(payload.Plan.References)
-			upsertInput.ExternalRefs = normalizeValues(payload.Plan.ExternalRefs)
-		}
-
-		upsertResult, err := s.planRepo.UpsertWorkPlan(ctx, upsertInput)
-		if err != nil {
-			return v1.WorkResult{}, workInternalError("upsert_work_plan", err)
-		}
-
-		if receiptID != "" && len(workItems) > 0 {
-			if _, err := s.repo.UpsertWorkItems(ctx, core.WorkItemsUpsertInput{
-				ProjectID: projectID,
-				ReceiptID: receiptID,
-				Items:     workItems,
-			}); err != nil {
-				return v1.WorkResult{}, workInternalError("upsert_work_items", err)
-			}
-		}
-
-		planStatus := normalizePlanStatus(upsertResult.Plan.Status)
-		if planStatus == core.PlanStatusPending {
-			planStatus = derivePlanStatusFromWorkItems(normalizeWorkItems(upsertResult.Plan.Tasks))
-		}
-		return v1.WorkResult{
-			PlanKey:    upsertResult.Plan.PlanKey,
-			PlanStatus: planStatus,
-			Updated:    upsertResult.Updated,
-			TaskCount:  len(upsertResult.Plan.Tasks),
-		}, nil
-	}
-
-	if receiptID == "" {
-		return v1.WorkResult{}, core.NewError(
-			"INVALID_INPUT",
-			"receipt_id is required when plan storage is unavailable; provide receipt_id or plan_key in format plan:<receipt_id>",
-			map[string]any{
-				"project_id": projectID,
-				"plan_key":   planKey,
-			},
-		)
-	}
-
-	if _, err := s.repo.LookupFetchState(ctx, core.FetchLookupQuery{
+	upsertInput := core.WorkPlanUpsertInput{
 		ProjectID: projectID,
+		PlanKey:   planKey,
 		ReceiptID: receiptID,
-	}); err != nil {
-		if errors.Is(err, core.ErrFetchLookupNotFound) {
-			return v1.WorkResult{}, core.NewError(
-				"NOT_FOUND",
-				"fetch state was not found",
-				map[string]any{
-					"project_id": projectID,
-					"receipt_id": receiptID,
-				},
-			)
+		Mode:      normalizeWorkPlanMode(payload.Mode),
+		Title:     strings.TrimSpace(payload.PlanTitle),
+		Tasks:     workItems,
+	}
+	if payload.Plan != nil {
+		upsertInput.Title = coalesceNonEmpty(strings.TrimSpace(payload.Plan.Title), upsertInput.Title)
+		upsertInput.Objective = strings.TrimSpace(payload.Plan.Objective)
+		upsertInput.Kind = strings.TrimSpace(payload.Plan.Kind)
+		upsertInput.ParentPlanKey = strings.TrimSpace(payload.Plan.ParentPlanKey)
+		upsertInput.Status = string(payload.Plan.Status)
+		if payload.Plan.Stages != nil {
+			upsertInput.Stages = core.WorkPlanStages{
+				SpecOutline:        string(payload.Plan.Stages.SpecOutline),
+				RefinedSpec:        string(payload.Plan.Stages.RefinedSpec),
+				ImplementationPlan: string(payload.Plan.Stages.ImplementationPlan),
+			}
 		}
-		return v1.WorkResult{}, workInternalError("lookup_fetch_state", err)
+		upsertInput.InScope = normalizeValues(payload.Plan.InScope)
+		upsertInput.OutOfScope = normalizeValues(payload.Plan.OutOfScope)
+		upsertInput.DiscoveredPaths = normalizeCompletionPaths(payload.Plan.DiscoveredPaths)
+		upsertInput.Constraints = normalizeValues(payload.Plan.Constraints)
+		upsertInput.References = normalizeValues(payload.Plan.References)
+		upsertInput.ExternalRefs = normalizeValues(payload.Plan.ExternalRefs)
 	}
 
-	updatedCount := 0
-	if len(workItems) > 0 {
-		upserted, upsertErr := s.repo.UpsertWorkItems(ctx, core.WorkItemsUpsertInput{
+	upsertResult, err := s.planRepo.UpsertWorkPlan(ctx, upsertInput)
+	if err != nil {
+		return v1.WorkResult{}, workInternalError("upsert_work_plan", err)
+	}
+
+	if receiptID != "" && len(workItems) > 0 {
+		if _, err := s.repo.UpsertWorkItems(ctx, core.WorkItemsUpsertInput{
 			ProjectID: projectID,
 			ReceiptID: receiptID,
 			Items:     workItems,
-		})
-		if upsertErr != nil {
-			return v1.WorkResult{}, workInternalError("upsert_work_items", upsertErr)
+		}); err != nil {
+			return v1.WorkResult{}, workInternalError("upsert_work_items", err)
 		}
-		updatedCount = upserted
 	}
 
-	storedItems, err := s.repo.ListWorkItems(ctx, core.FetchLookupQuery{
-		ProjectID: projectID,
-		ReceiptID: receiptID,
-	})
-	if err != nil {
-		return v1.WorkResult{}, workInternalError("list_work_items", err)
+	planStatus := normalizePlanStatus(upsertResult.Plan.Status)
+	if planStatus == core.PlanStatusPending {
+		planStatus = derivePlanStatusFromWorkItems(normalizeWorkItems(upsertResult.Plan.Tasks))
 	}
-
-	planStatus := derivePlanStatusFromWorkItems(storedItems)
-	if planKey == "" {
-		planKey = "plan:" + receiptID
-	}
-
 	return v1.WorkResult{
-		PlanKey:    planKey,
+		PlanKey:    upsertResult.Plan.PlanKey,
 		PlanStatus: planStatus,
-		Updated:    updatedCount,
+		Updated:    upsertResult.Updated,
+		TaskCount:  len(upsertResult.Plan.Tasks),
 	}, nil
 }
 
@@ -274,6 +212,9 @@ func planForFetch(plan core.WorkPlan) map[string]any {
 	if len(plan.OutOfScope) > 0 {
 		content["out_of_scope"] = normalizeValues(plan.OutOfScope)
 	}
+	if len(plan.DiscoveredPaths) > 0 {
+		content["discovered_paths"] = normalizeValues(plan.DiscoveredPaths)
+	}
 	if len(plan.Constraints) > 0 {
 		content["constraints"] = normalizeValues(plan.Constraints)
 	}
@@ -350,8 +291,23 @@ func receiptForFetch(receiptID string, scope core.ReceiptScope, scopeFound bool,
 				content["memory_keys"] = memoryKeys
 			}
 		}
-		if len(scope.PointerPaths) > 0 {
-			content["pointer_paths"] = normalizeValues(scope.PointerPaths)
+		if len(scope.InitialScopePaths) > 0 {
+			content["initial_scope_paths"] = normalizeValues(scope.InitialScopePaths)
+		}
+		content["baseline_captured"] = scope.BaselineCaptured
+		if len(scope.BaselinePaths) > 0 {
+			baseline := make([]map[string]any, 0, len(scope.BaselinePaths))
+			for _, entry := range scope.BaselinePaths {
+				item := map[string]any{
+					"path":    normalizeCompletionPath(entry.Path),
+					"deleted": entry.Deleted,
+				}
+				if strings.TrimSpace(entry.ContentHash) != "" {
+					item["content_hash"] = strings.TrimSpace(entry.ContentHash)
+				}
+				baseline = append(baseline, item)
+			}
+			content["baseline_paths"] = baseline
 		}
 	}
 	if lookupFound {

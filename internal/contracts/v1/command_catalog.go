@@ -35,21 +35,21 @@ func (s CommandSpec) Decode(raw json.RawMessage, defaults ValidationDefaults) (a
 
 var commandCatalog = []CommandSpec{
 	newCommandSpec(
-		CommandGetContext,
-		"get-context",
-		"acm get-context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--unbounded[=true|false]] [flags]",
-		"Resolve a scoped receipt with rules, pointers, memories, and active work.",
+		CommandContext,
+		"context",
+		"acm context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--scope-path <path>]...",
+		"Resolve a scoped receipt with rules, durable memory, active work, and optional known scope paths.",
 		CommandGroupWorkflow,
-		"getContextPayload",
-		"getContextResult",
+		"contextPayload",
+		"contextResult",
 		"Get Task Context",
-		"Deterministically resolve task-scoped pointers, rules, and memories.",
+		"Resolve task-scoped rules, durable memory, active plans, and optional known scope paths.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayload(raw, defaults,
-				func(p *GetContextPayload, defaults ValidationDefaults) {
+				func(p *ContextPayload, defaults ValidationDefaults) {
 					p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 				},
-				validateGetContextPayload,
+				validateContextPayload,
 			)
 		},
 	),
@@ -61,8 +61,8 @@ var commandCatalog = []CommandSpec{
 		CommandGroupWorkflow,
 		"fetchPayload",
 		"fetchResult",
-		"Fetch Task Context",
-		"Fetch deterministic task context by pointer keys and optional expected versions.",
+		"Fetch Stored Artifacts",
+		"Fetch receipt, plan, memory, or indexed artifacts by key with optional expected versions.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayloadWithFields(raw, defaults,
 				func(p *FetchPayload, defaults ValidationDefaults) {
@@ -73,40 +73,40 @@ var commandCatalog = []CommandSpec{
 		},
 	),
 	newCommandSpec(
-		CommandProposeMemory,
-		"propose-memory",
-		"acm propose-memory [--project <id>] --receipt-id <id> --category <name> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [flags]",
-		"Propose durable memory tied to a receipt, evidence, and canonical tags.",
+		CommandMemory,
+		"memory",
+		"acm memory [--project <id>] [--receipt-id <id>|--plan-key <key>] --category <name> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [--evidence-key <key>|--evidence-path <path>]... [--evidence-keys-file <path>|--evidence-keys-json <json>|--evidence-paths-file <path>|--evidence-paths-json <json>] [--related-key <key>|--related-path <path>]... [--related-keys-file <path>|--related-keys-json <json>|--related-paths-file <path>|--related-paths-json <json>] [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [--auto-promote]",
+		"Propose durable memory tied to a receipt or plan, evidence, and canonical tags.",
 		CommandGroupWorkflow,
-		"proposeMemoryPayload",
-		"proposeMemoryResult",
+		"memoryPayload",
+		"memoryResult",
 		"Propose Durable Memory",
-		"Submit a memory candidate tied to evidence and receipt scope.",
+		"Submit a memory candidate tied to evidence and the task's effective scope.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayload(raw, defaults,
-				func(p *ProposeMemoryPayload, defaults ValidationDefaults) {
+				func(p *MemoryCommandPayload, defaults ValidationDefaults) {
 					p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 				},
-				validateProposeMemoryPayload,
+				validateMemoryCommandPayload,
 			)
 		},
 	),
 	newCommandSpec(
-		CommandReportCompletion,
-		"report-completion",
-		"acm report-completion [--project <id>] --receipt-id <id> [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--files-changed-json <json>] [--scope-mode <mode>] [--tags-file <path>]",
+		CommandDone,
+		"done",
+		"acm done [--project <id>] [--receipt-id <id>|--plan-key <key>] [--outcome <text>|--outcome-file <path>] [--file-changed <path>]... [--files-changed-file <path>] [--files-changed-json <json>] [--no-file-changes[=true|false]] [--scope-mode <mode>] [--tags-file <path>]",
 		"Close a receipt, validate scope, and enforce configured completion task gates.",
 		CommandGroupWorkflow,
-		"reportCompletionPayload",
-		"reportCompletionResult",
-		"Report Task Completion",
-		"Validate changed files against the active receipt and persist run summary.",
+		"donePayload",
+		"doneResult",
+		"Close Task",
+		"Validate the task delta against effective scope and persist completion history, with explicit no-file closeout support when needed.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayloadWithFields(raw, defaults,
-				func(p *ReportCompletionPayload, defaults ValidationDefaults) {
+				func(p *DonePayload, defaults ValidationDefaults) {
 					p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 				},
-				validateReportCompletionPayload,
+				validateDonePayload,
 			)
 		},
 	),
@@ -132,13 +132,13 @@ var commandCatalog = []CommandSpec{
 	newCommandSpec(
 		CommandWork,
 		"work",
-		"acm work [--project <id>] [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>]",
+		"acm work [--project <id>] [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--discovered-path <path>]... [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>]",
 		"Create or update structured plans and tasks that survive compaction.",
 		CommandGroupWorkflow,
 		"workPayload",
 		"workResult",
-		"Submit Completion Work",
-		"Submit plan-scoped work task updates with status and optional outcomes.",
+		"Update Work Plan",
+		"Create or update plan-scoped work state, tasks, and discovered paths.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayload(raw, defaults,
 				func(p *WorkPayload, defaults ValidationDefaults) {
@@ -150,8 +150,8 @@ var commandCatalog = []CommandSpec{
 	),
 	newCommandSpec(
 		CommandHistorySearch,
-		"history-search",
-		"acm history search [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--limit <n>] [--unbounded[=true|false]]",
+		"history",
+		"acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
 		"Search recent work, memory, receipt, and run history without direct database access.",
 		CommandGroupWorkflow,
 		"historySearchPayload",
@@ -187,40 +187,21 @@ var commandCatalog = []CommandSpec{
 		},
 	),
 	newCommandSpec(
-		CommandHealthCheck,
-		"health-check",
-		"acm health-check [--project <id>] [--include-details[=true|false]] [--max-findings-per-check <n>]",
-		"Inspect repository health without making changes.",
+		CommandHealth,
+		"health",
+		"acm health [--project <id>] [--include-details[=true|false]] [--max-findings-per-check <n>] | [--fix <name>]... [--dry-run[=true|false]] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]",
+		"Check project health or run selected health fixers via `--fix`.",
 		CommandGroupMaintenance,
-		"healthCheckPayload",
-		"healthCheckResult",
-		"Check Project Health",
-		"Inspect ACM repository health and return findings without making changes.",
-		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
-			return decodeValidatedCommandPayload(raw, defaults,
-				func(p *HealthCheckPayload, defaults ValidationDefaults) {
-					p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-				},
-				validateHealthCheckPayload,
-			)
-		},
-	),
-	newCommandSpec(
-		CommandHealthFix,
-		"health-fix",
-		"acm health-fix [--project <id>] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--fixer <name>]...",
-		"Plan or apply repair actions such as all, sync_working_tree, index_uncovered_files, and sync_ruleset.",
-		CommandGroupMaintenance,
-		"healthFixPayload",
-		"healthFixResult",
-		"Fix Project Health",
-		"Plan or apply ACM health fixes such as ruleset sync and working tree repair.",
+		"healthPayload",
+		"healthResult",
+		"Inspect Or Fix Project Health",
+		"Inspect ACM repository health or run selected repair actions through one public health surface.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayloadWithFields(raw, defaults,
-				func(p *HealthFixPayload, defaults ValidationDefaults) {
+				func(p *HealthPayload, defaults ValidationDefaults) {
 					p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
 				},
-				validateHealthFixPayload,
+				validateHealthPayload,
 			)
 		},
 	),
@@ -228,56 +209,18 @@ var commandCatalog = []CommandSpec{
 		CommandStatus,
 		"status",
 		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
-		"Explain active project/runtime state, loaded ACM files, installed integrations, and optional retrieval reasoning.",
+		"Explain active project/runtime state, loaded ACM files, installed integrations, and governance inputs.",
 		CommandGroupMaintenance,
 		"statusPayload",
 		"statusResult",
 		"Inspect ACM Status",
-		"Explain current project/runtime state, loaded ACM files, installed integrations, and optional get_context retrieval reasoning.",
+		"Explain current project/runtime state, loaded ACM files, installed integrations, and governance inputs.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayload(raw, defaults,
 				func(p *StatusPayload, defaults ValidationDefaults) {
 					p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
 				},
 				validateStatusPayload,
-			)
-		},
-	),
-	newCommandSpec(
-		CommandCoverage,
-		"coverage",
-		"acm coverage [--project <id>] [--project-root <path>]",
-		"Measure repository indexing coverage against the current project tree.",
-		CommandGroupMaintenance,
-		"coveragePayload",
-		"coverageResult",
-		"Measure Coverage",
-		"Report repository indexing coverage against the current project tree.",
-		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
-			return decodeValidatedCommandPayload(raw, defaults,
-				func(p *CoveragePayload, defaults ValidationDefaults) {
-					p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
-				},
-				validateCoveragePayload,
-			)
-		},
-	),
-	newCommandSpec(
-		CommandEval,
-		"eval",
-		"acm eval [--project <id>] (--eval-suite-path <path> | --eval-suite-inline-file <path> | --eval-suite-inline-json <json>) [--minimum-recall <0..1>] [--tags-file <path>]",
-		"Run retrieval-quality evaluation cases against ACM context selection.",
-		CommandGroupMaintenance,
-		"evalPayload",
-		"evalResult",
-		"Run Retrieval Evaluation",
-		"Run retrieval evaluation cases against ACM context selection behavior.",
-		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
-			return decodeValidatedCommandPayload(raw, defaults,
-				func(p *EvalPayload, defaults ValidationDefaults) {
-					p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-				},
-				validateEvalPayload,
 			)
 		},
 	),
@@ -301,26 +244,25 @@ var commandCatalog = []CommandSpec{
 		},
 	),
 	newCommandSpec(
-		CommandBootstrap,
-		"bootstrap",
-		"acm bootstrap [--project <id>] [--project-root <path>] [--apply-template <id>]... [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--output-candidates-path <path>]",
-		"Seed repo-local ACM files, optionally apply additive templates, and scan a repository for initial pointer candidates.",
+		CommandInit,
+		"init",
+		"acm init [--project <id>] [--project-root <path>] [--apply-template <id>]... [--rules-file <path>] [--tags-file <path>] [--persist-candidates[=true|false]] [--respect-gitignore[=true|false]] [--output-candidates-path <path>]",
+		"Initialize repo-local ACM files, optionally apply additive templates, and scan a repository for initial pointer candidates.",
 		CommandGroupMaintenance,
-		"bootstrapPayload",
-		"bootstrapResult",
-		"Bootstrap Repository",
-		"Scan a repository, seed ACM files, and optionally apply additive bootstrap templates.",
+		"initPayload",
+		"initResult",
+		"Initialize Repository",
+		"Scan a repository, initialize ACM files, and optionally apply additive templates.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayloadWithFields(raw, defaults,
-				func(p *BootstrapPayload, defaults ValidationDefaults) {
+				func(p *InitPayload, defaults ValidationDefaults) {
 					p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.ProjectRoot, defaults)
 				},
-				validateBootstrapPayload,
+				validateInitPayload,
 			)
 		},
 	),
 }
-
 var commandCatalogByCommand = buildCommandCatalogByCommand(commandCatalog)
 
 func CommandCatalog() []CommandSpec {
@@ -334,11 +276,11 @@ func CommandSpecs() []CommandSpec {
 }
 
 func WorkflowCommandCatalog() []CommandSpec {
-	return commandCatalogByGroup(CommandGroupWorkflow)
+	return commandCatalogByGroup(commandCatalog, CommandGroupWorkflow)
 }
 
 func MaintenanceCommandCatalog() []CommandSpec {
-	return commandCatalogByGroup(CommandGroupMaintenance)
+	return commandCatalogByGroup(commandCatalog, CommandGroupMaintenance)
 }
 
 func LookupCommandSpec(command Command) (CommandSpec, bool) {
@@ -385,19 +327,15 @@ func BuildEnvelopeForCommand(command Command, requestID string, payload json.Raw
 	})
 }
 
-func CommandEnum() []string {
-	return CommandNames()
-}
-
 func ProjectIDFromPayload(payload any) string {
 	switch p := payload.(type) {
-	case GetContextPayload:
+	case ContextPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case FetchPayload:
 		return strings.TrimSpace(p.ProjectID)
-	case ProposeMemoryPayload:
+	case MemoryCommandPayload:
 		return strings.TrimSpace(p.ProjectID)
-	case ReportCompletionPayload:
+	case DonePayload:
 		return strings.TrimSpace(p.ProjectID)
 	case ReviewPayload:
 		return strings.TrimSpace(p.ProjectID)
@@ -407,19 +345,13 @@ func ProjectIDFromPayload(payload any) string {
 		return strings.TrimSpace(p.ProjectID)
 	case SyncPayload:
 		return strings.TrimSpace(p.ProjectID)
-	case HealthCheckPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case HealthFixPayload:
+	case HealthPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case StatusPayload:
 		return strings.TrimSpace(p.ProjectID)
-	case CoveragePayload:
-		return strings.TrimSpace(p.ProjectID)
-	case EvalPayload:
-		return strings.TrimSpace(p.ProjectID)
 	case VerifyPayload:
 		return strings.TrimSpace(p.ProjectID)
-	case BootstrapPayload:
+	case InitPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case map[string]any:
 		if raw, ok := p["project_id"].(string); ok {
@@ -530,9 +462,9 @@ func buildCommandCatalogByCommand(specs []CommandSpec) map[Command]CommandSpec {
 	return out
 }
 
-func commandCatalogByGroup(group CommandGroup) []CommandSpec {
-	out := make([]CommandSpec, 0, len(commandCatalog))
-	for _, spec := range commandCatalog {
+func commandCatalogByGroup(specs []CommandSpec, group CommandGroup) []CommandSpec {
+	out := make([]CommandSpec, 0, len(specs))
+	for _, spec := range specs {
 		if spec.Group == group {
 			out = append(out, spec)
 		}

@@ -1,4 +1,4 @@
-version: acm.bootstrap-template.v1
+version: acm.init-template.v1
 id: starter-contract
 summary: Seed starter AGENTS/CLAUDE guidance and upgrade blank rules scaffolds.
 operations:

@@ -2,12 +2,9 @@ package backend
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"math"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -18,14 +15,30 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/workspace"
 )
 
-func (s *Service) HealthCheck(ctx context.Context, payload v1.HealthCheckPayload) (v1.HealthCheckResult, *core.APIError) {
+func (s *Service) Health(ctx context.Context, payload v1.HealthPayload) (v1.HealthResult, *core.APIError) {
+	isFixMode := len(payload.Fixers) > 0 || payload.Apply != nil || strings.TrimSpace(payload.ProjectRoot) != "" || strings.TrimSpace(payload.RulesFile) != "" || strings.TrimSpace(payload.TagsFile) != ""
+	if isFixMode {
+		result, apiErr := s.healthFix(ctx, payload)
+		if apiErr != nil {
+			return v1.HealthResult{}, apiErr
+		}
+		return v1.HealthResult{Mode: "fix", Fix: &result}, nil
+	}
+
+	result, apiErr := s.healthCheck(ctx, payload)
+	if apiErr != nil {
+		return v1.HealthResult{}, apiErr
+	}
+	return v1.HealthResult{Mode: "check", Check: &result}, nil
+}
+
+func (s *Service) healthCheck(ctx context.Context, payload v1.HealthPayload) (v1.HealthCheckResult, *core.APIError) {
 	if s == nil || s.repo == nil {
 		return v1.HealthCheckResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
 	}
 
 	candidates, err := s.repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
 		ProjectID: strings.TrimSpace(payload.ProjectID),
-		TaskText:  "",
 		Unbounded: true,
 		StaleFilter: core.StaleFilter{
 			AllowStale: true,
@@ -45,11 +58,11 @@ func (s *Service) HealthCheck(ctx context.Context, payload v1.HealthCheckPayload
 
 	includeDetails := effectiveHealthIncludeDetails(payload.IncludeDetails)
 	maxFindings := effectiveMaxFindingsPerCheck(payload.MaxFindingsPerCheck)
-	coverageResult, apiErr := s.Coverage(ctx, v1.CoveragePayload{ProjectID: strings.TrimSpace(payload.ProjectID)})
+	inventory, apiErr := s.computeInventoryHealth(ctx, strings.TrimSpace(payload.ProjectID), "")
 	if apiErr != nil {
-		return v1.HealthCheckResult{}, healthCheckInternalError("coverage", fmt.Errorf("%s", apiErr.Message))
+		return v1.HealthCheckResult{}, healthCheckInternalError("inventory_health", fmt.Errorf("%s", apiErr.Message))
 	}
-	checks := buildHealthChecks(candidates, memories, coverageResult.UnindexedPaths, includeDetails, maxFindings)
+	checks := buildHealthChecks(candidates, memories, inventory.UnindexedPaths, includeDetails, maxFindings)
 
 	totalFindings := 0
 	for _, check := range checks {
@@ -65,138 +78,69 @@ func (s *Service) HealthCheck(ctx context.Context, payload v1.HealthCheckPayload
 	}, nil
 }
 
-func (s *Service) Eval(ctx context.Context, payload v1.EvalPayload) (v1.EvalResult, *core.APIError) {
+func (s *Service) Init(ctx context.Context, payload v1.InitPayload) (v1.InitResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.EvalResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
-	}
-
-	suite, err := loadEvalSuite(payload)
-	if err != nil {
-		return v1.EvalResult{}, evalInternalError("load_eval_suite", err)
-	}
-	if len(suite) == 0 {
-		return v1.EvalResult{}, evalInternalError("load_eval_suite", fmt.Errorf("evaluation suite is empty"))
-	}
-
-	minimumRecall := effectiveMinimumRecall(payload.MinimumRecall)
-
-	caseResults := make([]v1.EvalCaseResult, 0, len(suite))
-	totalTP := 0
-	totalFP := 0
-	totalFN := 0
-
-	for i, testCase := range suite {
-		ctxResult, apiErr := s.GetContext(ctx, v1.GetContextPayload{
-			ProjectID: payload.ProjectID,
-			TaskText:  testCase.TaskText,
-			Phase:     testCase.Phase,
-			TagsFile:  payload.TagsFile,
-		})
-		if apiErr != nil {
-			return v1.EvalResult{}, evalInternalError(
-				"get_context",
-				fmt.Errorf("case %d failed: %s (%s)", i, apiErr.Message, apiErr.Code),
-			)
-		}
-
-		expected := expectedEvalArtifacts(testCase)
-		predicted := predictedEvalArtifacts(ctxResult)
-		tp, fp, fn := confusionCounts(expected, predicted)
-		precision, recall, f1 := metricsFromCounts(tp, fp, fn)
-
-		totalTP += tp
-		totalFP += fp
-		totalFN += fn
-
-		caseResult := v1.EvalCaseResult{
-			Index:     i,
-			Precision: precision,
-			Recall:    recall,
-			F1:        f1,
-		}
-		if note := evalCaseNote(ctxResult.Status); note != "" {
-			caseResult.Notes = note
-		}
-		caseResults = append(caseResults, caseResult)
-	}
-
-	aggregatePrecision, aggregateRecall, aggregateF1 := metricsFromCounts(totalTP, totalFP, totalFN)
-	return v1.EvalResult{
-		TotalCases: len(suite),
-		Aggregate: v1.EvalAggregate{
-			Precision: aggregatePrecision,
-			Recall:    aggregateRecall,
-			F1:        aggregateF1,
-		},
-		MinimumRecall: minimumRecall,
-		Pass:          aggregateRecall >= minimumRecall,
-		Cases:         caseResults,
-	}, nil
-}
-
-func (s *Service) Bootstrap(ctx context.Context, payload v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {
-	if s == nil || s.repo == nil {
-		return v1.BootstrapResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.InitResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
 	}
 
 	projectRoot := s.effectiveProjectRoot(payload.ProjectRoot)
 	outputPath, persistCandidates := bootstrapkit.ResolveOutputPath(projectRoot, derefString(payload.OutputCandidatesPath), effectivePersistCandidates(payload.PersistCandidates))
-	excludedPaths := bootstrapManagedRelativePaths(projectRoot, outputPath, payload.RulesFile, payload.TagsFile)
+	excludedPaths := initManagedRelativePaths(projectRoot, outputPath, payload.RulesFile, payload.TagsFile)
 	templates, err := bootstrapkit.ResolveTemplates(payload.ApplyTemplates)
 	if err != nil {
 		var unknown bootstrapkit.UnknownTemplateError
 		if errors.As(err, &unknown) {
-			return v1.BootstrapResult{}, core.NewError(
+			return v1.InitResult{}, core.NewError(
 				"INVALID_INPUT",
-				"unknown bootstrap template",
+				"unknown init template",
 				map[string]any{"template_id": unknown.TemplateID},
 			)
 		}
-		return v1.BootstrapResult{}, bootstrapInternalError("load_templates", err)
+		return v1.InitResult{}, initInternalError("load_templates", err)
 	}
 
-	paths, warnings, err := s.collectBootstrapPaths(ctx, projectRoot, outputPath, payload.RulesFile, payload.TagsFile, effectiveRespectGitIgnore(payload.RespectGitIgnore))
+	paths, warnings, err := s.collectInitCandidatePaths(ctx, projectRoot, outputPath, payload.RulesFile, payload.TagsFile, effectiveRespectGitIgnore(payload.RespectGitIgnore))
 	if err != nil {
-		return v1.BootstrapResult{}, bootstrapInternalError("collect_project_paths", err)
+		return v1.InitResult{}, initInternalError("collect_project_paths", err)
 	}
 
 	if err := bootstrapkit.EnsureProjectScaffold(projectRoot, payload.RulesFile); err != nil {
-		return v1.BootstrapResult{}, bootstrapInternalError("seed_scaffold", err)
+		return v1.InitResult{}, initInternalError("seed_scaffold", err)
 	}
-	if err := syncBootstrapCanonicalTagsFile(projectRoot, payload.TagsFile, paths); err != nil {
-		return v1.BootstrapResult{}, bootstrapInternalError("seed_tags", err)
+	if err := syncInitCanonicalTagsFile(projectRoot, payload.TagsFile, paths); err != nil {
+		return v1.InitResult{}, initInternalError("seed_tags", err)
 	}
 
-	templateResults := []v1.BootstrapTemplateResult(nil)
+	templateResults := []v1.InitTemplateResult(nil)
 	if len(templates) > 0 {
 		appliedTemplates, err := bootstrapkit.ApplyTemplates(projectRoot, payload.ProjectID, templates)
 		if err != nil {
-			return v1.BootstrapResult{}, bootstrapInternalError("apply_templates", err)
+			return v1.InitResult{}, initInternalError("apply_templates", err)
 		}
 		templateResults = appliedTemplates.TemplateResults
-		paths = mergeBootstrapTemplateCandidatePaths(paths, appliedTemplates.CandidatePaths, excludedPaths)
+		paths = mergeInitTemplateCandidatePaths(paths, appliedTemplates.CandidatePaths, excludedPaths)
 	}
 
 	rulesetSync, err := s.syncCanonicalRulesets(ctx, strings.TrimSpace(payload.ProjectID), projectRoot, payload.RulesFile, payload.TagsFile, true)
 	if err != nil {
-		return v1.BootstrapResult{}, bootstrapInternalError("parse_ruleset", err)
+		return v1.InitResult{}, initInternalError("parse_ruleset", err)
 	}
 	warnings = append(warnings, canonicalRulesetWarnings(rulesetSync)...)
 
 	indexedStubs, err := s.upsertAutoIndexedPaths(ctx, strings.TrimSpace(payload.ProjectID), projectRoot, payload.TagsFile, paths)
 	if err != nil {
-		return v1.BootstrapResult{}, bootstrapInternalError("upsert_pointer_stubs", err)
+		return v1.InitResult{}, initInternalError("upsert_pointer_stubs", err)
 	}
 
 	if persistCandidates {
 		if err := bootstrapkit.WriteCandidates(outputPath, paths); err != nil {
-			return v1.BootstrapResult{}, bootstrapInternalError("write_candidates", err)
+			return v1.InitResult{}, initInternalError("write_candidates", err)
 		}
 	}
 
 	warnings = normalizeValues(warnings)
 
-	result := v1.BootstrapResult{
+	result := v1.InitResult{
 		CandidateCount:      len(paths),
 		IndexedStubs:        indexedStubs,
 		CandidatesPersisted: persistCandidates,
@@ -372,270 +316,41 @@ func weakMemoryFindings(memories []core.ActiveMemory) []string {
 	return out
 }
 
-func loadEvalSuite(payload v1.EvalPayload) ([]v1.EvalCase, error) {
-	if len(payload.EvalSuiteInline) > 0 {
-		return normalizeAndValidateEvalSuite(payload.EvalSuiteInline)
-	}
-
-	suitePath := strings.TrimSpace(payload.EvalSuitePath)
-	if suitePath == "" {
-		return nil, fmt.Errorf("evaluation suite source is required")
-	}
-
-	content, err := os.ReadFile(suitePath)
-	if err != nil {
-		return nil, fmt.Errorf("read eval suite path: %w", err)
-	}
-
-	var inline []v1.EvalCase
-	if err := json.Unmarshal(content, &inline); err == nil {
-		if len(inline) == 0 {
-			return nil, fmt.Errorf("evaluation suite file is empty")
-		}
-		return normalizeAndValidateEvalSuite(inline)
-	}
-
-	var wrapped struct {
-		Cases []v1.EvalCase `json:"cases"`
-	}
-	if err := json.Unmarshal(content, &wrapped); err != nil {
-		return nil, fmt.Errorf("parse eval suite path: %w", err)
-	}
-	if len(wrapped.Cases) == 0 {
-		return nil, fmt.Errorf("evaluation suite file has no cases")
-	}
-	return normalizeAndValidateEvalSuite(wrapped.Cases)
-}
-
-func normalizeAndValidateEvalSuite(cases []v1.EvalCase) ([]v1.EvalCase, error) {
-	normalized := make([]v1.EvalCase, 0, len(cases))
-	for i := range cases {
-		current := v1.EvalCase{
-			TaskText:               strings.TrimSpace(cases[i].TaskText),
-			Phase:                  cases[i].Phase,
-			ExpectedPointerKeys:    normalizeValues(cases[i].ExpectedPointerKeys),
-			ExpectedMemorySubjects: normalizeValues(cases[i].ExpectedMemorySubjects),
-		}
-		if current.TaskText == "" || len(current.TaskText) > 4000 {
-			return nil, fmt.Errorf("eval suite case %d task_text invalid", i)
-		}
-		if current.Phase != v1.PhasePlan && current.Phase != v1.PhaseExecute && current.Phase != v1.PhaseReview {
-			return nil, fmt.Errorf("eval suite case %d phase invalid", i)
-		}
-		normalized = append(normalized, current)
-	}
-	return normalized, nil
-}
-
-func expectedEvalArtifacts(testCase v1.EvalCase) map[string]struct{} {
-	expected := make(map[string]struct{}, len(testCase.ExpectedPointerKeys)+len(testCase.ExpectedMemorySubjects))
-	for _, key := range normalizeValues(testCase.ExpectedPointerKeys) {
-		expected["pointer:"+key] = struct{}{}
-	}
-	for _, subject := range normalizeValues(testCase.ExpectedMemorySubjects) {
-		expected["memory:"+subject] = struct{}{}
-	}
-	return expected
-}
-
-func predictedEvalArtifacts(result v1.GetContextResult) map[string]struct{} {
-	predicted := make(map[string]struct{})
-	if result.Status != "ok" || result.Receipt == nil {
-		return predicted
-	}
-
-	for _, key := range receiptPointerKeys(result.Receipt) {
-		normalized := strings.TrimSpace(key)
-		if normalized == "" {
-			continue
-		}
-		predicted["pointer:"+normalized] = struct{}{}
-	}
-	for _, subject := range receiptMemorySubjects(result.Receipt) {
-		normalized := strings.TrimSpace(subject)
-		if normalized == "" {
-			continue
-		}
-		predicted["memory:"+normalized] = struct{}{}
-	}
-	return predicted
-}
-
-func receiptPointerKeys(receipt *v1.ContextReceipt) []string {
-	payload := receiptJSONMap(receipt)
-	if len(payload) == 0 {
-		return nil
-	}
-
-	keys := make(map[string]struct{})
-	collectEntryValues(payload, "pointers", []string{"key"}, keys)
-	collectEntryValues(payload, "rules", []string{"key"}, keys)
-	collectEntryValues(payload, "suggestions", []string{"key"}, keys)
-	return mapKeysSorted(keys)
-}
-
-func receiptMemorySubjects(receipt *v1.ContextReceipt) []string {
-	payload := receiptJSONMap(receipt)
-	if len(payload) == 0 {
-		return nil
-	}
-
-	subjects := make(map[string]struct{})
-	collectEntryValues(payload, "memories", []string{"subject", "summary"}, subjects)
-	return mapKeysSorted(subjects)
-}
-
-func receiptJSONMap(receipt *v1.ContextReceipt) map[string]any {
-	if receipt == nil {
-		return nil
-	}
-	raw, err := json.Marshal(receipt)
-	if err != nil {
-		return nil
-	}
-	payload := make(map[string]any)
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil
-	}
-	return payload
-}
-
-func collectEntryValues(payload map[string]any, key string, fieldNames []string, dest map[string]struct{}) {
-	if len(fieldNames) == 0 {
-		return
-	}
-	entries, ok := payload[key].([]any)
-	if !ok {
-		return
-	}
-	for _, rawEntry := range entries {
-		entry, ok := rawEntry.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		for _, fieldName := range fieldNames {
-			value, ok := entry[fieldName]
-			if !ok {
-				continue
-			}
-			stringValue, ok := value.(string)
-			if !ok {
-				continue
-			}
-			normalized := strings.TrimSpace(stringValue)
-			if normalized == "" {
-				continue
-			}
-			dest[normalized] = struct{}{}
-			break
-		}
-	}
-}
-
-func confusionCounts(expected, predicted map[string]struct{}) (int, int, int) {
-	tp := 0
-	fp := 0
-	fn := 0
-
-	for artifact := range predicted {
-		if _, ok := expected[artifact]; ok {
-			tp++
-			continue
-		}
-		fp++
-	}
-	for artifact := range expected {
-		if _, ok := predicted[artifact]; ok {
-			continue
-		}
-		fn++
-	}
-	return tp, fp, fn
-}
-
-func metricsFromCounts(tp, fp, fn int) (float64, float64, float64) {
-	if tp == 0 && fp == 0 && fn == 0 {
-		return 1, 1, 1
-	}
-
-	precision := 1.0
-	if tp+fp > 0 {
-		precision = float64(tp) / float64(tp+fp)
-	}
-	recall := 1.0
-	if tp+fn > 0 {
-		recall = float64(tp) / float64(tp+fn)
-	}
-
-	f1 := 0.0
-	if precision+recall > 0 {
-		f1 = (2 * precision * recall) / (precision + recall)
-	}
-
-	return roundMetric(precision), roundMetric(recall), roundMetric(f1)
-}
-
-func roundMetric(value float64) float64 {
-	return math.Round(value*1_000_000) / 1_000_000
-}
-
-func evalCaseNote(status string) string {
-	status = strings.TrimSpace(status)
-	switch status {
-	case "ok":
-		return ""
-	case "insufficient_context":
-		return "insufficient_context"
-	case "":
-		return "status:unknown"
-	default:
-		return "status:" + status
-	}
-}
-
-func effectiveMinimumRecall(minimumRecall *float64) float64 {
-	if minimumRecall == nil {
-		return defaultMinimumRecall
-	}
-	return roundMetric(*minimumRecall)
-}
-
 func effectiveRespectGitIgnore(respectGitIgnore *bool) bool {
 	if respectGitIgnore == nil {
-		return defaultBootstrapRespectGit
+		return defaultInitRespectGit
 	}
 	return *respectGitIgnore
 }
 
 func effectivePersistCandidates(persistCandidates *bool) bool {
 	if persistCandidates == nil {
-		return defaultBootstrapPersist
+		return defaultInitPersist
 	}
 	return *persistCandidates
 }
 
-func (s *Service) collectBootstrapPaths(ctx context.Context, projectRoot, outputPath, rulesFile, tagsFile string, respectGitIgnore bool) ([]string, []string, error) {
-	excludedPaths := bootstrapManagedRelativePaths(projectRoot, outputPath, rulesFile, tagsFile)
+func (s *Service) collectInitCandidatePaths(ctx context.Context, projectRoot, outputPath, rulesFile, tagsFile string, respectGitIgnore bool) ([]string, []string, error) {
+	excludedPaths := initManagedRelativePaths(projectRoot, outputPath, rulesFile, tagsFile)
 	warnings := make([]string, 0)
 
 	if respectGitIgnore {
 		gitOutput, err := s.runGit(ctx, projectRoot, "ls-files", "--cached", "--others", "--exclude-standard")
 		if err == nil {
-			return filterBootstrapPaths(parseBootstrapGitPaths(gitOutput), excludedPaths), warnings, nil
+			return filterInitCandidatePaths(parseInitCandidateGitPaths(gitOutput), excludedPaths), warnings, nil
 		}
 		warnings = append(warnings, "respect_gitignore fallback to filesystem walk")
 	}
 
-	paths, walkWarnings, err := collectBootstrapPathsFromWalk(ctx, projectRoot)
+	paths, walkWarnings, err := collectInitCandidatePathsFromWalk(ctx, projectRoot)
 	if err != nil {
 		return nil, nil, err
 	}
 	warnings = append(warnings, walkWarnings...)
-	return filterBootstrapPaths(paths, excludedPaths), warnings, nil
+	return filterInitCandidatePaths(paths, excludedPaths), warnings, nil
 }
 
-func parseBootstrapGitPaths(output string) []string {
+func parseInitCandidateGitPaths(output string) []string {
 	lines := strings.Split(output, "\n")
 	paths := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -651,13 +366,13 @@ func parseBootstrapGitPaths(output string) []string {
 	return normalizeCompletionPaths(paths)
 }
 
-func collectBootstrapPathsFromWalk(ctx context.Context, projectRoot string) ([]string, []string, error) {
+func collectInitCandidatePathsFromWalk(ctx context.Context, projectRoot string) ([]string, []string, error) {
 	paths := make([]string, 0)
 	warnings := make([]string, 0)
 
 	err := filepath.WalkDir(projectRoot, func(current string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			if len(warnings) < maxBootstrapWalkErrorSamples {
+			if len(warnings) < maxInitWalkErrorSamples {
 				warnings = append(warnings, fmt.Sprintf("skip:%s", normalizeWalkWarningPath(projectRoot, current)))
 			}
 			return nil
@@ -682,7 +397,7 @@ func collectBootstrapPathsFromWalk(ctx context.Context, projectRoot string) ([]s
 
 		relative, relErr := filepath.Rel(projectRoot, current)
 		if relErr != nil {
-			if len(warnings) < maxBootstrapWalkErrorSamples {
+			if len(warnings) < maxInitWalkErrorSamples {
 				warnings = append(warnings, fmt.Sprintf("skip:%s", normalizeWalkWarningPath(projectRoot, current)))
 			}
 			return nil
@@ -718,7 +433,7 @@ func normalizeWalkWarningPath(projectRoot, candidatePath string) string {
 	return strings.TrimSpace(candidatePath)
 }
 
-func bootstrapOutputRelativePath(projectRoot, outputPath string) string {
+func initOutputRelativePath(projectRoot, outputPath string) string {
 	relative, err := filepath.Rel(projectRoot, outputPath)
 	if err != nil {
 		return ""
@@ -730,9 +445,9 @@ func bootstrapOutputRelativePath(projectRoot, outputPath string) string {
 	return normalized
 }
 
-func bootstrapManagedRelativePaths(projectRoot, outputPath, rulesFile, tagsFile string) []string {
+func initManagedRelativePaths(projectRoot, outputPath, rulesFile, tagsFile string) []string {
 	managed := make([]string, 0, len(canonicalRulesetDefaultPaths)+9)
-	if relativeOutputPath := bootstrapOutputRelativePath(projectRoot, outputPath); relativeOutputPath != "" {
+	if relativeOutputPath := initOutputRelativePath(projectRoot, outputPath); relativeOutputPath != "" {
 		managed = append(managed, relativeOutputPath)
 	}
 	managed = append(managed, ".gitignore", workspace.DotEnvExampleFileName)
@@ -740,27 +455,27 @@ func bootstrapManagedRelativePaths(projectRoot, outputPath, rulesFile, tagsFile 
 	managed = append(managed, canonicalRulesetDefaultPaths...)
 	managed = append(managed, workflowDefinitionsPrimarySourcePath, workflowDefinitionsSecondarySourcePath)
 	managed = append(managed, verifyTestsPrimarySourcePath, verifyTestsSecondarySourcePath)
-	if relativeRulesPath := bootstrapManagedRelativePath(projectRoot, rulesFile); relativeRulesPath != "" {
+	if relativeRulesPath := initManagedRelativePath(projectRoot, rulesFile); relativeRulesPath != "" {
 		managed = append(managed, relativeRulesPath)
 	}
-	if relativeTagsPath := bootstrapManagedRelativePath(projectRoot, tagsFile); relativeTagsPath != "" {
+	if relativeTagsPath := initManagedRelativePath(projectRoot, tagsFile); relativeTagsPath != "" {
 		managed = append(managed, relativeTagsPath)
 	}
 	return normalizeCompletionPaths(managed)
 }
 
-func bootstrapManagedRelativePath(projectRoot, rawPath string) string {
+func initManagedRelativePath(projectRoot, rawPath string) string {
 	trimmed := strings.TrimSpace(rawPath)
 	if trimmed == "" {
 		return ""
 	}
 	if filepath.IsAbs(trimmed) {
-		return bootstrapOutputRelativePath(projectRoot, trimmed)
+		return initOutputRelativePath(projectRoot, trimmed)
 	}
 	return normalizeCompletionPath(trimmed)
 }
 
-func filterBootstrapPaths(paths []string, excludedPaths []string) []string {
+func filterInitCandidatePaths(paths []string, excludedPaths []string) []string {
 	excluded := map[string]struct{}{}
 	for _, excludedPath := range excludedPaths {
 		if trimmedExcludedPath := strings.TrimSpace(excludedPath); trimmedExcludedPath != "" {
@@ -781,10 +496,10 @@ func filterBootstrapPaths(paths []string, excludedPaths []string) []string {
 	return filtered
 }
 
-func mergeBootstrapTemplateCandidatePaths(existing []string, additional []string, excluded []string) []string {
+func mergeInitTemplateCandidatePaths(existing []string, additional []string, excluded []string) []string {
 	merged := append([]string(nil), existing...)
 	merged = append(merged, additional...)
-	return filterBootstrapPaths(normalizeCompletionPaths(merged), excluded)
+	return filterInitCandidatePaths(normalizeCompletionPaths(merged), excluded)
 }
 
 func isManagedProjectPath(raw string) bool {
@@ -817,21 +532,10 @@ func healthCheckInternalError(operation string, err error) *core.APIError {
 	)
 }
 
-func evalInternalError(operation string, err error) *core.APIError {
+func initInternalError(operation string, err error) *core.APIError {
 	return core.NewError(
 		"INTERNAL_ERROR",
-		"failed to run eval suite",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
-}
-
-func bootstrapInternalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to bootstrap candidates",
+		"failed to initialize project state",
 		map[string]any{
 			"operation": operation,
 			"error":     err.Error(),

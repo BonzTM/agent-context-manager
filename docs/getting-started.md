@@ -1,11 +1,23 @@
 # Getting Started
 
 This guide walks you through setting up acm in a project from scratch. Steps 1-4 are human setup. Steps 5+ show the agent-facing operations and how to wire them into your tools.
+acm is still unreleased, and the public contract is being simplified around the smaller core surface described here rather than preserving every older alias or workflow shape.
 
 ## Prerequisites
 
 - Go 1.26+ installed if you plan to use `go install` or build from source
 - A git repository you want to manage with acm
+
+## Pick a Mode
+
+You do not need the full ACM surface on day 1.
+
+- `plans-only`: `init`, `context`, and `work`
+- `plans+memory`: add `memory`
+- `governed workflow`: add `verify`, `review`, and `done`
+- `full brokered flow`: add `fetch`, optional review gates, and the richer template set
+
+`acm init` starts from the minimal core. Heavier templates stay opt-in.
 
 ## Step 1: Install acm
 
@@ -40,26 +52,26 @@ Verify it works:
 acm --help
 ```
 
-## Step 2: Bootstrap your index
+## Step 2: Initialize the Core
 
-From your project root, seed ACM and generate an initial retrievable pointer set:
+From your project root, seed ACM and generate the initial ACM inventory:
 
 ```bash
-acm bootstrap
+acm init
 ```
 
-If you want a heavier starter later, rerun bootstrap with one or more additive templates:
+If you want a heavier starter later, rerun `init` with one or more additive templates:
 
 ```bash
-acm bootstrap \
+acm init \
   --apply-template starter-contract \
   --apply-template verify-generic \
   --apply-template claude-command-pack
 ```
 
-This scans your repo and creates auto-indexed pointer stubs for discovered files so `get-context` can work immediately. When `--project` is omitted, acm uses `ACM_PROJECT_ID` first and otherwise infers the project identifier from the effective repo root. Pass `--project` when you want a short stable namespace that differs from the folder name.
+This scans your repo and creates auto-indexed pointer stubs for discovered files so `fetch`, health, memory evidence, and governed scope checks can work immediately. When `--project` is omitted, acm uses `ACM_PROJECT_ID` first and otherwise infers the project identifier from the effective repo root. Pass `--project` when you want a short stable namespace that differs from the folder name.
 
-Bootstrap automatically:
+`init` automatically:
 
 - Respects `.gitignore` (on by default)
 - Seeds `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, `.acm/acm-tests.yaml`, and `.acm/acm-workflows.yaml` when missing
@@ -67,28 +79,24 @@ Bootstrap automatically:
 - Adds `.acm/context.db*` entries to `.gitignore`
 - Auto-indexes discovered repo files into pointer stubs
 
-Use `--persist-candidates` to save the enumerated file list to `.acm/bootstrap_candidates.json`.
+Use `--persist-candidates` to save the enumerated file list to `.acm/init_candidates.json`.
 
-Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `detailed-planning-enforcement`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `claude-command-pack`, `claude-hooks`, `git-hooks-precommit`.
+Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `detailed-planning-enforcement`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `claude-command-pack`, `claude-hooks`, `git-hooks-precommit`. See [docs/examples/init-templates.md](examples/init-templates.md) for the seeded files and template-specific behavior.
 
-Check what was indexed:
-
-```bash
-acm coverage --project-root .
-```
+If you want to inspect indexing drift later, use `acm health --include-details` or `acm status`. The standalone `coverage` command is gone; the useful signals now live in health/status.
 
 ## Step 3: Configure your project
 
 ### Rules
 
-Bootstrap creates `.acm/acm-rules.yaml` when it is missing. Replace the blank scaffold with your project rules:
+`init` creates `.acm/acm-rules.yaml` when it is missing. Replace the blank scaffold with your project rules:
 
 ```yaml
 version: acm.rules.v1
 rules:
-  - id: rule_get_context_first
-    summary: Always call get_context before reading or editing files.
-    content: Retrieve context first, then follow all hard rules in the receipt.
+  - id: rule_context_first
+    summary: Always call context before reading or editing files.
+    content: Run `acm context` first, then follow all hard rules in the receipt.
     enforcement: hard
     tags: [startup, context]
 
@@ -98,15 +106,15 @@ rules:
     enforcement: soft
     tags: [context, efficiency]
 
-  - id: rule_report_completion
+  - id: rule_done
     summary: Close every task with a completion report.
-    content: Call report_completion with files_changed and a concise outcome summary.
+    content: Call done with changed files for file-backed work when you know them, or let ACM auto-detect the receipt delta. When that detected delta is empty, the closure is effectively no-file.
     enforcement: hard
     tags: [completion, audit]
 
   - id: rule_verify_before_completion
-    summary: Run verify before report_completion when code changes.
-    content: Use verify to satisfy executable checks before closing code changes with report_completion.
+    summary: Run verify before done when code changes.
+    content: Use verify to satisfy executable checks before closing code changes with done.
     enforcement: hard
     tags: [verification, quality]
 ```
@@ -115,11 +123,11 @@ These are starter rules. Add, remove, or modify them to match how you want agent
 
 ### Tags
 
-Bootstrap creates `.acm/acm-tags.yaml` when it is missing, with inferred repo tag suggestions when strong repeated terms are found. Use this file to add repo-local canonical tags and aliases on top of acm's embedded base dictionary. See [examples/acm-tags.yaml](examples/acm-tags.yaml) for the format.
+`init` creates `.acm/acm-tags.yaml` when it is missing, with inferred repo tag suggestions when strong repeated terms are found. Use this file to add repo-local canonical tags and aliases on top of acm's embedded base dictionary. See [examples/acm-tags.yaml](examples/acm-tags.yaml) for the format.
 
 ### Verification checks
 
-Bootstrap creates `.acm/acm-tests.yaml` when neither `.acm/acm-tests.yaml` nor `acm-tests.yaml` exists. It starts as a blank skeleton:
+`init` creates `.acm/acm-tests.yaml` when neither `.acm/acm-tests.yaml` nor `acm-tests.yaml` exists. It starts as a blank skeleton:
 
 ```yaml
 version: acm.tests.v1
@@ -129,18 +137,18 @@ defaults:
 tests: []
 ```
 
-For a starter verify profile, rerun bootstrap with one of:
+For a starter verify profile, rerun `init` with one of:
 
-- `acm bootstrap --apply-template verify-generic` for a language-agnostic profile that works out of the box
-- `acm bootstrap --apply-template verify-go` for Go repos
-- `acm bootstrap --apply-template verify-ts` for TypeScript repos
-- `acm bootstrap --apply-template verify-python` for Python repos
-- `acm bootstrap --apply-template verify-rust` for Rust repos
-- `acm bootstrap --apply-template detailed-planning-enforcement` for the richer feature-plan contract; it can be applied directly or after `starter-contract` + `verify-generic`, and it upgrades those pristine files when present
+- `acm init --apply-template verify-generic` for a language-agnostic profile that works out of the box
+- `acm init --apply-template verify-go` for Go repos
+- `acm init --apply-template verify-ts` for TypeScript repos
+- `acm init --apply-template verify-python` for Python repos
+- `acm init --apply-template verify-rust` for Rust repos
+- `acm init --apply-template detailed-planning-enforcement` for the richer feature-plan contract; it can be applied directly or after `starter-contract` + `verify-generic`, and it upgrades those pristine files when present
 
 ### Workflow gates
 
-Bootstrap creates `.acm/acm-workflows.yaml` when neither canonical location exists. It starts as a thin skeleton:
+`init` creates `.acm/acm-workflows.yaml` when neither canonical location exists. It starts as a thin skeleton:
 
 ```yaml
 version: acm.workflows.v1
@@ -152,14 +160,14 @@ This is intentionally minimal. Add `run` blocks when you want gates like `review
 
 ### Environment
 
-Bootstrap creates or extends `.env.example` with ACM runtime defaults:
+`init` creates or extends `.env.example` with ACM runtime defaults:
 
 ```dotenv
 ACM_PROJECT_ID=myproject
 ACM_PROJECT_ROOT=/path/to/repo
 ACM_SQLITE_PATH=.acm/context.db
 ACM_PG_DSN=postgres://user:pass@localhost:5432/agents_context?sslmode=disable
-ACM_UNBOUNDED=false
+ACM_UNBOUNDED=false # true removes built-in history/list caps for supported surfaces
 ACM_LOG_LEVEL=info
 ACM_LOG_SINK=stderr
 ```
@@ -174,7 +182,7 @@ For a stronger baseline than the blank scaffolds, copy these into your repo and 
 | [examples/acm-tags.yaml](examples/acm-tags.yaml) | Tag aliases for typical projects |
 | [examples/acm-tests.yaml](examples/acm-tests.yaml) | Verification check definitions |
 | [examples/acm-workflows.yaml](examples/acm-workflows.yaml) | Completion gate definitions |
-| [examples/AGENTS.md](examples/AGENTS.md) | Codex agent instructions |
+| [examples/AGENTS.md](examples/AGENTS.md) | Root repo contract for Codex and other AGENTS-aware tools |
 | [examples/CLAUDE.md](examples/CLAUDE.md) | Claude Code instructions |
 
 ## Step 4: Sync rules into acm
@@ -197,12 +205,14 @@ The following operations are what agents call during tasks — via CLI scripts, 
 
 > **Note:** All examples below omit `--project` because acm infers the project from the repo root (or `ACM_PROJECT_ID` if set). Pass `--project <id>` explicitly only when you need a namespace that differs from the folder name.
 
-### get_context
+> **Maintenance note:** when you change rules, tags, tests, workflows, onboarding, or tool-surface behavior, run `acm sync --mode working_tree --insert-new-candidates` and `acm health --include-details` before `done`.
+
+### context
 
 Agents call this at the start of every task to get a scoped receipt:
 
 ```bash
-acm get-context \
+acm context \
   --task-text "add input validation to the signup form" \
   --phase execute
 ```
@@ -211,21 +221,21 @@ For longer task descriptions, use `--task-file` instead:
 
 ```bash
 echo "Refactor the signup flow to validate email format, password strength, and CSRF tokens" > task.txt
-acm get-context --task-file task.txt --phase execute
+acm context --task-file task.txt --phase execute
 ```
 
 The response is a JSON receipt containing:
 - `rules` — hard constraints (full content included for hard enforcement rules)
-- `suggestions` — relevant code/doc/test pointers (key + summary only)
 - `memories` — durable facts from past work
 - `plans` — active work plans for the project, with fetch keys for resumption
-- `_meta` — receipt ID, resolved tags, and budget accounting metadata
+- `initial_scope_paths` — explicitly known starting scope when the caller already knows it
+- `_meta` — receipt ID, resolved tags, task metadata, and the baseline ACM will later use to compute the real task delta for `verify` and `done`
 
 Plans from prior runs are automatically included — agents can see in-progress work and choose to resume or start fresh. The `receipt_id` from `_meta` is the handle for all subsequent operations.
 
 ### fetch
 
-Agents call this to pull full content for pointer keys from the receipt:
+Agents call this to hydrate full content only when a returned key actually needs to be opened:
 
 ```bash
 acm fetch --key "myproject:src/signup.go#validate"
@@ -246,7 +256,7 @@ acm fetch --keys-file keys.json
 
 ### work
 
-Agents call this to track multi-step progress. Plans and tasks survive context compaction, so `get_context` can return active plans after chat resets.
+Agents call this to track multi-step progress. Plans and tasks survive context compaction, so `context` can return active plans after chat resets.
 
 One-shot (no temp files) with inline JSON:
 
@@ -257,6 +267,8 @@ acm work --receipt-id <receipt-id> --mode merge \
 ```
 
 `tasks` are the canonical payload for tracking. If you only need to record a single review-gate outcome, use `review` instead.
+
+When governed file work expands beyond the receipt's initial scope, record the later-discovered files through `plan.discovered_paths` in `work` before expecting `review` or `done` to pass.
 
 #### Optional richer feature plans
 
@@ -284,7 +296,7 @@ acm review \
 
 `review` is intentionally thin — it lowers to a single `work.tasks[]` merge update.
 
-- **Run mode**: acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists a review-attempt record, and updates the work-task snapshot. Same-fingerprint reruns are skipped; `report_completion` requires a fresh passing review when fingerprint dedupe is enabled. The scoped fingerprint covers receipt pointer paths plus ACM-managed governance files that completion reporting already allows outside pointer scope.
+- **Run mode**: acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists a review-attempt record, and updates the work-task snapshot. Same-fingerprint reruns are skipped; `done` requires a fresh passing review when fingerprint dedupe is enabled. The scoped fingerprint covers effective scope: receipt `initial_scope_paths`, work-declared `discovered_paths`, and ACM-managed governance files that completion reporting already allows outside project file scope.
 - **Defaults**: `key=review:cross-llm`, `summary="Cross-LLM review"`.
 - Use `--plan-key` instead of `--receipt-id` when resuming from a plan, or `--key` if your workflow uses a different task key.
 
@@ -298,23 +310,22 @@ acm review \
 
 Manual fields (`--status`, `--outcome`, `--blocked-reason`, `--evidence`) are only for non-run mode. Keep raw reviewer commands in repo-local scripts referenced by `.acm/acm-workflows.yaml`.
 
-### work history
+### acm history discovery
 
 Use the public history surface to rediscover active or archived plans, memories, receipts, and runs without direct database access:
 
 ```bash
-acm work list --scope current
-acm work search --query "signup validation"
-acm work search --query "bootstrap" --scope completed
-acm history search --entity all --limit 20
-acm history search --entity memory --query "postgres indexing"
-acm history search --entity receipt --query "signup validation"
+acm history --entity work --scope current
+acm history --entity work --query "signup validation"
+acm history --entity work --query "bootstrap" --scope completed
+acm history --entity all --limit 20
+acm history --entity memory --query "postgres indexing"
+acm history --entity receipt --query "signup validation"
 ```
 
-Two surfaces:
+One surface:
 
-- **`work list` / `work search`** — work-specific, accepts `--scope` and `--kind` filters
-- **`history search`** — multi-entity discovery across work, memories, receipts, and runs
+- **`acm history`** — compact discovery across work, memories, receipts, and runs; set `--entity work` when you need work-specific `--scope` or `--kind` filters
 
 Results are compact and include `fetch_keys`, so agents can search first and then `fetch` the exact payloads they need.
 
@@ -323,14 +334,14 @@ Results are compact and include `fetch_keys`, so agents can search first and the
 Use `status` when you need one command to explain the current ACM setup before debugging a workflow:
 
 ```bash
-acm status --task-text "why did get_context pick these pointers?" --phase execute
+acm status --task-text "what would context load for this task?" --phase execute
 ```
 
-It reports the active project and backend, which repo-local rules/tags/tests/workflows files were discovered and loaded, which bootstrap integrations are installed, and any missing setup. `acm doctor` is an alias, but `status` is the canonical command name.
+It reports the active project and backend, which repo-local rules/tags/tests/workflows files were discovered and loaded, which init-managed integrations are installed, and any missing setup.
 
 ### verify
 
-Before `report_completion` for code changes, run repo-defined executable verification:
+Before `done` for code changes, run repo-defined executable verification:
 
 ```bash
 acm verify --receipt-id <receipt-id> --phase review \
@@ -338,12 +349,12 @@ acm verify --receipt-id <receipt-id> --phase review \
   --file-changed src/signup_test.go
 ```
 
-### report_completion
+### done
 
-Agents call this to close a task after verification is satisfied. acm validates that changed files are within the receipt's scope and checks any configured completion task keys from `.acm/acm-workflows.yaml` (defaulting to `verify:tests` when no workflow gates are configured):
+Agents call this to close a task after verification is satisfied. ACM computes the task delta from the receipt baseline. When changed files are supplied, acm cross-checks them against the detected delta, surfaces mismatches as violations, validates that file-backed work stays within effective scope (`initial_scope_paths` + `discovered_paths` + ACM-managed governance files), and checks any configured completion task keys from `.acm/acm-workflows.yaml`. If no workflow gates are configured, file-backed closures fall back to `verify:tests`.
 
 ```bash
-acm report-completion \
+acm done \
   --receipt-id <receipt-id> \
   --file-changed src/signup.go \
   --file-changed src/signup_test.go \
@@ -354,31 +365,43 @@ File-based alternatives for scripted workflows:
 
 ```bash
 echo '["src/signup.go", "src/signup_test.go"]' > changed.json
-acm report-completion \
+acm done \
   --receipt-id <receipt-id> \
   --files-changed-file changed.json \
   --outcome-file outcome.txt
 ```
 
-### propose_memory
+You can also omit `files_changed` entirely and let ACM use the baseline-derived task delta. When that detected delta is empty, the closeout is effectively no-file:
+
+```bash
+acm done \
+  --receipt-id <receipt-id> \
+  --outcome "Drafted the feature plan and recorded follow-up tasks"
+```
+
+### memory
 
 Agents call this when they discover something worth remembering for future tasks:
 
 ```bash
-acm propose-memory \
+acm memory \
   --receipt-id <receipt-id> \
   --category gotcha \
   --subject "signup form requires CSRF token" \
   --content "The signup endpoint validates a CSRF token from the session cookie. Tests must set this header or they get 403." \
   --confidence 4 \
-  --evidence-key "myproject:src/signup.go#validate" \
+  --evidence-path src/signup.go \
   --memory-tag backend \
   --memory-tag auth
 ```
 
-For longer memory content, use `--content-file`. Memory tags, evidence keys, and related keys also accept `--memory-tags-json` / `--evidence-keys-json` / `--related-keys-json` and `--memory-tags-file` / `--evidence-keys-file` / `--related-keys-file` (JSON arrays). Use `--related-key` (repeatable) to link the memory to related pointers beyond the evidence chain. Use `--tags-file` when you need to override the canonical tag dictionary used for runtime normalization. Add `--auto-promote` to skip quarantine and promote directly if validations pass.
+For longer memory content, use `--content-file`. The human-facing CLI accepts governed repo-relative `--evidence-path` / `--related-path` shorthands and converts them to deterministic pointer keys; JSON/MCP payloads still provide `memory.evidence_pointer_keys` and `memory.related_pointer_keys` directly. Memory tags, evidence keys, evidence paths, related keys, and related paths also accept `--memory-tags-json` / `--evidence-keys-json` / `--evidence-paths-json` / `--related-keys-json` / `--related-paths-json` and the corresponding `--*-file` JSON-array variants. Use `--tags-file` when you need to override the canonical tag dictionary used for runtime normalization. Add `--auto-promote` to skip quarantine and promote directly if validations pass.
 
-Memories are available in future `get_context` calls when relevant tags match.
+Evidence keys must stay inside the task's effective scope. In the simplified model that usually means exact rule pointer keys already present on the receipt, or indexed project pointer keys such as `<project>:src/signup.go` or `<project>:src/signup.go#validate` whose repo-relative path is covered by `initial_scope_paths` or `plan.discovered_paths`.
+
+If a file was discovered after `context`, record it through `work.plan.discovered_paths` before using its pointer key as memory evidence.
+
+Memories are available in future `context` calls when relevant tags match.
 
 ## Step 6: Wire agents to acm
 
@@ -392,20 +415,20 @@ Install the slash command pack into your project:
 bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude
 ```
 
-Run this from your project root. It installs `/acm-get`, `/acm-work`, `/acm-review`, `/acm-verify`, `/acm-report`, `/acm-memory`, and `/acm-eval` slash commands into `.claude/commands/`.
+Run this from your project root. It installs `/acm-context`, `/acm-work`, `/acm-review`, `/acm-verify`, `/acm-done`, and `/acm-memory` slash commands into `.claude/commands/`. The default slash-command loop is `/acm-context`, `/acm-work`, `/acm-verify`, `/acm-done`, and `/acm-memory`.
 
 If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude`.
 
-If you prefer to seed the same files directly through bootstrap, rerun:
+If you prefer to seed the same files directly through `init`, rerun:
 
 ```bash
-acm bootstrap \
+acm init \
   --apply-template claude-command-pack \
   --apply-template claude-hooks \
   --apply-template git-hooks-precommit
 ```
 
-`claude-hooks` is additive and opt-in. It seeds `.claude/settings.json` plus hook scripts that re-inject the ACM loop on Claude session start/compaction, keep edits blocked until `/acm-get` or an equivalent `get_context` request succeeds in the current session, nudge `/acm-work` once edits span files, and block stop until edited work is closed with `acm report-completion`. The older `claude-receipt-guard` template name still works as a compatibility alias.
+`claude-hooks` is additive and opt-in. It seeds `.claude/settings.json` plus hook scripts that re-inject the ACM loop on Claude session start/compaction, keep edits blocked until `/acm-context` or an equivalent `context` request succeeds in the current session, nudge `/acm-work` once edits span files or governed scope expands, and block stop until edited work is closed with `acm done`.
 
 `git-hooks-precommit` seeds `.githooks/pre-commit`, which forwards staged additions, modifications, renames, type changes, and deletions into `acm verify --phase review`. Enable it with:
 
@@ -415,33 +438,22 @@ git config core.hooksPath .githooks
 
 Add a thin `CLAUDE.md` to your project root. A starter template is at [docs/examples/CLAUDE.md](examples/CLAUDE.md).
 
-### Codex
-
-Install the skill pack:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --codex
-```
-
-If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --codex`.
-
-Add an `AGENTS.md` to your project root. A starter template is at [docs/examples/AGENTS.md](examples/AGENTS.md).
-
 ### MCP
 
 For models with native tool support, use the MCP adapter:
 
 ```bash
-acm-mcp tools          # list all 15 available tools
-acm-mcp invoke --tool get_context --in payload.json
+acm-mcp tools          # list all 12 available tools
+acm-mcp invoke --tool context --in payload.json
 ```
 
-The MCP adapter exposes the same 15 operations as the CLI:
+The MCP adapter exposes the same 12 operations as the CLI:
 
-- **Agent-facing** (7): `get_context`, `fetch`, `work`, `review`, `history_search`, `propose_memory`, `report_completion`
-- **Maintenance** (8): `sync`, `health_check`, `health_fix`, `status`, `coverage`, `eval`, `verify`, `bootstrap`
+- **Core** (5): `context`, `work`, `memory`, `verify`, `done`
+- **Supporting** (3): `fetch`, `review`, `history`
+- **Maintenance** (4): `sync`, `health`, `status`, `init`
 
-## Step 7: Ongoing maintenance
+## Step 7: Ongoing Maintenance And Advanced Surfaces
 
 ### Keep the index fresh
 
@@ -463,7 +475,7 @@ acm sync --mode working_tree
 2. Run `acm sync --mode working_tree`
 3. Run `acm health` to verify
 
-`sync` re-syncs both file pointers and canonical rules. Use `--insert-new-candidates` to auto-index any uncovered files during sync. To sync rules only (without touching file pointers), use `acm health --fix sync_ruleset`.
+`sync` re-syncs both file pointers and canonical rules. Use `--insert-new-candidates` to auto-index any unindexed files during sync. To sync rules only (without touching file pointers), use `acm health --fix sync_ruleset`.
 
 If your ruleset or tag dictionary is in a non-standard location, pass `--rules-file` and/or `--tags-file`:
 
@@ -488,9 +500,9 @@ acm health --fix all
 Run `acm health --help` to list fixers directly in the CLI.
 
 Available fixers:
-- `all` — run the default fixer set (`sync_working_tree`, `index_uncovered_files`, `sync_ruleset`)
+- `all` — run the default fixer set (`sync_working_tree`, `index_unindexed_files`, `sync_ruleset`)
 - `sync_working_tree` — re-sync file hashes from disk
-- `index_uncovered_files` — add missing files to the index
+- `index_unindexed_files` — add missing files to the index
 - `sync_ruleset` — re-sync rules from canonical ruleset
 
 Use `--dry-run` when you want a preview without changing state:
@@ -500,23 +512,7 @@ acm health --fix all --dry-run
 acm health --fix sync_ruleset --dry-run
 ```
 
-### Run eval and verify checks
-
-Create an eval suite to verify retrieval quality:
-
-```json
-[
-  {
-    "task_text": "fix the login bug",
-    "phase": "execute",
-    "expected_pointer_keys": ["myproject:src/auth/login.go"]
-  }
-]
-```
-
-```bash
-acm eval --eval-suite-path ./eval.json --minimum-recall 0.8
-```
+### Run verify checks
 
 For repo-defined executable verification, add `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml` in the repo root:
 
@@ -586,10 +582,10 @@ completion:
         timeout_sec: 1800
 ```
 
-Bootstrap seeds the thin `required_tasks: []` skeleton by default. Adding gates like `review:cross-llm` is an opt-in repo policy choice.
+Init seeds the thin `required_tasks: []` skeleton by default. Adding gates like `review:cross-llm` is an opt-in repo policy choice.
 
-When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM skips same-fingerprint reruns and only enforces retry limits when `max_attempts` is set. The scoped fingerprint covers receipt pointer paths plus ACM-managed governance files that completion reporting already allows outside pointer scope. Without `run`, agents can use manual `review` fields or a direct `work` update. Repo-local reviewer choices such as a Codex model or reasoning effort belong in the workflow `run.argv`.
-If the working tree is dirty but the active receipt scopes zero of those changes into the runnable review set, the runner should fail fast and tell the agent to rerun `get_context` with a broader task. Runnable review output should also surface the total repo-changed versus scoped-changed file counts for quick diagnosis.
+When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM skips same-fingerprint reruns and only enforces retry limits when `max_attempts` is set. The scoped fingerprint covers effective scope (`initial_scope_paths` + `discovered_paths`) plus ACM-managed governance files that completion reporting already allows outside project file scope. Without `run`, agents can use manual `review` fields or a direct `work` update. Repo-local reviewer choices such as a Codex model or reasoning effort belong in the workflow `run.argv`.
+If the working tree is dirty but the active effective scope captures zero of those changes into the runnable review set, the runner should fail fast and tell the agent to rerun `context` with a broader task or declare the missing files through `work`. Runnable review output should also surface the total repo-changed versus scoped-changed file counts for quick diagnosis.
 
 Keep richer plan-shape enforcement in `verify`, not `completion.required_tasks`, unless you truly need an additional final gate. Workflow selectors operate on phase, tags, paths, and pointers; they do not currently distinguish thin plans from `kind=feature` plans by themselves.
 
@@ -622,4 +618,4 @@ See [SQLite Operations](sqlite.md) for backup, restore, and rotation procedures.
 
 - Read [Concepts](concepts.md) if any terms are unclear
 - Browse [example request templates](../skills/acm-broker/references/templates.md) for all command formats
-- Review [ADR-001](architecture/ADR-001-context-broker.md) for architecture and design decisions
+- Review [ADR-001](architecture/ADR-001-context-broker.md) for the archived design history behind the earlier broker model

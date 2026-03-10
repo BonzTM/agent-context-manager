@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-func TestDecodeAndValidateCommand_GetContextSuccess(t *testing.T) {
+func TestDecodeAndValidateCommand_ContextSuccess(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -23,10 +23,10 @@ func TestDecodeAndValidateCommand_GetContextSuccess(t *testing.T) {
 	if errp != nil {
 		t.Fatalf("unexpected error: %+v", errp)
 	}
-	if env.Command != CommandGetContext {
-		t.Fatalf("expected command %q got %q", CommandGetContext, env.Command)
+	if env.Command != CommandContext {
+		t.Fatalf("expected command %q got %q", CommandContext, env.Command)
 	}
-	p, ok := payload.(GetContextPayload)
+	p, ok := payload.(ContextPayload)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
@@ -38,10 +38,101 @@ func TestDecodeAndValidateCommand_GetContextSuccess(t *testing.T) {
 	}
 }
 
+func TestDecodeAndValidateCommand_CoreCommandAliasesSuccess(t *testing.T) {
+	tests := []struct {
+		name    string
+		command Command
+		body    string
+	}{
+		{
+			name:    "context",
+			command: CommandContext,
+			body: `{
+				"project_id":"my-cool-app",
+				"task_text":"fix preference save bug",
+				"phase":"execute"
+			}`,
+		},
+		{
+			name:    "memory",
+			command: CommandMemory,
+			body: `{
+				"project_id":"my-cool-app",
+				"receipt_id":"receipt-1234",
+				"memory":{
+					"category":"decision",
+					"subject":"Use context",
+					"content":"Prefer the core command names in docs.",
+					"related_pointer_keys":["project:file#one"],
+					"tags":["docs"],
+					"confidence":4,
+					"evidence_pointer_keys":["rule:project/rule-1"]
+				}
+			}`,
+		},
+		{
+			name:    "done",
+			command: CommandDone,
+			body: `{
+				"project_id":"my-cool-app",
+				"receipt_id":"receipt-1234",
+				"files_changed":["src/main.go"],
+				"outcome":"done"
+			}`,
+		},
+		{
+			name:    "init",
+			command: CommandInit,
+			body: `{
+				"project_id":"my-cool-app",
+				"project_root":"."
+			}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			json := fmt.Sprintf(`{
+				"version":"acm.v1",
+				"command":%q,
+				"request_id":"req-12345",
+				"payload":%s
+			}`, tc.command, tc.body)
+			env, _, errp := DecodeAndValidateCommand([]byte(json))
+			if errp != nil {
+				t.Fatalf("unexpected error: %+v", errp)
+			}
+			if env.Command != tc.command {
+				t.Fatalf("expected command %q got %q", tc.command, env.Command)
+			}
+		})
+	}
+}
+
+func TestDecodeAndValidateCommand_RejectsRemovedLegacyCommands(t *testing.T) {
+	for _, command := range []string{"get_context", "propose_memory", "report_completion", "bootstrap"} {
+		t.Run(command, func(t *testing.T) {
+			json := fmt.Sprintf(`{
+				"version":"acm.v1",
+				"command":%q,
+				"request_id":"req-12345",
+				"payload":{}
+			}`, command)
+			_, _, errp := DecodeAndValidateCommand([]byte(json))
+			if errp == nil {
+				t.Fatal("expected validation error")
+			}
+			if errp.Code != "INVALID_COMMAND" {
+				t.Fatalf("unexpected code: %s", errp.Code)
+			}
+		})
+	}
+}
+
 func TestDecodeAndValidateCommandWithDefaults_FillsMissingProjectID(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"task_text":"fix preference save bug",
@@ -52,7 +143,7 @@ func TestDecodeAndValidateCommandWithDefaults_FillsMissingProjectID(t *testing.T
 	if errp != nil {
 		t.Fatalf("unexpected error: %+v", errp)
 	}
-	p, ok := payload.(GetContextPayload)
+	p, ok := payload.(ContextPayload)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
@@ -64,7 +155,7 @@ func TestDecodeAndValidateCommandWithDefaults_FillsMissingProjectID(t *testing.T
 func TestDecodeAndValidateCommand_RejectsMissingProjectIDWithoutDefaults(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"task_text":"fix preference save bug",
@@ -83,10 +174,10 @@ func TestDecodeAndValidateCommand_RejectsMissingProjectIDWithoutDefaults(t *test
 	}
 }
 
-func TestDecodeAndValidateCommand_GetContextAcceptsTagsFile(t *testing.T) {
+func TestDecodeAndValidateCommand_ContextAcceptsTagsFile(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -99,7 +190,7 @@ func TestDecodeAndValidateCommand_GetContextAcceptsTagsFile(t *testing.T) {
 	if errp != nil {
 		t.Fatalf("unexpected error: %+v", errp)
 	}
-	p, ok := payload.(GetContextPayload)
+	p, ok := payload.(ContextPayload)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
@@ -116,7 +207,7 @@ func TestDecodeAndValidateCommand_StatusDefaultsProjectIDFromProjectRoot(t *test
 		"request_id":"req-12345",
 		"payload":{
 			"project_root":"` + projectRoot + `",
-			"task_text":"why did get_context choose these pointers",
+			"task_text":"why did context choose these pointers",
 			"phase":"review"
 		}
 	}`
@@ -158,7 +249,7 @@ func TestDecodeAndValidateCommand_StatusRejectsInvalidPhase(t *testing.T) {
 func TestDecodeAndValidateCommand_InvalidVersion(t *testing.T) {
 	json := `{
 		"version":"ctx.v0",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -178,7 +269,7 @@ func TestDecodeAndValidateCommand_InvalidVersion(t *testing.T) {
 func TestDecodeAndValidateCommand_RejectsUnknownField(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -196,10 +287,10 @@ func TestDecodeAndValidateCommand_RejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestDecodeAndValidateCommand_ReportCompletionRejectsInvalidScopeMode(t *testing.T) {
+func TestDecodeAndValidateCommand_DoneRejectsInvalidScopeMode(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"report_completion",
+		"command":"done",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -218,10 +309,10 @@ func TestDecodeAndValidateCommand_ReportCompletionRejectsInvalidScopeMode(t *tes
 	}
 }
 
-func TestDecodeAndValidateCommand_ReportCompletionRejectsEscapingPath(t *testing.T) {
+func TestDecodeAndValidateCommand_DoneRejectsEscapingPath(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"report_completion",
+		"command":"done",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -350,50 +441,10 @@ func TestDecodeAndValidateCommand_ReviewRunRejectsManualOutcomeFields(t *testing
 	}
 }
 
-func TestDecodeAndValidateCommand_CoveragePayloadValidation(t *testing.T) {
-	validJSON := `{
-		"version":"acm.v1",
-		"command":"coverage",
-		"request_id":"req-12345",
-		"payload":{
-			"project_id":"my-cool-app",
-			"project_root":"."
-		}
-	}`
-	_, payload, errp := DecodeAndValidateCommand([]byte(validJSON))
-	if errp != nil {
-		t.Fatalf("unexpected error: %+v", errp)
-	}
-	p, ok := payload.(CoveragePayload)
-	if !ok {
-		t.Fatalf("unexpected payload type: %T", payload)
-	}
-	if p.ProjectID != "my-cool-app" || p.ProjectRoot != "." {
-		t.Fatalf("unexpected payload: %+v", p)
-	}
-
-	invalidJSON := `{
-		"version":"acm.v1",
-		"command":"coverage",
-		"request_id":"req-12345",
-		"payload":{
-			"project_id":"my-cool-app",
-			"project_root":" "
-		}
-	}`
-	_, _, errp = DecodeAndValidateCommand([]byte(invalidJSON))
-	if errp == nil {
-		t.Fatal("expected validation error")
-	}
-	if errp.Code != "INVALID_PAYLOAD" {
-		t.Fatalf("unexpected code: %s", errp.Code)
-	}
-}
-
 func TestDecodeAndValidateCommand_HistorySearchPayloadValidation(t *testing.T) {
 	validJSON := `{
 		"version":"acm.v1",
-		"command":"history_search",
+		"command":"history",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -422,7 +473,7 @@ func TestDecodeAndValidateCommand_HistorySearchPayloadValidation(t *testing.T) {
 
 	invalidJSON := `{
 		"version":"acm.v1",
-		"command":"history_search",
+		"command":"history",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -443,7 +494,7 @@ func TestDecodeAndValidateCommand_HistorySearchPayloadValidation(t *testing.T) {
 func TestDecodeAndValidateCommand_HistorySearchRejectsWorkOnlyFiltersForNonWorkEntity(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"history_search",
+		"command":"history",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -1026,10 +1077,10 @@ func TestDecodeAndValidateCommand_SyncPayloadValidation(t *testing.T) {
 	}
 }
 
-func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
+func TestDecodeAndValidateCommand_HealthPayloadValidation(t *testing.T) {
 	validJSON := `{
 		"version":"acm.v1",
-		"command":"health_fix",
+		"command":"health",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -1044,7 +1095,7 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 	if errp != nil {
 		t.Fatalf("unexpected error: %+v", errp)
 	}
-	p, ok := payload.(HealthFixPayload)
+	p, ok := payload.(HealthPayload)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
@@ -1066,7 +1117,7 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 
 	invalidJSON := `{
 		"version":"acm.v1",
-		"command":"health_fix",
+		"command":"health",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -1082,10 +1133,10 @@ func TestDecodeAndValidateCommand_HealthFixPayloadValidation(t *testing.T) {
 	}
 }
 
-func TestDecodeAndValidateCommand_BootstrapPayloadPersistCandidates(t *testing.T) {
+func TestDecodeAndValidateCommand_InitPayloadPersistCandidates(t *testing.T) {
 	validJSON := `{
 		"version":"acm.v1",
-		"command":"bootstrap",
+		"command":"init",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -1099,7 +1150,7 @@ func TestDecodeAndValidateCommand_BootstrapPayloadPersistCandidates(t *testing.T
 	if errp != nil {
 		t.Fatalf("unexpected error: %+v", errp)
 	}
-	p, ok := payload.(BootstrapPayload)
+	p, ok := payload.(InitPayload)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
@@ -1114,10 +1165,10 @@ func TestDecodeAndValidateCommand_BootstrapPayloadPersistCandidates(t *testing.T
 	}
 }
 
-func TestDecodeAndValidateCommand_BootstrapAllowsInferredDefaults(t *testing.T) {
+func TestDecodeAndValidateCommand_InitAllowsInferredDefaults(t *testing.T) {
 	validJSON := `{
 		"version":"acm.v1",
-		"command":"bootstrap",
+		"command":"init",
 		"request_id":"req-12345",
 		"payload":{
 			"respect_gitignore":true
@@ -1127,7 +1178,7 @@ func TestDecodeAndValidateCommand_BootstrapAllowsInferredDefaults(t *testing.T) 
 	if errp != nil {
 		t.Fatalf("unexpected error: %+v", errp)
 	}
-	p, ok := payload.(BootstrapPayload)
+	p, ok := payload.(InitPayload)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
@@ -1163,36 +1214,24 @@ func TestDecodeAndValidateCommand_ProjectRootOverridesDefaultProjectID(t *testin
 			},
 		},
 		{
-			name:    "health_fix",
-			command: CommandHealthFix,
+			name:    "health",
+			command: CommandHealth,
 			payload: fmt.Sprintf(`{"project_root":%q}`, projectRoot),
 			assert: func(t *testing.T, payload any) {
 				t.Helper()
-				p := payload.(HealthFixPayload)
+				p := payload.(HealthPayload)
 				if got, want := p.ProjectID, "Target-Repo"; got != want {
 					t.Fatalf("unexpected project_id: got %q want %q", got, want)
 				}
 			},
 		},
 		{
-			name:    "coverage",
-			command: CommandCoverage,
+			name:    "init",
+			command: CommandInit,
 			payload: fmt.Sprintf(`{"project_root":%q}`, projectRoot),
 			assert: func(t *testing.T, payload any) {
 				t.Helper()
-				p := payload.(CoveragePayload)
-				if got, want := p.ProjectID, "Target-Repo"; got != want {
-					t.Fatalf("unexpected project_id: got %q want %q", got, want)
-				}
-			},
-		},
-		{
-			name:    "bootstrap",
-			command: CommandBootstrap,
-			payload: fmt.Sprintf(`{"project_root":%q}`, projectRoot),
-			assert: func(t *testing.T, payload any) {
-				t.Helper()
-				p := payload.(BootstrapPayload)
+				p := payload.(InitPayload)
 				if got, want := p.ProjectID, "Target-Repo"; got != want {
 					t.Fatalf("unexpected project_id: got %q want %q", got, want)
 				}
@@ -1217,10 +1256,10 @@ func TestDecodeAndValidateCommand_ProjectRootOverridesDefaultProjectID(t *testin
 	}
 }
 
-func TestDecodeAndValidateCommand_BootstrapRejectsEmptyApplyTemplates(t *testing.T) {
+func TestDecodeAndValidateCommand_InitRejectsEmptyApplyTemplates(t *testing.T) {
 	invalidJSON := `{
 		"version":"acm.v1",
-		"command":"bootstrap",
+		"command":"init",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -1237,10 +1276,10 @@ func TestDecodeAndValidateCommand_BootstrapRejectsEmptyApplyTemplates(t *testing
 	}
 }
 
-func TestDecodeAndValidateCommand_ProposeMemoryAcceptsTagsFile(t *testing.T) {
+func TestDecodeAndValidateCommand_MemoryAcceptsTagsFile(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"propose_memory",
+		"command":"memory",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -1261,7 +1300,7 @@ func TestDecodeAndValidateCommand_ProposeMemoryAcceptsTagsFile(t *testing.T) {
 	if errp != nil {
 		t.Fatalf("unexpected error: %+v", errp)
 	}
-	p, ok := payload.(ProposeMemoryPayload)
+	p, ok := payload.(MemoryCommandPayload)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
@@ -1270,10 +1309,10 @@ func TestDecodeAndValidateCommand_ProposeMemoryAcceptsTagsFile(t *testing.T) {
 	}
 }
 
-func TestDecodeAndValidateCommand_ReportCompletionAcceptsTagsFile(t *testing.T) {
+func TestDecodeAndValidateCommand_DoneAcceptsTagsFile(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"report_completion",
+		"command":"done",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -1287,7 +1326,7 @@ func TestDecodeAndValidateCommand_ReportCompletionAcceptsTagsFile(t *testing.T) 
 	if errp != nil {
 		t.Fatalf("unexpected error: %+v", errp)
 	}
-	p, ok := payload.(ReportCompletionPayload)
+	p, ok := payload.(DonePayload)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", payload)
 	}
@@ -1296,44 +1335,16 @@ func TestDecodeAndValidateCommand_ReportCompletionAcceptsTagsFile(t *testing.T) 
 	}
 }
 
-func TestDecodeAndValidateCommand_EvalAcceptsTagsFile(t *testing.T) {
+func TestDecodeAndValidateCommand_ContextRejectsInvalidInitialScopePaths(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"eval",
-		"request_id":"req-12345",
-		"payload":{
-			"project_id":"my-cool-app",
-			"tags_file":".acm/acm-tags.yaml",
-			"eval_suite_inline":[
-				{"task_text":"Check sync","phase":"execute"}
-			]
-		}
-	}`
-	_, payload, errp := DecodeAndValidateCommand([]byte(json))
-	if errp != nil {
-		t.Fatalf("unexpected error: %+v", errp)
-	}
-	p, ok := payload.(EvalPayload)
-	if !ok {
-		t.Fatalf("unexpected payload type: %T", payload)
-	}
-	if p.TagsFile != ".acm/acm-tags.yaml" {
-		t.Fatalf("unexpected tags_file: %q", p.TagsFile)
-	}
-}
-
-func TestDecodeAndValidateCommand_GetContextRejectsOutOfRangeCaps(t *testing.T) {
-	json := `{
-		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
 			"task_text":"x",
 			"phase":"execute",
-			"caps":{
-				"word_budget_limit":50
-			}
+			"initial_scope_paths":["../outside.go"]
 		}
 	}`
 	_, _, errp := DecodeAndValidateCommand([]byte(json))
@@ -1364,10 +1375,10 @@ func TestDecodeAndValidateCommand_FetchRejectsDuplicateKeys(t *testing.T) {
 	}
 }
 
-func TestDecodeAndValidateCommand_ProposeMemoryRejectsDuplicateTags(t *testing.T) {
+func TestDecodeAndValidateCommand_MemoryRejectsDuplicateTags(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"propose_memory",
+		"command":"memory",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -1392,14 +1403,155 @@ func TestDecodeAndValidateCommand_ProposeMemoryRejectsDuplicateTags(t *testing.T
 	}
 }
 
-func TestDecodeAndValidateCommand_ReportCompletionRejectsMissingFilesChanged(t *testing.T) {
+func TestDecodeAndValidateCommand_MemoryAcceptsPlanKeyWithoutReceiptID(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"report_completion",
+		"command":"memory",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"plan_key":"plan:receipt-1234",
+			"memory":{
+				"category":"decision",
+				"subject":"Use shared logger",
+				"content":"Prefer one wrapper",
+				"related_pointer_keys":["rule:my-cool-app/rule-1"],
+				"tags":["logging"],
+				"confidence":4,
+				"evidence_pointer_keys":["rule:my-cool-app/rule-1"]
+			}
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(MemoryCommandPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.PlanKey != "plan:receipt-1234" {
+		t.Fatalf("unexpected plan_key: %q", p.PlanKey)
+	}
+	if p.ReceiptID != "" {
+		t.Fatalf("expected empty receipt_id, got %q", p.ReceiptID)
+	}
+}
+
+func TestDecodeAndValidateCommand_DoneAcceptsMissingFilesChanged(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"done",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
 			"receipt_id":"receipt-1234",
+			"outcome":"done"
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected validation error: %+v", errp)
+	}
+	p, ok := payload.(DonePayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.FilesChanged != nil {
+		t.Fatalf("expected omitted files_changed to decode as nil, got %v", p.FilesChanged)
+	}
+	if p.NoFileChanges {
+		t.Fatal("expected no_file_changes to default false")
+	}
+}
+
+func TestDecodeAndValidateCommand_DoneAcceptsPlanKeyWithoutReceiptID(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"done",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"plan_key":"plan:receipt-1234",
+			"outcome":"done"
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected validation error: %+v", errp)
+	}
+	p, ok := payload.(DonePayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.PlanKey != "plan:receipt-1234" {
+		t.Fatalf("unexpected plan_key: %q", p.PlanKey)
+	}
+	if p.ReceiptID != "" {
+		t.Fatalf("expected empty receipt_id, got %q", p.ReceiptID)
+	}
+}
+
+func TestDecodeAndValidateCommand_DoneAcceptsEmptyFilesChanged(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"done",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"files_changed":[],
+			"outcome":"done"
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected validation error: %+v", errp)
+	}
+	p, ok := payload.(DonePayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if len(p.FilesChanged) != 0 {
+		t.Fatalf("expected empty files_changed, got %v", p.FilesChanged)
+	}
+}
+
+func TestDecodeAndValidateCommand_DoneAcceptsExplicitNoFileChanges(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"done",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"no_file_changes":true,
+			"outcome":"done"
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected validation error: %+v", errp)
+	}
+	p, ok := payload.(DonePayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if !p.NoFileChanges {
+		t.Fatal("expected no_file_changes to decode true")
+	}
+}
+
+func TestDecodeAndValidateCommand_DoneRejectsFilesChangedWithExplicitNoFileChanges(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"done",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"files_changed":["src/main.go"],
+			"no_file_changes":true,
 			"outcome":"done"
 		}
 	}`
@@ -1412,10 +1564,10 @@ func TestDecodeAndValidateCommand_ReportCompletionRejectsMissingFilesChanged(t *
 	}
 }
 
-func TestDecodeAndValidateCommand_HealthFixRejectsDuplicateFixers(t *testing.T) {
+func TestDecodeAndValidateCommand_HealthRejectsDuplicateFixers(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
-		"command":"health_fix",
+		"command":"health",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",

@@ -13,6 +13,7 @@ const (
 )
 
 type normalizedRunSummary = storagedomain.NormalizedRunSummary
+type normalizedReceiptScope = storagedomain.NormalizedReceiptScope
 type normalizedVerificationBatch = storagedomain.NormalizedVerificationBatch
 type normalizedReviewAttempt = storagedomain.NormalizedReviewAttempt
 
@@ -48,7 +49,7 @@ func normalizeRunReceiptSummary(input core.RunReceiptSummary) (normalizedRunSumm
 	return storagedomain.NormalizeRunReceiptSummary(input)
 }
 
-func normalizeReceiptScope(input core.ReceiptScope) (normalizedRunSummary, error) {
+func normalizeReceiptScope(input core.ReceiptScope) (normalizedReceiptScope, error) {
 	return storagedomain.NormalizeReceiptScope(input)
 }
 
@@ -60,8 +61,8 @@ func normalizeReviewAttempt(input core.ReviewAttempt) (normalizedReviewAttempt, 
 	return storagedomain.NormalizeReviewAttempt(input)
 }
 
-func normalizeProposeMemoryPersistence(input core.ProposeMemoryPersistence) (core.ProposeMemoryPersistence, error) {
-	return storagedomain.NormalizeProposeMemoryPersistence(input)
+func normalizeMemoryPersistence(input core.MemoryPersistence) (core.MemoryPersistence, error) {
+	return storagedomain.NormalizeMemoryPersistence(input)
 }
 
 func normalizeSyncApplyInput(input core.SyncApplyInput) (core.SyncApplyInput, error) {

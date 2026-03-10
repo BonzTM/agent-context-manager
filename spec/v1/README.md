@@ -1,6 +1,6 @@
 # acm v1 Schemas
 
-This directory defines the v1 wire contract for the context broker, including the preferred diagnostics surface `status`.
+This directory defines the v1 wire contract for ACM's modular control plane, including the preferred diagnostics surface `status`.
 
 ## Files
 
@@ -16,47 +16,45 @@ For project-scoped commands, `project_id` may be omitted when runtime defaults a
 
 ## MCP Contract
 
-The MCP adapter exposes fifteen tools — all CLI operations are available via MCP:
+The MCP adapter exposes twelve public contract tools. CLI convenience syntax maps onto the same operations:
 
 Agent-facing:
 
-1. `get_context`
+1. `context`
 2. `fetch`
-3. `propose_memory`
-4. `report_completion`
+3. `memory`
+4. `done`
 5. `review`
 6. `work`
-7. `history_search`
+7. `history`
 
 Maintenance:
 
 8. `sync`
-9. `health_check`
-10. `health_fix`
-11. `status`
-12. `coverage`
-13. `eval`
-14. `verify`
-15. `bootstrap`
+9. `health`
+10. `status`
+11. `verify`
+12. `init`
 
 Tool input/output shapes are referenced from CLI payload/result defs to guarantee parity.
 
-The MCP flow is index-first:
+The MCP flow centers on durable state and governed closure, not ranked retrieval:
 
-- `get_context` returns an index-first receipt with scoped rules, suggestions, memories, and current plans.
+- `context` returns a receipt with scoped rules, memories, current plans, and any explicitly known initial scope paths.
 - Each rule entry now includes `rule_id`, a deterministic stable identifier derived from the existing rule `key` semantics (no additional input required).
 - `fetch` resolves receipt/plan-scoped artifacts by key, or derives the plan fetch key from `receipt_id` when keys are omitted.
 - `review` remains work-backed and defaults to `review:cross-llm` with `complete` status when callers omit manual fields; it can also execute a workflow-defined `run` command before recording the final review task status.
 - `work` creates/updates structured plans with tasks (max 256 per request). Supports `receipt_id` without `plan_key` (derives `plan_key` as `plan:<receipt_id>`). `mode` controls merge vs replace semantics.
-- `history_search` lists or searches compact work, memory, receipt, and run history and returns targeted `fetch_keys` for selective follow-up retrieval. `entity` defaults to `all`; `scope` and `kind` are only valid when `entity=work`.
+- `history` lists or searches compact work, memory, receipt, and run history and returns targeted `fetch_keys` for selective follow-up fetches. `entity` defaults to `all`; `scope` and `kind` are only valid when `entity=work`.
 - For work updates, `verify:tests` is the built-in executable verification key. `verify:diff-review` is optional workflow metadata.
-- `eval` is the public retrieval-evaluation command/tool name. `verify` selects repo-defined executable checks from `.acm/acm-tests.yaml` or `acm-tests.yaml`, with `tests_file` as the explicit override.
-- `status` reports the active project/backend/runtime snapshot, loaded rules/tags/tests/workflows, installed bootstrap integrations, and optionally a `get_context`-style retrieval preview when callers provide `task_text`.
-- `bootstrap` accepts repeatable `apply_templates` ids and reports per-template `template_results`. Template application is additive-only: create missing files, upgrade ACM-owned pristine scaffolds, and merge known additive JSON fragments without overwriting edited repo files.
-- `report_completion` can enforce repo-defined completion task keys from `.acm/acm-workflows.yaml` or `acm-workflows.yaml`; runnable review gates may also require a fresh passing attempt for the current scoped fingerprint when fingerprint dedupe is enabled. When no workflow gates are configured, acm falls back to `verify:tests`.
-- `propose_memory` and `report_completion` remain receipt-scoped write operations.
+- `verify` selects repo-defined executable checks from `.acm/acm-tests.yaml` or `acm-tests.yaml`, with `tests_file` as the explicit override.
+- `status` reports the active project/backend/runtime snapshot, loaded rules/tags/tests/workflows, installed init-managed integrations, and optionally a simple `context` preview when callers provide `task_text`.
+- `init` accepts repeatable `apply_templates` ids and reports per-template `template_results`. Template application is additive-only: create missing files, upgrade ACM-owned pristine scaffolds, and merge known additive JSON fragments without overwriting edited repo files.
+- `done` can enforce repo-defined completion task keys from `.acm/acm-workflows.yaml` or `acm-workflows.yaml`; runnable review gates may also require a fresh passing attempt for the current scoped fingerprint when fingerprint dedupe is enabled. When no workflow gates are configured, acm falls back to `verify:tests`.
+- `memory` and `done` accept either `receipt_id` or `plan_key`. `plan_key` derives the effective receipt as `plan:<receipt_id>`, then uses the selected plan's discovered scope together with the receipt's initial scope.
+- `memory` evidence must resolve to exact receipt rule keys or indexed pointers whose paths stay inside effective scope. The human-facing CLI additionally offers `--evidence-path` / `--related-path` shorthands that derive deterministic pointer keys from governed repo-relative paths.
 
-`get_context.caps.word_budget_limit` defaults to `1200` and is reported as accounting metadata in `_meta.budget`; it is not a truncation cutoff. `report_completion.scope_mode` defaults to `warn` when omitted. When work tasks are present, `scope_mode=strict` enforces configured completion checks and `scope_mode=warn` surfaces warnings.
+`done.scope_mode` defaults to `warn` when omitted. `done.files_changed` is optional, but no-file closeout requires either a reliable receipt baseline with no detected changes or an explicit `no_file_changes=true` declaration. When changed files are supplied or detected and work tasks are present, `scope_mode=strict` enforces configured completion checks and `scope_mode=warn` surfaces warnings.
 
 ## Notes
 
@@ -64,4 +62,4 @@ The MCP flow is index-first:
 - Recommended implementation approach for Go:
   - define structs from schema
   - validate with a JSON Schema library at ingress/egress
-  - keep retrieval logic in a shared core package used by both CLI and MCP adapters.
+  - keep context, plan, scope, and verification logic in a shared core package used by both CLI and MCP adapters.

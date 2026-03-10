@@ -30,7 +30,7 @@ func TestResolveOutputPath(t *testing.T) {
 	if got, ok := ResolveOutputPath(projectRoot, "", false); got != "" || ok {
 		t.Fatalf("expected no output path when persistence disabled, got %q %v", got, ok)
 	}
-	if got, ok := ResolveOutputPath(projectRoot, "", true); !ok || got != filepath.Join(projectRoot, DefaultOutputCandidatesPath) {
+	if got, ok := ResolveOutputPath(projectRoot, "", true); !ok || got != filepath.Join(projectRoot, DefaultInitCandidatesPath) {
 		t.Fatalf("unexpected default output path: got %q %v", got, ok)
 	}
 	if got, ok := ResolveOutputPath(projectRoot, "custom/candidates.json", false); !ok || got != filepath.Join(projectRoot, "custom", "candidates.json") {

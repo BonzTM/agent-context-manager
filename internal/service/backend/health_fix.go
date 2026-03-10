@@ -11,11 +11,11 @@ import (
 
 var defaultHealthFixers = []v1.HealthFixer{
 	v1.HealthFixerSyncWorkingTree,
-	v1.HealthFixerIndexUncoveredFile,
+	v1.HealthFixerIndexUnindexedFile,
 	v1.HealthFixerSyncRuleset,
 }
 
-func (s *Service) HealthFix(ctx context.Context, payload v1.HealthFixPayload) (v1.HealthFixResult, *core.APIError) {
+func (s *Service) healthFix(ctx context.Context, payload v1.HealthPayload) (v1.HealthFixResult, *core.APIError) {
 	if s == nil || s.repo == nil {
 		return v1.HealthFixResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
 	}
@@ -61,8 +61,8 @@ func (s *Service) executeHealthFixer(ctx context.Context, projectID, projectRoot
 	switch fixer {
 	case v1.HealthFixerSyncWorkingTree:
 		return s.runHealthFixSyncWorkingTree(ctx, projectID, projectRoot, rulesFile, tagsFile, dryRun)
-	case v1.HealthFixerIndexUncoveredFile:
-		return s.runHealthFixIndexUncoveredFiles(ctx, projectID, projectRoot, tagsFile, dryRun)
+	case v1.HealthFixerIndexUnindexedFile:
+		return s.runHealthFixIndexUnindexedFiles(ctx, projectID, projectRoot, tagsFile, dryRun)
 	case v1.HealthFixerSyncRuleset:
 		return s.runHealthFixSyncRuleset(ctx, projectID, projectRoot, rulesFile, tagsFile, dryRun)
 	default:
@@ -112,21 +112,18 @@ func (s *Service) runHealthFixSyncWorkingTree(ctx context.Context, projectID, pr
 	return planned, applied, nil
 }
 
-func (s *Service) runHealthFixIndexUncoveredFiles(ctx context.Context, projectID, projectRoot, tagsFile string, dryRun bool) (v1.HealthFixAction, v1.HealthFixAction, error) {
-	coverageResult, apiErr := s.Coverage(ctx, v1.CoveragePayload{
-		ProjectID:   projectID,
-		ProjectRoot: projectRoot,
-	})
+func (s *Service) runHealthFixIndexUnindexedFiles(ctx context.Context, projectID, projectRoot, tagsFile string, dryRun bool) (v1.HealthFixAction, v1.HealthFixAction, error) {
+	inventory, apiErr := s.computeInventoryHealth(ctx, projectID, projectRoot)
 	if apiErr != nil {
-		return v1.HealthFixAction{}, v1.HealthFixAction{}, fmt.Errorf("collect coverage: %s", apiErr.Message)
+		return v1.HealthFixAction{}, v1.HealthFixAction{}, fmt.Errorf("collect inventory health: %s", apiErr.Message)
 	}
 
-	unindexedPaths := normalizeValues(coverageResult.UnindexedPaths)
+	unindexedPaths := normalizeValues(inventory.UnindexedPaths)
 	planned := v1.HealthFixAction{
-		Fixer: v1.HealthFixerIndexUncoveredFile,
+		Fixer: v1.HealthFixerIndexUnindexedFile,
 		Count: len(unindexedPaths),
 		Notes: []string{
-			fmt.Sprintf("total_files=%d", coverageResult.Summary.TotalFiles),
+			fmt.Sprintf("total_files=%d", inventory.Summary.TotalFiles),
 			fmt.Sprintf("unindexed_files=%d", len(unindexedPaths)),
 		},
 	}
@@ -141,16 +138,16 @@ func (s *Service) runHealthFixIndexUncoveredFiles(ctx context.Context, projectID
 
 	violations := make([]v1.CompletionViolation, 0, len(unindexedPaths))
 	for _, filePath := range unindexedPaths {
-		violations = append(violations, v1.CompletionViolation{Path: filePath, Reason: "health_fix uncovered file"})
+		violations = append(violations, v1.CompletionViolation{Path: filePath, Reason: "health unindexed file"})
 	}
-	stubs := buildAutoIndexPointerStubs(projectID, violations, tagNormalizer)
+	stubs := buildIndexedPointerStubs(projectID, violations, tagNormalizer)
 	upserted, err := s.repo.UpsertPointerStubs(ctx, projectID, stubs)
 	if err != nil {
 		return v1.HealthFixAction{}, v1.HealthFixAction{}, err
 	}
 
 	applied := v1.HealthFixAction{
-		Fixer: v1.HealthFixerIndexUncoveredFile,
+		Fixer: v1.HealthFixerIndexUnindexedFile,
 		Count: upserted,
 		Notes: []string{
 			fmt.Sprintf("unindexed_files=%d", len(unindexedPaths)),

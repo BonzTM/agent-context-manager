@@ -10,17 +10,17 @@ import (
 type handlerFunc func(context.Context, core.Service, any) (any, *core.APIError)
 
 var handlers = map[v1.Command]handlerFunc{
-	v1.CommandGetContext: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
-		return svc.GetContext(ctx, payload.(v1.GetContextPayload))
+	v1.CommandContext: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
+		return svc.Context(ctx, payload.(v1.ContextPayload))
 	},
 	v1.CommandFetch: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
 		return svc.Fetch(ctx, payload.(v1.FetchPayload))
 	},
-	v1.CommandProposeMemory: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
-		return svc.ProposeMemory(ctx, payload.(v1.ProposeMemoryPayload))
+	v1.CommandMemory: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
+		return svc.Memory(ctx, payload.(v1.MemoryCommandPayload))
 	},
-	v1.CommandReportCompletion: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
-		return svc.ReportCompletion(ctx, payload.(v1.ReportCompletionPayload))
+	v1.CommandDone: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
+		return svc.Done(ctx, payload.(v1.DonePayload))
 	},
 	v1.CommandReview: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
 		return svc.Review(ctx, payload.(v1.ReviewPayload))
@@ -34,26 +34,17 @@ var handlers = map[v1.Command]handlerFunc{
 	v1.CommandSync: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
 		return svc.Sync(ctx, payload.(v1.SyncPayload))
 	},
-	v1.CommandHealthCheck: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
-		return svc.HealthCheck(ctx, payload.(v1.HealthCheckPayload))
-	},
-	v1.CommandHealthFix: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
-		return svc.HealthFix(ctx, payload.(v1.HealthFixPayload))
+	v1.CommandHealth: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
+		return svc.Health(ctx, payload.(v1.HealthPayload))
 	},
 	v1.CommandStatus: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
 		return svc.Status(ctx, payload.(v1.StatusPayload))
 	},
-	v1.CommandCoverage: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
-		return svc.Coverage(ctx, payload.(v1.CoveragePayload))
-	},
-	v1.CommandEval: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
-		return svc.Eval(ctx, payload.(v1.EvalPayload))
-	},
 	v1.CommandVerify: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
 		return svc.Verify(ctx, payload.(v1.VerifyPayload))
 	},
-	v1.CommandBootstrap: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
-		return svc.Bootstrap(ctx, payload.(v1.BootstrapPayload))
+	v1.CommandInit: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
+		return svc.Init(ctx, payload.(v1.InitPayload))
 	},
 }
 

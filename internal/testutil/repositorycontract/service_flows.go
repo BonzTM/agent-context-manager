@@ -30,6 +30,12 @@ func RunServiceFlows(t *testing.T, cfg ServiceFlowConfig) {
 		projectID = "project." + cfg.BackendLabel + "." + time.Now().UTC().Format("20060102150405.000000000")
 	}
 
+	projectRoot := setupGitRepo(t, map[string]string{
+		".acm/acm-rules.yaml": "version: acm.rules.v1\nrules:\n  - id: rule.runtime.default\n    summary: Runtime defaults remain receipt-scoped\n    content: Runtime default backend evidence must stay tied to the originating receipt.\n    enforcement: hard\n    tags: [runtime]\n",
+		"docs/runtime.md":     "runtime pointer content",
+	})
+	t.Chdir(projectRoot)
+
 	if _, err := cfg.Repo.UpsertPointerStubs(ctx, projectID, []core.PointerStub{{
 		PointerKey:  "pointer.runtime.default",
 		Path:        "docs/runtime.md",
@@ -40,35 +46,76 @@ func RunServiceFlows(t *testing.T, cfg ServiceFlowConfig) {
 	}}); err != nil {
 		t.Fatalf("seed runtime pointer: %v", err)
 	}
+	if _, err := cfg.Repo.SyncRulePointers(ctx, core.RulePointerSyncInput{
+		ProjectID:  projectID,
+		SourcePath: ".acm/acm-rules.yaml",
+		Pointers: []core.RulePointer{{
+			RuleID:      "rule.runtime.default",
+			Summary:     "Runtime defaults remain receipt-scoped",
+			Content:     "Runtime default backend evidence must stay tied to the originating receipt.",
+			Enforcement: "hard",
+			Tags:        []string{"runtime", cfg.BackendLabel},
+		}},
+	}); err != nil {
+		t.Fatalf("seed runtime rule pointer: %v", err)
+	}
 
 	svc, err := backendsvc.New(cfg.Repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	getContextResult, apiErr := svc.GetContext(ctx, v1.GetContextPayload{
-		ProjectID: projectID,
-		TaskText:  "verify " + cfg.BackendLabel + " runtime backend path",
-		Phase:     v1.PhaseExecute,
-		Caps: &v1.RetrievalCaps{
-			MinPointerCount: 1,
-			MaxMemories:     2,
-		},
+	getContextResult, apiErr := svc.Context(ctx, v1.ContextPayload{
+		ProjectID:         projectID,
+		TaskText:          "verify " + cfg.BackendLabel + " runtime backend path",
+		Phase:             v1.PhaseExecute,
+		InitialScopePaths: []string{"docs/runtime.md"},
 	})
 	if apiErr != nil {
-		t.Fatalf("get_context API error: %+v", apiErr)
+		t.Fatalf("context API error: %+v", apiErr)
 	}
 	if getContextResult.Status != "ok" || getContextResult.Receipt == nil {
-		t.Fatalf("unexpected get_context result: %+v", getContextResult)
+		t.Fatalf("unexpected context result: %+v", getContextResult)
 	}
-	if getContextResult.Receipt.Meta.RetrievalVersion != backendsvc.RetrievalVersion {
-		t.Fatalf("unexpected retrieval version: got %q want %q", getContextResult.Receipt.Meta.RetrievalVersion, backendsvc.RetrievalVersion)
-	}
-
 	receipt := getContextResult.Receipt
 	pointerKeys := receiptPointerKeys(receipt)
 	if len(pointerKeys) == 0 {
-		t.Fatal("expected receipt to contain pointer keys")
+		t.Fatal("expected receipt to contain at least one rule pointer key")
+	}
+	if got := receipt.InitialScopePaths; !reflect.DeepEqual(got, []string{"docs/runtime.md"}) {
+		t.Fatalf("unexpected receipt initial scope paths: got %v want %v", got, []string{"docs/runtime.md"})
+	}
+	scopeBeforeRename, err := cfg.Repo.FetchReceiptScope(ctx, core.ReceiptScopeQuery{
+		ProjectID: projectID,
+		ReceiptID: receipt.Meta.ReceiptID,
+	})
+	if err != nil {
+		t.Fatalf("fetch receipt scope before pointer rename: %v", err)
+	}
+	if !reflect.DeepEqual(scopeBeforeRename.InitialScopePaths, []string{"docs/runtime.md"}) {
+		t.Fatalf("unexpected stored initial scope paths before rename: got %v want %v", scopeBeforeRename.InitialScopePaths, []string{"docs/runtime.md"})
+	}
+
+	if _, err := cfg.Repo.UpsertPointerStubs(ctx, projectID, []core.PointerStub{{
+		PointerKey:  "pointer.runtime.default",
+		Path:        "docs/runtime-renamed.md",
+		Kind:        "doc",
+		Label:       "Runtime default backend",
+		Description: "Runtime default backend path renamed after receipt creation",
+		Tags:        []string{"runtime", cfg.BackendLabel},
+	}}); err != nil {
+		t.Fatalf("rename runtime pointer: %v", err)
+	}
+
+	scopeAfterRename, err := cfg.Repo.FetchReceiptScope(ctx, core.ReceiptScopeQuery{
+		ProjectID: projectID,
+		ReceiptID: receipt.Meta.ReceiptID,
+	})
+	if err != nil {
+		t.Fatalf("fetch receipt scope after pointer rename: %v", err)
+	}
+	if !reflect.DeepEqual(scopeAfterRename.InitialScopePaths, []string{"docs/runtime.md"}) {
+		t.Fatalf("expected receipt scope snapshot to survive pointer rename, got %v", scopeAfterRename.InitialScopePaths)
 	}
 
 	_, err = cfg.Repo.SaveRunReceiptSummary(ctx, core.RunReceiptSummary{
@@ -85,7 +132,7 @@ func RunServiceFlows(t *testing.T, cfg ServiceFlowConfig) {
 	}
 
 	autoPromote := false
-	proposeResult, apiErr := svc.ProposeMemory(ctx, v1.ProposeMemoryPayload{
+	proposeResult, apiErr := svc.Memory(ctx, v1.MemoryCommandPayload{
 		ProjectID:   projectID,
 		ReceiptID:   receipt.Meta.ReceiptID,
 		AutoPromote: &autoPromote,
@@ -100,26 +147,26 @@ func RunServiceFlows(t *testing.T, cfg ServiceFlowConfig) {
 		},
 	})
 	if apiErr != nil {
-		t.Fatalf("propose_memory API error: %+v", apiErr)
+		t.Fatalf("memory API error: %+v", apiErr)
 	}
 	if proposeResult.CandidateID <= 0 || proposeResult.Status != "pending" {
-		t.Fatalf("unexpected propose_memory result: %+v", proposeResult)
+		t.Fatalf("unexpected memory result: %+v", proposeResult)
 	}
 	if !proposeResult.Validation.HardPassed || !proposeResult.Validation.SoftPassed {
 		t.Fatalf("unexpected propose validation: %+v", proposeResult.Validation)
 	}
 
-	reportResult, apiErr := svc.ReportCompletion(ctx, v1.ReportCompletionPayload{
+	reportResult, apiErr := svc.Done(ctx, v1.DonePayload{
 		ProjectID:    projectID,
 		ReceiptID:    receipt.Meta.ReceiptID,
 		FilesChanged: []string{"docs/runtime.md"},
 		Outcome:      cfg.BackendLabel + " flow accepted",
 	})
 	if apiErr != nil {
-		t.Fatalf("report_completion API error: %+v", apiErr)
+		t.Fatalf("done API error: %+v", apiErr)
 	}
 	if !reportResult.Accepted || reportResult.RunID <= 0 {
-		t.Fatalf("unexpected report_completion result: %+v", reportResult)
+		t.Fatalf("unexpected done result: %+v", reportResult)
 	}
 
 	workResult, apiErr := svc.Work(ctx, v1.WorkPayload{
@@ -162,23 +209,24 @@ func RunServiceFlows(t *testing.T, cfg ServiceFlowConfig) {
 		t.Fatalf("unexpected plan status: %q", fetchLookup.PlanStatus)
 	}
 	if fetchLookup.RunID != int64(reportResult.RunID) {
-		t.Fatalf("expected fetch lookup to return latest report_completion run_id %d, got %d", reportResult.RunID, fetchLookup.RunID)
+		t.Fatalf("expected fetch lookup to return latest done run_id %d, got %d", reportResult.RunID, fetchLookup.RunID)
 	}
 
-	projectRoot := setupGitRepo(t, map[string]string{
-		"docs/runtime.md": "runtime pointer content",
-		"docs/new.md":     "new pointer candidate",
+	syncProjectRoot := setupGitRepo(t, map[string]string{
+		".acm/acm-rules.yaml":     "version: acm.rules.v1\nrules:\n  - id: rule.runtime.default\n    summary: Runtime defaults remain receipt-scoped\n    content: Runtime default backend evidence must stay tied to the originating receipt.\n    enforcement: hard\n    tags: [runtime]\n",
+		"docs/runtime-renamed.md": "runtime pointer content",
+		"docs/new.md":             "new pointer candidate",
 	})
 	syncResult, apiErr := svc.Sync(ctx, v1.SyncPayload{
 		ProjectID:   projectID,
 		Mode:        "full",
-		ProjectRoot: projectRoot,
+		ProjectRoot: syncProjectRoot,
 	})
 	if apiErr != nil {
 		t.Fatalf("sync API error: %+v", apiErr)
 	}
 
-	wantProcessed := []string{"docs/new.md", "docs/runtime.md"}
+	wantProcessed := []string{"docs/new.md", "docs/runtime-renamed.md"}
 	if !reflect.DeepEqual(syncResult.ProcessedPaths, wantProcessed) {
 		t.Fatalf("unexpected processed paths: got %v want %v", syncResult.ProcessedPaths, wantProcessed)
 	}
@@ -188,21 +236,16 @@ func RunServiceFlows(t *testing.T, cfg ServiceFlowConfig) {
 	if syncResult.NewCandidates != 1 {
 		t.Fatalf("unexpected sync new_candidates count: got %d want 1", syncResult.NewCandidates)
 	}
-	if syncResult.MarkedStale != 0 || syncResult.DeletedMarkedStale != 0 {
+	if syncResult.MarkedStale != 1 || syncResult.DeletedMarkedStale != 0 {
 		t.Fatalf("unexpected stale counters: %+v", syncResult)
 	}
 }
 
 func receiptPointerKeys(receipt *v1.ContextReceipt) []string {
-	pointerKeySet := make(map[string]struct{}, len(receipt.Rules)+len(receipt.Suggestions))
+	pointerKeySet := make(map[string]struct{}, len(receipt.Rules))
 	for _, rule := range receipt.Rules {
 		if rule.Key != "" {
 			pointerKeySet[rule.Key] = struct{}{}
-		}
-	}
-	for _, suggestion := range receipt.Suggestions {
-		if suggestion.Key != "" {
-			pointerKeySet[suggestion.Key] = struct{}{}
 		}
 	}
 	pointerKeys := make([]string, 0, len(pointerKeySet))

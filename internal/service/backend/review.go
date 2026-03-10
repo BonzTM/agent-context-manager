@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -97,13 +98,25 @@ func (s *Service) Review(ctx context.Context, payload v1.ReviewPayload) (v1.Revi
 	if apiErr != nil {
 		return v1.ReviewResult{}, apiErr
 	}
-	fingerprint, apiErr := computeReviewFingerprint(projectRoot, normalized.ProjectID, state.ReceiptID, normalized.Key, source.SourcePath, *definition.Run, scope)
+	plan, apiErr := s.loadEffectiveWorkPlan(ctx, normalized.ProjectID, state.ReceiptID, state.PlanKey)
+	if apiErr != nil {
+		return v1.ReviewResult{}, apiErr
+	}
+	effectiveScope := effectiveScopePaths(scope, plan)
+	detectedFiles, reliableDetection, apiErr := s.detectReceiptChangedPaths(ctx, projectRoot, scope)
+	if apiErr != nil {
+		return v1.ReviewResult{}, apiErr
+	}
+	fingerprint, apiErr := computeReviewFingerprint(projectRoot, normalized.ProjectID, state.ReceiptID, normalized.Key, source.SourcePath, *definition.Run, scope, plan)
 	if apiErr != nil {
 		return v1.ReviewResult{}, apiErr
 	}
 
 	if definition.RerunRequiresNewFingerprint {
 		if prior, ok := latestReviewAttemptByFingerprint(attempts, fingerprint); ok {
+			if !reviewAttemptEligibleForFingerprintSkip(prior) {
+				goto executeReview
+			}
 			workResult, apiErr := s.updateReviewSnapshot(ctx, normalized, state, reviewSummary, reviewStatusFromAttempt(prior), prior.Outcome, latestReviewAttemptRef([]core.ReviewAttempt{prior}))
 			if apiErr != nil {
 				return v1.ReviewResult{}, apiErr
@@ -141,6 +154,7 @@ func (s *Service) Review(ctx context.Context, payload v1.ReviewPayload) (v1.Revi
 		), nil
 	}
 
+executeReview:
 	runner := s.runReviewCommand
 	if runner == nil {
 		runner = runWorkflowReviewCommand
@@ -159,6 +173,9 @@ func (s *Service) Review(ctx context.Context, payload v1.ReviewPayload) (v1.Revi
 			definition.MaxAttempts,
 			passingRuns,
 			fingerprint,
+			effectiveScope,
+			detectedFiles,
+			reliableDetection,
 		),
 	)
 	passed := reviewAttemptPassed(run)
@@ -231,7 +248,7 @@ func runWorkflowReviewCommand(ctx context.Context, projectRoot string, command w
 	return runConfiguredCommand(ctx, projectRoot, command.Argv, command.CWD, command.TimeoutSec, command.Env, extraEnv)
 }
 
-func reviewCommandEnvironment(projectRoot, workflowSourcePath string, payload v1.ReviewPayload, state reviewPlanState, reviewSummary string, attempt, maxAttempts, passingRuns int, fingerprint string) map[string]string {
+func reviewCommandEnvironment(projectRoot, workflowSourcePath string, payload v1.ReviewPayload, state reviewPlanState, reviewSummary string, attempt, maxAttempts, passingRuns int, fingerprint string, effectiveScope, detectedFiles []string, reliableDetection bool) map[string]string {
 	receiptID := strings.TrimSpace(state.ReceiptID)
 	if receiptID == "" {
 		receiptID = strings.TrimSpace(payload.ReceiptID)
@@ -244,7 +261,7 @@ func reviewCommandEnvironment(projectRoot, workflowSourcePath string, payload v1
 		planKey = "plan:" + receiptID
 	}
 
-	return map[string]string{
+	env := map[string]string{
 		"ACM_PROJECT_ID":           strings.TrimSpace(payload.ProjectID),
 		"ACM_PROJECT_ROOT":         strings.TrimSpace(projectRoot),
 		"ACM_RECEIPT_ID":           receiptID,
@@ -257,6 +274,17 @@ func reviewCommandEnvironment(projectRoot, workflowSourcePath string, payload v1
 		"ACM_REVIEW_FINGERPRINT":   strings.TrimSpace(fingerprint),
 		"ACM_WORKFLOW_SOURCE_PATH": strings.TrimSpace(workflowSourcePath),
 	}
+	if encodedScope, err := json.Marshal(normalizeCompletionPaths(effectiveScope)); err == nil {
+		env["ACM_REVIEW_EFFECTIVE_SCOPE_PATHS_JSON"] = string(encodedScope)
+	}
+	env["ACM_REVIEW_BASELINE_CAPTURED"] = strconv.FormatBool(reliableDetection)
+	if reliableDetection {
+		if encodedChanged, err := json.Marshal(normalizeCompletionPaths(detectedFiles)); err == nil {
+			env["ACM_REVIEW_CHANGED_PATHS_JSON"] = string(encodedChanged)
+		}
+		env["ACM_REVIEW_TASK_DELTA_SOURCE"] = "receipt_baseline"
+	}
+	return env
 }
 
 func (s *Service) loadReviewPlanState(ctx context.Context, projectID, planKey, receiptID, reviewKey string) (reviewPlanState, *core.APIError) {
@@ -374,7 +402,7 @@ func (s *Service) listReviewAttempts(ctx context.Context, projectID, receiptID, 
 	return attempts, nil
 }
 
-func computeReviewFingerprint(projectRoot, projectID, receiptID, reviewKey, workflowSourcePath string, command workflowRunDefinition, scope core.ReceiptScope) (string, *core.APIError) {
+func computeReviewFingerprint(projectRoot, projectID, receiptID, reviewKey, workflowSourcePath string, command workflowRunDefinition, scope core.ReceiptScope, plan *core.WorkPlan) (string, *core.APIError) {
 	hasher := sha256.New()
 	writeFingerprintPart(hasher, "acm.review.fingerprint.v2")
 	writeFingerprintPart(hasher, strings.TrimSpace(projectID))
@@ -402,7 +430,7 @@ func computeReviewFingerprint(projectRoot, projectID, receiptID, reviewKey, work
 		writeFingerprintPart(hasher, runnerHash)
 	}
 
-	paths := normalizeCompletionPaths(append(append([]string(nil), scope.PointerPaths...), completionScopeManagedPaths()...))
+	paths := effectiveScopePaths(scope, plan)
 	sort.Strings(paths)
 	for _, relativePath := range paths {
 		writeFingerprintPart(hasher, relativePath)
@@ -550,6 +578,23 @@ func latestReviewAttemptByFingerprint(attempts []core.ReviewAttempt, fingerprint
 		}
 	}
 	return core.ReviewAttempt{}, false
+}
+
+func reviewAttemptEligibleForFingerprintSkip(attempt core.ReviewAttempt) bool {
+	if attempt.Passed {
+		return true
+	}
+	if attempt.TimedOut || attempt.ExitCode == nil {
+		return false
+	}
+	outcome := strings.ToLower(strings.TrimSpace(attempt.Outcome))
+	if strings.Contains(outcome, "signal:") {
+		return false
+	}
+	if strings.Contains(outcome, "did not produce structured output") || strings.Contains(outcome, "produced no structured output") {
+		return false
+	}
+	return true
 }
 
 func countPassingReviewAttempts(attempts []core.ReviewAttempt) int {

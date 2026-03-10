@@ -80,19 +80,19 @@ func (s *Service) Status(ctx context.Context, payload v1.StatusPayload) (v1.Stat
 	if err != nil {
 		result.Missing = append(result.Missing, v1.StatusMissingItem{
 			Code:    "template_catalog_unavailable",
-			Message: fmt.Sprintf("bootstrap template catalog is unavailable: %v", err),
+			Message: fmt.Sprintf("init template catalog is unavailable: %v", err),
 		})
 	} else {
 		result.Integrations = integrations
 	}
 
 	if strings.TrimSpace(payload.TaskText) != "" {
-		retrieval := s.statusRetrievalPreview(ctx, payload, projectRoot)
-		result.Retrieval = &retrieval
-		if retrieval.Error != "" {
+		contextPreview := s.statusContextPreview(ctx, payload, projectRoot)
+		result.Context = &contextPreview
+		if contextPreview.Error != "" {
 			result.Missing = append(result.Missing, v1.StatusMissingItem{
-				Code:    "retrieval_preview_error",
-				Message: retrieval.Error,
+				Code:    "context_preview_error",
+				Message: contextPreview.Error,
 			})
 		}
 	}
@@ -303,13 +303,13 @@ func (s *Service) statusWorkflows(projectRoot, workflowsFile, tagsFile string) (
 	return item, nil
 }
 
-func (s *Service) statusRetrievalPreview(ctx context.Context, payload v1.StatusPayload, projectRoot string) v1.StatusRetrieval {
+func (s *Service) statusContextPreview(ctx context.Context, payload v1.StatusPayload, projectRoot string) v1.StatusContextPreview {
 	taskText := strings.TrimSpace(payload.TaskText)
 	phase := payload.Phase
 	if phase == "" {
 		phase = v1.PhaseExecute
 	}
-	result := v1.StatusRetrieval{
+	result := v1.StatusContextPreview{
 		TaskText: taskText,
 		Phase:    phase,
 		Status:   "unavailable",
@@ -321,90 +321,35 @@ func (s *Service) statusRetrievalPreview(ctx context.Context, payload v1.StatusP
 		return result
 	}
 
-	unbounded := effectiveUnbounded(nil)
-	caps := normalizeCaps(nil)
-	if unbounded {
-		caps = applyUnboundedCaps(caps)
-	}
-	fallbackMode := fallbackWidenOnce
-	diagnostics := &v1.GetContextDiagnostics{FallbackMode: fallbackMode}
-
-	selected, err := s.selectPointers(ctx, v1.GetContextPayload{
-		ProjectID: payload.ProjectID,
-		TaskText:  taskText,
-		Phase:     phase,
-		TagsFile:  payload.TagsFile,
-	}, caps, unbounded, false, tagNormalizer)
+	taskTags := tagNormalizer.canonicalTagsFromTaskText(taskText)
+	selectedRules, _, ruleTags, err := loadCanonicalContextRules(projectRoot, payload.ProjectID, tagNormalizer)
 	if err != nil {
-		result.Error = fmt.Sprintf("select pointers: %v", err)
-		return result
-	}
-	diagnostics.InitialPointerCount = len(selected.Pointers)
-
-	if len(selected.Pointers) < caps.MinPointerCount {
-		diagnostics.FallbackUsed = true
-		selected, err = s.selectPointers(ctx, v1.GetContextPayload{
-			ProjectID: payload.ProjectID,
-			TaskText:  taskText,
-			Phase:     phase,
-			TagsFile:  payload.TagsFile,
-		}, caps, unbounded, true, tagNormalizer)
-		if err != nil {
-			result.Error = fmt.Sprintf("select pointers fallback: %v", err)
-			return result
-		}
-	}
-
-	result.Diagnostics = diagnostics
-	if len(selected.Pointers) < caps.MinPointerCount {
-		result.Status = "insufficient_context"
-		result.SelectedPointers = statusSelectedPointers(selected.Pointers)
+		result.Error = fmt.Sprintf("load canonical rules: %v", err)
 		return result
 	}
 
-	activeMemories, err := s.fetchMemories(ctx, payload.ProjectID, selected.PointerKeys, selected.PointerTags, caps.MaxMemories, unbounded)
+	activeMemories, err := s.fetchMemories(ctx, payload.ProjectID, taskTags, defaultMaxMemories, false)
 	if err != nil {
 		result.Error = fmt.Sprintf("fetch memories: %v", err)
 		return result
 	}
 
-	rulesSelected, suggestionsSelected := splitSelectedPointers(selected.Pointers)
-	rules := makeContextRules(rulesSelected)
-	suggestions := makeContextSuggestions(suggestionsSelected)
+	rules := makeContextRules(selectedRules)
 	memories := makeContextMemories(activeMemories)
-	resolvedTags := resolveTags(selected.PointerTags, activeMemories, tagNormalizer)
-	budget := estimateBudget(caps.WordBudgetLimit, taskText, resolvedTags, rules, suggestions, memories)
-	receiptID := deterministicReceiptID(v1.GetContextPayload{
+	resolvedTags := resolveTags(append(append([]string(nil), taskTags...), ruleTags...), activeMemories, tagNormalizer)
+	receiptID := deterministicReceiptID(v1.ContextPayload{
 		ProjectID: payload.ProjectID,
 		TaskText:  taskText,
 		Phase:     phase,
-	}, resolvedTags, rules, suggestions, memories, budget)
-	plans := s.makeContextPlans(ctx, payload.ProjectID, receiptID, unbounded)
+	}, resolvedTags, rules, memories, nil, nil)
+	plans := s.makeContextPlans(ctx, payload.ProjectID, receiptID, false)
 
 	result.Status = "ok"
 	result.ResolvedTags = resolvedTags
 	result.RuleCount = len(rules)
-	result.SuggestionCount = len(suggestions)
 	result.MemoryCount = len(memories)
 	result.PlanCount = len(plans)
-	result.SelectedPointers = statusSelectedPointers(selected.Pointers)
 	return result
-}
-
-func statusSelectedPointers(selected []selectedPointer) []v1.StatusRetrievalSelection {
-	if len(selected) == 0 {
-		return nil
-	}
-	out := make([]v1.StatusRetrievalSelection, 0, len(selected))
-	for _, entry := range selected {
-		out = append(out, v1.StatusRetrievalSelection{
-			Key:     entry.Pointer.Key,
-			Kind:    strings.TrimSpace(entry.Pointer.Kind),
-			IsRule:  entry.Pointer.IsRule,
-			Reasons: append([]string(nil), entry.Why...),
-		})
-	}
-	return out
 }
 
 func statusIntegrations(projectRoot string) ([]v1.StatusIntegration, error) {

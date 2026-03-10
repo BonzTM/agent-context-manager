@@ -245,69 +245,45 @@ func parseMemoryFetchKey(raw string) (int64, bool) {
 }
 
 func (s *Service) fetchPlanItem(ctx context.Context, projectID, key, receiptID string) (v1.FetchItem, bool, error) {
-	if s.planRepo != nil {
-		lookupQuery := core.WorkPlanLookupQuery{
-			ProjectID: projectID,
-			PlanKey:   strings.TrimSpace(key),
-			ReceiptID: strings.TrimSpace(receiptID),
-		}
-		plan, err := s.planRepo.LookupWorkPlan(ctx, lookupQuery)
-		if err == nil {
-			workItems := normalizeWorkItems(plan.Tasks)
-			planStatus := normalizePlanStatus(plan.Status)
-			if planStatus == core.PlanStatusPending {
-				planStatus = derivePlanStatusFromWorkItems(workItems)
-			}
-			planSummary := strings.TrimSpace(plan.Title)
-			if planSummary == "" {
-				planSummary = fmt.Sprintf("Plan %s is %s", strings.TrimSpace(plan.PlanKey), planStatus)
-			}
-			contentJSON, err := json.Marshal(planForFetch(plan))
-			if err != nil {
-				return v1.FetchItem{}, false, err
-			}
-
-			version := indexEntryVersion(plan.PlanKey, planStatus, plan.UpdatedAt.UTC().String(), string(contentJSON))
-			return v1.FetchItem{
-				Key:     key,
-				Type:    "plan",
-				Summary: planSummary,
-				Content: string(contentJSON),
-				Status:  planStatus,
-				Version: version,
-			}, true, nil
-		}
-
-		if !errors.Is(err, core.ErrWorkPlanNotFound) {
-			return v1.FetchItem{}, false, wrapFetchOperationError("lookup_work_plan", err)
-		}
-	}
-
-	lookup, err := s.repo.LookupFetchState(ctx, core.FetchLookupQuery{
+	lookupQuery := core.WorkPlanLookupQuery{
 		ProjectID: projectID,
-		ReceiptID: receiptID,
-	})
-	if err != nil {
-		if errors.Is(err, core.ErrFetchLookupNotFound) {
-			return v1.FetchItem{}, false, nil
+		PlanKey:   strings.TrimSpace(key),
+		ReceiptID: strings.TrimSpace(receiptID),
+	}
+	plan, err := s.planRepo.LookupWorkPlan(ctx, lookupQuery)
+	if err == nil {
+		workItems := normalizeWorkItems(plan.Tasks)
+		planStatus := normalizePlanStatus(plan.Status)
+		if planStatus == core.PlanStatusPending {
+			planStatus = derivePlanStatusFromWorkItems(workItems)
 		}
-		return v1.FetchItem{}, false, wrapFetchOperationError("lookup_fetch_state", err)
+		planSummary := strings.TrimSpace(plan.Title)
+		if planSummary == "" {
+			planSummary = fmt.Sprintf("Plan %s is %s", strings.TrimSpace(plan.PlanKey), planStatus)
+		}
+		contentJSON, err := json.Marshal(planForFetch(plan))
+		if err != nil {
+			return v1.FetchItem{}, false, err
+		}
+
+		version := indexEntryVersion(plan.PlanKey, planStatus, plan.UpdatedAt.UTC().String(), string(contentJSON))
+		return v1.FetchItem{
+			Key:     key,
+			Type:    "plan",
+			Summary: planSummary,
+			Content: string(contentJSON),
+			Status:  planStatus,
+			Version: version,
+		}, true, nil
 	}
 
-	workItems := normalizeWorkItems(lookup.WorkItems)
-	planStatus := normalizePlanStatus(lookup.PlanStatus)
-	if planStatus == core.PlanStatusPending {
-		planStatus = derivePlanStatusFromWorkItems(workItems)
+	if errors.Is(err, core.ErrWorkPlanNotFound) {
+		return v1.FetchItem{}, false, nil
 	}
-
-	version := fetchLookupVersion(lookup)
-	return v1.FetchItem{
-		Key:     key,
-		Type:    "plan",
-		Summary: fmt.Sprintf("Plan %s is %s", strings.TrimSpace(lookup.ReceiptID), planStatus),
-		Status:  planStatus,
-		Version: version,
-	}, true, nil
+	if err != nil {
+		return v1.FetchItem{}, false, wrapFetchOperationError("lookup_work_plan", err)
+	}
+	return v1.FetchItem{}, false, nil
 }
 
 func (s *Service) fetchReceiptItem(ctx context.Context, projectID, key, receiptID string) (v1.FetchItem, bool, error) {
@@ -554,7 +530,7 @@ func pointerFetchType(pointer core.CandidatePointer) string {
 	if pointer.IsRule {
 		return "rule"
 	}
-	return "suggestion"
+	return "pointer"
 }
 
 func (s *Service) readPointerFetchContent(pointerPath string) (string, bool) {

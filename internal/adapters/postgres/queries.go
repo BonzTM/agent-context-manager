@@ -12,10 +12,8 @@ import (
 
 const (
 	defaultCandidateLimit = 32
-	defaultHopLimit       = 64
 	defaultMemoryLimit    = 16
 	maxQueryLimit         = 512
-	maxHopDepth           = 6
 	defaultPhase          = "execute"
 
 	candidateStatusPending  = "pending"
@@ -26,7 +24,6 @@ const (
 	workItemStatusInProgress = core.WorkItemStatusInProgress
 	workItemStatusBlocked    = core.WorkItemStatusBlocked
 	workItemStatusComplete   = core.WorkItemStatusComplete
-	workItemStatusCompleted  = core.WorkItemStatusCompleted
 )
 
 type sqlArgs struct {
@@ -80,119 +77,6 @@ WHERE p.project_id = `)
 
 	sb.WriteString(`
 ORDER BY p.pointer_key ASC`)
-
-	return sb.String(), args.values, nil
-}
-
-func buildRelatedHopPointersQuery(input core.RelatedHopPointersQuery) (string, []any, error) {
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return "", nil, fmt.Errorf("project_id is required")
-	}
-
-	pointerKeys := normalizeStringList(input.PointerKeys)
-	if len(pointerKeys) == 0 {
-		return "", nil, fmt.Errorf("pointer_keys is required")
-	}
-
-	maxHops := input.MaxHops
-	if maxHops <= 0 {
-		maxHops = 1
-	}
-	if maxHops > maxHopDepth {
-		maxHops = maxHopDepth
-	}
-	limit := normalizeLimit(input.Limit, defaultHopLimit)
-
-	args := &sqlArgs{}
-	projectIDArg := args.add(projectID)
-	pointerKeysArg := args.add(pointerKeys)
-	maxHopsArg := args.add(maxHops)
-
-	filters := make([]string, 0, 2)
-	if !input.StaleFilter.AllowStale {
-		filters = append(filters, "p.is_stale = FALSE")
-	}
-	if input.StaleFilter.StaleBefore != nil {
-		staleBeforeArg := args.add(input.StaleFilter.StaleBefore.UTC())
-		filters = append(filters, fmt.Sprintf("(p.is_stale = FALSE OR (p.stale_at IS NOT NULL AND p.stale_at <= %s))", staleBeforeArg))
-	}
-	if len(filters) == 0 {
-		filters = append(filters, "TRUE")
-	}
-
-	var sb strings.Builder
-	sb.WriteString(`
-WITH RECURSIVE seed(pointer_key) AS (
-	SELECT unnest(`)
-	sb.WriteString(pointerKeysArg)
-	sb.WriteString(`::text[])
-),
-graph(origin_key, pointer_key, hop_count, path) AS (
-	SELECT
-		l.from_key AS origin_key,
-		l.to_key AS pointer_key,
-		1 AS hop_count,
-		ARRAY[l.from_key, l.to_key] AS path
-	FROM acm_pointer_links l
-	JOIN seed s ON s.pointer_key = l.from_key
-	WHERE l.project_id = `)
-	sb.WriteString(projectIDArg)
-	sb.WriteString(`
-	UNION ALL
-	SELECT
-		g.origin_key,
-		l.to_key,
-		g.hop_count + 1,
-		g.path || l.to_key
-	FROM graph g
-	JOIN acm_pointer_links l
-		ON l.project_id = `)
-	sb.WriteString(projectIDArg)
-	sb.WriteString(`
-		AND l.from_key = g.pointer_key
-	WHERE g.hop_count < `)
-	sb.WriteString(maxHopsArg)
-	sb.WriteString(`
-		AND NOT l.to_key = ANY(g.path)
-),
-dedup AS (
-	SELECT DISTINCT ON (origin_key, pointer_key)
-		origin_key,
-		pointer_key,
-		hop_count
-	FROM graph
-	ORDER BY origin_key, pointer_key, hop_count
-)
-SELECT
-	d.origin_key,
-	d.hop_count,
-	p.pointer_key,
-	p.path,
-	p.anchor,
-	p.kind,
-	p.label,
-	p.description,
-	p.tags,
-	p.is_rule,
-	p.is_stale,
-	p.updated_at
-FROM dedup d
-JOIN acm_pointers p
-	ON p.project_id = `)
-	sb.WriteString(projectIDArg)
-	sb.WriteString(`
-	AND p.pointer_key = d.pointer_key
-WHERE `)
-	sb.WriteString(strings.Join(filters, " AND "))
-	sb.WriteString(`
-ORDER BY d.hop_count ASC, d.origin_key ASC, p.pointer_key ASC
-`)
-	if !input.Unbounded {
-		limitArg := args.add(limit)
-		sb.WriteString("LIMIT ")
-		sb.WriteString(limitArg)
-	}
 
 	return sb.String(), args.values, nil
 }
@@ -270,18 +154,12 @@ SELECT
 	r.resolved_tags,
 	r.pointer_keys,
 	r.memory_ids,
-	COALESCE(
-		ARRAY_AGG(DISTINCT p.path ORDER BY p.path) FILTER (WHERE p.path IS NOT NULL),
-		ARRAY[]::text[]
-	) AS pointer_paths
+	r.initial_scope_paths,
+	r.baseline_captured,
+	r.baseline_paths_json
 FROM acm_receipts r
-LEFT JOIN LATERAL unnest(r.pointer_keys) AS pk(pointer_key) ON TRUE
-LEFT JOIN acm_pointers p
-	ON p.project_id = r.project_id
-	AND p.pointer_key = pk.pointer_key
 WHERE r.project_id = $1
 	AND r.receipt_id = $2
-GROUP BY r.receipt_id, r.task_text, r.phase, r.resolved_tags, r.pointer_keys, r.memory_ids
 `, []any{projectID, receiptID}, nil
 }
 
@@ -448,7 +326,7 @@ SET
 	return query, args.values, nil
 }
 
-func buildInsertMemoryCandidateQuery(input core.ProposeMemoryPersistence, status string) (string, []any, error) {
+func buildInsertMemoryCandidateQuery(input core.MemoryPersistence, status string) (string, []any, error) {
 	projectID := strings.TrimSpace(input.ProjectID)
 	if projectID == "" {
 		return "", nil, fmt.Errorf("project_id is required")
@@ -530,7 +408,7 @@ RETURNING candidate_id
 		}, nil
 }
 
-func buildInsertDurableMemoryQuery(input core.ProposeMemoryPersistence) (string, []any, error) {
+func buildInsertDurableMemoryQuery(input core.MemoryPersistence) (string, []any, error) {
 	projectID := strings.TrimSpace(input.ProjectID)
 	if projectID == "" {
 		return "", nil, fmt.Errorf("project_id is required")

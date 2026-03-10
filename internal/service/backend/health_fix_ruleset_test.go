@@ -78,13 +78,17 @@ func TestHealthFix_DryRunPlansSafeFixers(t *testing.T) {
 	}
 
 	apply := false
-	result, apiErr := svc.HealthFix(context.Background(), v1.HealthFixPayload{
+	health, apiErr := svc.Health(context.Background(), v1.HealthPayload{
 		ProjectID:   "project.alpha",
 		Apply:       &apply,
 		ProjectRoot: root,
 	})
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	result := health.Fix
+	if result == nil {
+		t.Fatalf("expected fix result, got %+v", health)
 	}
 	if !result.DryRun {
 		t.Fatalf("expected dry_run=true, got false")
@@ -141,7 +145,7 @@ func TestHealthFix_ApplySyncRulesetUsesCanonicalParser(t *testing.T) {
 	}
 
 	apply := true
-	result, apiErr := svc.HealthFix(context.Background(), v1.HealthFixPayload{
+	health, apiErr := svc.Health(context.Background(), v1.HealthPayload{
 		ProjectID:   "project.alpha",
 		Apply:       &apply,
 		ProjectRoot: root,
@@ -149,6 +153,10 @@ func TestHealthFix_ApplySyncRulesetUsesCanonicalParser(t *testing.T) {
 	})
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	result := health.Fix
+	if result == nil {
+		t.Fatalf("expected fix result, got %+v", health)
 	}
 	if result.DryRun {
 		t.Fatalf("expected dry_run=false, got true")
@@ -236,7 +244,7 @@ func TestHealthFix_AllFixerExpandsToDefaultFixers(t *testing.T) {
 	}
 
 	apply := false
-	result, apiErr := svc.HealthFix(context.Background(), v1.HealthFixPayload{
+	health, apiErr := svc.Health(context.Background(), v1.HealthPayload{
 		ProjectID:   "project.alpha",
 		Apply:       &apply,
 		ProjectRoot: root,
@@ -244,6 +252,10 @@ func TestHealthFix_AllFixerExpandsToDefaultFixers(t *testing.T) {
 	})
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	result := health.Fix
+	if result == nil {
+		t.Fatalf("expected fix result, got %+v", health)
 	}
 	if !result.DryRun {
 		t.Fatalf("expected dry_run=true, got false")
@@ -304,7 +316,7 @@ func TestSync_IntegratesCanonicalRulesetSync(t *testing.T) {
 	}
 }
 
-func TestBootstrap_ReportsDiscoveredRulesetArtifacts(t *testing.T) {
+func TestInit_ReportsDiscoveredRulesetArtifacts(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
 		t.Fatalf("mkdir .acm: %v", err)
@@ -323,7 +335,7 @@ func TestBootstrap_ReportsDiscoveredRulesetArtifacts(t *testing.T) {
 	}
 
 	respectGitIgnore := false
-	result, apiErr := svc.Bootstrap(context.Background(), v1.BootstrapPayload{
+	result, apiErr := svc.Init(context.Background(), v1.InitPayload{
 		ProjectID:        "project.alpha",
 		ProjectRoot:      root,
 		RespectGitIgnore: &respectGitIgnore,
@@ -340,7 +352,7 @@ func TestBootstrap_ReportsDiscoveredRulesetArtifacts(t *testing.T) {
 		}
 	}
 	if !hasRulesetWarning {
-		t.Fatalf("expected bootstrap warnings to mention canonical ruleset discovery, got %v", result.Warnings)
+		t.Fatalf("expected init warnings to mention canonical ruleset discovery, got %v", result.Warnings)
 	}
 }
 

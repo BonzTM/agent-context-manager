@@ -1,13 +1,12 @@
 version: acm.tags.v1
 canonical_tags:
   acm: [acm, agent-context-manager, context-manager]
-  context: [context, get_context, receipt, receipts, fetch]
+  context: [context, receipt, receipts, fetch]
   work: [work, plan, plans, task, tasks, tracking]
   verify: [verify, verification, verify_tests, verify:tests]
-  eval: [eval, retrieval-eval, retrieval, regress]
-  bootstrap: [bootstrap, onboard, onboarding]
+  init: [init, bootstrap, onboard, onboarding]
   sync: [sync, indexing, index]
-  health: [health, health-check, health_check, health-fix, health_fix, fixer]
+  health: [health, inventory-health, health-check, health_check, health-fix, health_fix, fixer, unindexed]
   contract: [contract, contracts, payload, envelope]
   schema: [schema, schemas, json-schema, cli.command.schema, cli.result.schema, shared.schema]
   cli: [cli, command, commands, flags, convenience]

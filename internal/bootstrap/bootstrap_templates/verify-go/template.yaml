@@ -1,4 +1,4 @@
-version: acm.bootstrap-template.v1
+version: acm.init-template.v1
 id: verify-go
 summary: Upgrade blank ACM test scaffolds to a Go-oriented starter verify profile.
 operations:

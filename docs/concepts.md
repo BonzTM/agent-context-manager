@@ -13,25 +13,25 @@ A pointer is an entry in acm's index that points to something in your codebase �
 - **Tags** — flat list of canonical tags for scoping (e.g., `backend`, `auth`, `test`)
 - **Content hash** — used to detect staleness when files change
 
-Pointers are lightweight. They don't contain the full file content — just enough for acm to decide what's relevant and for agents to decide what to fetch.
+Pointers are lightweight. They don't contain the full file content — just enough for acm to index repo artifacts, support `fetch`, power health/status reporting, and let plans or memories point back to concrete code or docs.
 
 ## Receipt
 
-When you call `get_context`, acm returns a receipt. A receipt is a scoped snapshot of everything relevant to your task. It contains:
+When you call `context`, acm returns a receipt. A receipt is a scoped snapshot of everything relevant to your task. It contains:
 
 - **Rules** — hard constraints the agent must follow
-- **Suggestions** — code/doc/test pointers relevant to the task (advisory)
 - **Memories** — durable facts from past work
 - **Plans** — active work plans for the project, with fetch keys for resumption
-- **Meta** — receipt ID, resolved tags, budget accounting
+- **Initial scope paths** — any file paths the caller already knew at task start
+- **Meta** — receipt ID, resolved tags, task metadata, and the context-time baseline used for later task-delta detection
 
-The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `review`, `verify`, `report_completion`, `propose_memory`). It ties everything back to the original retrieval.
+The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `review`, `verify`, `done`, `memory`). It ties everything back to the original context snapshot without letting later execution mutate that history.
 
 ## Rule
 
 A rule is a pointer with `kind: rule` that represents a behavioral constraint for agents. Rules have two extra properties:
 
-- **Rule ID** — stable identifier (e.g., `rule_get_context_first`). Deterministic — survives re-syncs.
+- **Rule ID** — stable identifier (e.g., `rule_context_first`). Deterministic — survives re-syncs.
 - **Enforcement** — `hard` (must follow) or `soft` (should follow)
 
 Hard rules are always included with their full content in the receipt. Soft rules are summary-only and can be fetched on demand.
@@ -45,13 +45,13 @@ A memory is a durable fact learned from completed work. Unlike model-specific me
 - **Model-agnostic** — any agent on any model can read them
 - **Evidence-backed** — each memory links to the pointer(s) that prove it
 - **Categorized** — `decision`, `gotcha`, `pattern`, or `preference`
-- **Confidence-scored** — 1 to 5, used for ranking during retrieval
+- **Confidence-scored** — 1 to 5, used to express how reliable the memory is
 
-Memories are proposed via `propose_memory`, validated, and either promoted to durable storage or held in quarantine for review.
+Memories are proposed via `memory`, validated, and either promoted to durable storage or held in quarantine for review.
 
 ## Plan
 
-A plan is a durable work container that tracks what an agent is doing. Plans survive context compaction — when an agent loses its conversation history, `get_context` returns active plans with fetch keys, so the agent can resume where it left off.
+A plan is a durable work container that tracks what an agent is doing. Plans survive context compaction — when an agent loses its conversation history, `context` returns active plans with fetch keys, so the agent can resume where it left off.
 
 Each plan has:
 
@@ -66,6 +66,7 @@ Each plan has:
   - `implementation_plan` — concrete implementation steps defined
   Each stage has its own status (`pending`, `in_progress`, `complete`, `blocked`).
 - **Scope** — in-scope/out-of-scope/constraints lists
+- **Discovered paths** — repo-relative files the agent later found and explicitly declared through `work` so governed `review` / `done` can validate against them without mutating the original receipt
 
 The stage fields are intentionally generic so repos can define richer planning contracts on top of them. A common pattern is to require root `kind=feature` plans, mirror stage status with top-level `stage:*` tasks, and treat leaf tasks with `acceptance_criteria` as the atomic units of work. This repo documents that pattern in `docs/feature-plans.md`.
 
@@ -97,9 +98,9 @@ The `review` command lowers to a single `work.tasks[]` merge update. Defaults wh
 
 ## Tag
 
-Tags are flat labels used to scope pointers, rules, and memories. Examples: `backend`, `auth`, `test`, `frontend`.
+Tags are flat labels used to scope pointers, rules, memories, verification selectors, and workflow selectors. Examples: `backend`, `auth`, `test`, `frontend`.
 
-acm normalizes tags through a canonical dictionary that maps aliases to a single form (e.g., `api` and `server` both map to `backend`). When you call `get_context`, your task text is decomposed into 3-6 canonical tags, and acm uses those to find relevant pointers.
+acm normalizes tags through a canonical dictionary that maps aliases to a single form (e.g., `api` and `server` both map to `backend`). In the simpler context model, tags help route rules, memory, verification, workflow selection, and init/onboarding guidance; they are no longer presented as a ranked retrieval engine.
 
 The tag dictionary has two layers:
 - **Embedded base** — ships with acm (`internal/service/backend/canonical_tags.json`), covers common aliases
@@ -111,48 +112,31 @@ Tags replace the concept of "profiles" from other systems. They're simpler: just
 
 ## Phase
 
-Every `get_context` call includes a phase that controls how results are weighted:
+Every `context` call includes a phase:
 
-- **plan** — rules weighted highest, then docs, then code
-- **execute** — code weighted highest, then tests, then rules
-- **review** — rules weighted highest, then tests, then code
+- **plan** — spec/planning work
+- **execute** — implementation work
+- **review** — review/verification work
 
-The phase doesn't filter results — it changes their ranking so the most useful pointers surface first.
-
-## Retrieval Caps
-
-`get_context` applies built-in defaults for how many pointers, memories, and relation hops to include. You can override these defaults per call:
-
-| Flag | Default | Purpose |
-|---|---|---|
-| `--max-non-rule-pointers` | 8 | Maximum non-rule pointers returned |
-| `--max-rule-pointers` | unbounded | Maximum rule pointers returned |
-| `--max-hops` | 1 | Relation-hop expansion depth |
-| `--max-hop-expansion` | +5 | Maximum additional pointers from hop expansion |
-| `--max-memories` | 6 | Maximum memories returned |
-| `--min-pointer-count` | 2 | Minimum pointers before triggering fallback |
-| `--word-budget-limit` | 1200 | Budget accounting target for `get_context` receipts; reported in `_meta.budget`, not used as a truncation cutoff |
-
-Additional flags:
-- `--allow-stale` — include stale pointers (default: false)
-- `--fallback-mode` — `widen_once` (default) or `none` for controlling what happens when too few pointers match
-- `--unbounded` — remove all built-in retrieval caps
-
-These are advanced tuning knobs. The defaults work well for most projects.
+The phase helps downstream workflow selection and verification. It no longer implies ranked retrieval behavior.
 
 ## Scope Mode
 
-Controls how strictly acm enforces that agents stay within the retrieved context:
+Controls how strictly acm enforces that file-backed work stays within effective scope:
 
 - **warn** (default) — violations are logged but the request is accepted
-- **strict** — violations reject the request; the agent must re-retrieve
-- **auto_index** — new files are automatically indexed instead of flagged as violations
+- **strict** — violations reject the request; the agent must declare or refresh scope before closing the task
+Effective scope is the union of:
 
-Used in `report_completion` to validate that changed files were within the receipt's scope.
+- receipt `initial_scope_paths`
+- plan `discovered_paths`
+- ACM-managed governance files that are allowed outside project code scope
+
+`done` and runnable `review` use this effective scope together with the receipt baseline to validate what actually changed.
 
 ## Canonical Ruleset
 
-The human-authored YAML file where you define your rules. acm discovers it automatically at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root. Use `--rules-file` on `sync`, `health --fix`, or `bootstrap` to override with an explicit path. If you maintain a repo-local tag dictionary separately, use `--tags-file` on `get-context`, `propose-memory`, `report-completion`, `sync`, `health --fix`, `eval`, `verify`, or `bootstrap` to supply it explicitly for canonical tag normalization. Format:
+The human-authored YAML file where you define your rules. acm discovers it automatically at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root. Use `--rules-file` on `sync`, `health --fix`, or `init` to override with an explicit path. If you maintain a repo-local tag dictionary separately, use `--tags-file` on `context`, `memory`, `done`, `sync`, `health --fix`, `verify`, or `init` to supply it explicitly for canonical tag normalization. Format:
 
 ```yaml
 version: acm.rules.v1
@@ -170,10 +154,7 @@ acm reads this file during `sync` or `acm health --fix sync_ruleset` and upserts
 
 The human-authored YAML file where you define repo-local executable checks for `verify`. acm discovers it automatically at `.acm/acm-tests.yaml` (preferred) or `acm-tests.yaml` in the project root. Use `--tests-file` on `verify` to override with an explicit path.
 
-`eval` and `verify` solve different problems:
-
-- `eval` checks retrieval quality against an eval suite.
-- `verify` selects repo-defined executable checks from receipt context, phase, changed files, and optional explicit test ids, then runs them sequentially.
+`verify` selects repo-defined executable checks from receipt context, phase, changed files, and optional explicit test ids, then runs them sequentially.
 
 Format:
 
@@ -210,7 +191,7 @@ v1 test definitions are argv-only. They support optional `command.env` entries f
 
 ## Workflow Gate Definitions
 
-The human-authored YAML file where you define which work task keys must be complete before `report_completion` should be considered done. acm discovers it automatically at `.acm/acm-workflows.yaml` (preferred) or `acm-workflows.yaml` in the project root.
+The human-authored YAML file where you define which work task keys must be complete before `done` should be considered complete. acm discovers it automatically at `.acm/acm-workflows.yaml` (preferred) or `acm-workflows.yaml` in the project root.
 
 Format:
 
@@ -234,13 +215,13 @@ completion:
         timeout_sec: 1800
 ```
 
-Runnable review gates are terminal checks, not inner-loop retries. ACM persists append-only review attempts, skips same-fingerprint reruns when `rerun_requires_new_fingerprint: true`, and only enforces retry caps when `max_attempts` is set. The scoped fingerprint covers receipt pointer paths plus ACM-managed governance files that completion reporting already allows outside pointer scope.
+Runnable review gates are terminal checks, not inner-loop retries. ACM persists append-only review attempts, skips same-fingerprint reruns when `rerun_requires_new_fingerprint: true`, and only enforces retry caps when `max_attempts` is set. The scoped fingerprint covers the effective scope for the task: receipt `initial_scope_paths`, any `plan.discovered_paths` recorded through `work`, and ACM-managed governance files that completion reporting already allows outside plan scope.
 
-Selectors use the same shape as `verify` selection: `phases`, `tags_any`, `changed_paths_any`, `pointer_keys_any`, `always_run`.
+Selectors use the same shape as `verify` selection: `phases`, `tags_any`, `changed_paths_any`, and `always_run`.
 
 **Fallback behavior:** If no workflow file exists or no completion requirements are declared, acm requires `verify:tests` by default. When a workflow declares requirements, only those task keys are enforced.
 
-Bootstrap seeds a thin `required_tasks: []` skeleton. Adding keys like `review:cross-llm` is opt-in, and reviewer-specific script arguments such as model or reasoning choices belong in the workflow `run.argv`.
+Init seeds a thin `required_tasks: []` skeleton. Adding keys like `review:cross-llm` is opt-in, and reviewer-specific script arguments such as model or reasoning choices belong in the workflow `run.argv`.
 
 ## File-Based Flags
 
@@ -254,13 +235,14 @@ Most CLI commands that accept text or list values support inline flags and file-
 | `--key` (repeatable) | `--keys-json` | `--keys-file` | JSON string array |
 | `--file-changed` (repeatable) | `--files-changed-json` | `--files-changed-file` | JSON string array |
 | `--evidence-key` (repeatable) | `--evidence-keys-json` | `--evidence-keys-file` | JSON string array |
+| `--evidence-path` (repeatable) | `--evidence-paths-json` | `--evidence-paths-file` | JSON string array |
 | `--evidence` (repeatable, review) | `--evidence-json` | `--evidence-file` | JSON string array |
 | `--related-key` (repeatable) | `--related-keys-json` | `--related-keys-file` | JSON string array |
+| `--related-path` (repeatable) | `--related-paths-json` | `--related-paths-file` | JSON string array |
 | `--memory-tag` (repeatable) | `--memory-tags-json` | `--memory-tags-file` | JSON string array |
 | `--expect` (repeatable) | `--expected-versions-json` | `--expected-versions-file` | JSON object (`{"key": "version"}`) |
 | - | `--plan-json` | `--plan-file` | JSON object (work plan metadata) |
 | - | `--tasks-json` | `--tasks-file` | JSON array of work tasks |
-| - | `--eval-suite-inline-json` | `--eval-suite-inline-file` | JSON array of eval cases |
 
 All file flags accept `-` for stdin.
 

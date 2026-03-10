@@ -15,7 +15,6 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/workspace"
 )
 
-const RetrievalVersion = "backend.get_context.v1"
 const unboundedEnvVar = "ACM_UNBOUNDED"
 
 const (
@@ -26,15 +25,14 @@ const (
 	defaultSyncProjectDir   = "."
 	defaultHealthDetails    = true
 	defaultHealthFindings   = 100
-	defaultMinimumRecall    = 0.8
 	defaultVerifyTimeoutSec = 300
 
 	requiredVerifyTestsKey = "verify:tests"
 
-	defaultBootstrapPersist      = false
-	defaultBootstrapRespectGit   = true
-	maxBootstrapWalkErrorSamples = 25
-	maxFetchKeyLength            = 512
+	defaultInitPersist      = false
+	defaultInitRespectGit   = true
+	maxInitWalkErrorSamples = 25
+	maxFetchKeyLength       = 512
 )
 
 var healthTagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
@@ -68,7 +66,6 @@ type fetchOperationError struct {
 
 type repositoryCore interface {
 	FetchCandidatePointers(context.Context, core.CandidatePointerQuery) ([]core.CandidatePointer, error)
-	FetchRelatedHopPointers(context.Context, core.RelatedHopPointersQuery) ([]core.HopPointer, error)
 	FetchActiveMemories(context.Context, core.ActiveMemoryQuery) ([]core.ActiveMemory, error)
 	ListPointerInventory(context.Context, string) ([]core.PointerInventory, error)
 	UpsertPointerStubs(context.Context, string, []core.PointerStub) (int, error)
@@ -77,7 +74,7 @@ type repositoryCore interface {
 	LookupFetchState(context.Context, core.FetchLookupQuery) (core.FetchLookup, error)
 	LookupPointerByKey(context.Context, core.PointerLookupQuery) (core.CandidatePointer, error)
 	LookupMemoryByID(context.Context, core.MemoryLookupQuery) (core.ActiveMemory, error)
-	PersistProposedMemory(context.Context, core.ProposeMemoryPersistence) (core.ProposeMemoryPersistenceResult, error)
+	PersistMemory(context.Context, core.MemoryPersistence) (core.MemoryPersistenceResult, error)
 	SaveRunReceiptSummary(context.Context, core.RunReceiptSummary) (core.RunReceiptIDs, error)
 	SaveReviewAttempt(context.Context, core.ReviewAttempt) (int64, error)
 	ListReviewAttempts(context.Context, core.ReviewAttemptListQuery) ([]core.ReviewAttempt, error)
@@ -156,16 +153,18 @@ func NewWithRuntimeStatus(repo repositoryCore, projectRoot string, snapshot Runt
 	if repo == nil {
 		return nil, fmt.Errorf("repository is required")
 	}
+	planRepo, ok := repo.(workPlanStore)
+	if !ok {
+		return nil, fmt.Errorf("work plan storage is required")
+	}
 	svc := &Service{
 		repo:             repo,
+		planRepo:         planRepo,
 		runGitCommand:    runGitCommand,
 		runVerifyCommand: runVerifyCommand,
 		runReviewCommand: runWorkflowReviewCommand,
 		projectRoot:      normalizeSyncProjectRoot(projectRoot),
 		runtimeStatus:    snapshot,
-	}
-	if planRepo, ok := repo.(workPlanStore); ok {
-		svc.planRepo = planRepo
 	}
 	if historyRepo, ok := repo.(historyStore); ok {
 		svc.historyRepo = historyRepo

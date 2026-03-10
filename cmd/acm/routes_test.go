@@ -28,13 +28,22 @@ func TestRouteCatalogCoversCanonicalCommands(t *testing.T) {
 	if healthRoute.Summary == "" {
 		t.Fatal("expected health route summary")
 	}
-	for _, name := range []string{"health-check", "health-fix"} {
-		route, ok := lookupRouteSpec(name)
-		if !ok {
-			t.Fatalf("missing hidden route for %q", name)
+	for _, name := range []string{"get-context", "propose-memory", "report-completion", "bootstrap", "doctor", "health-check", "health-fix"} {
+		if _, ok := lookupRouteSpec(name); ok {
+			t.Fatalf("expected removed legacy route %q to be absent", name)
 		}
-		if !route.Hidden {
-			t.Fatalf("expected %q to stay hidden from main help", name)
+	}
+}
+
+func TestMatchConvenienceRoute_RejectsRemovedDirectAliases(t *testing.T) {
+	for _, args := range [][]string{
+		{"doctor"},
+		{"history-search"},
+		{"work-list"},
+		{"work-search"},
+	} {
+		if _, _, ok := matchConvenienceRoute(args); ok {
+			t.Fatalf("expected direct alias %q to be rejected", args[0])
 		}
 	}
 }

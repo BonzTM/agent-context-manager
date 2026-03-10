@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS acm_work_items (
 	project_id TEXT NOT NULL,
 	receipt_id TEXT NOT NULL,
 	item_key TEXT NOT NULL,
-	status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'blocked', 'completed')),
+	status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'blocked', 'complete')),
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	UNIQUE (project_id, receipt_id, item_key),

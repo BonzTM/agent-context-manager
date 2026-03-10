@@ -19,13 +19,13 @@ Complete this sequence before making code changes or giving repo-specific implem
 
 1. Read `AGENTS.md`.
 2. If the active tool is Claude, read `CLAUDE.md`.
-3. Run `acm get-context --project agent-context-manager --task-text "<current task>" --phase <plan|execute|review>`.
+3. Run `acm context --project agent-context-manager --task-text "<current task>" --phase <plan|execute|review>`.
 4. Read the returned hard rules and fetch only the keys needed for the current step.
 5. If the task is multi-step, multi-file, or handoff-prone, create or update `work` immediately.
-6. If you change code, config, contracts, onboarding, or other executable behavior, run `verify` before `report-completion`.
+6. If you change code, config, contracts, onboarding, or other executable behavior, run `verify` before `done`.
 7. If `.acm/acm-workflows.yaml` requires a review task such as `review:cross-llm`, satisfy it with `acm review --run ...` when the task defines a `run` block; otherwise use manual `review` fields or `work`.
-8. End the task with `report-completion`, including every changed file and a concise outcome.
-9. Capture durable decisions or recurring pitfalls with `propose-memory`.
+8. End the task with `done`, including every changed file or letting ACM auto-detect the task delta when possible, plus a concise outcome.
+9. Capture durable decisions or recurring pitfalls with `memory`.
 
 If `acm` is not on `PATH`, fix the environment or invoke the installed binary directly. Do not substitute `go run ./cmd/acm` for normal repository workflow unless you are explicitly testing source-build behavior.
 
@@ -33,14 +33,14 @@ If `acm` is not on `PATH`, fix the environment or invoke the installed binary di
 
 Use these commands as the default flow for this repo:
 
-1. `acm get-context --project agent-context-manager ...`
-2. `acm fetch --project agent-context-manager ...`
-3. `acm work --project agent-context-manager ...` when the work is not trivially one-step
-4. `acm verify --project agent-context-manager ...` for executable changes
-5. `acm report-completion --project agent-context-manager ...`
-6. `acm propose-memory --project agent-context-manager ...` when the result should survive future sessions
+1. `acm context --project agent-context-manager ...`
+2. `acm work --project agent-context-manager ...` when the work is not trivially one-step or when discovered file scope must be declared
+3. `acm verify --project agent-context-manager ...` for executable changes
+4. `acm review --run --project agent-context-manager ...` when a workflow gate requires it
+5. `acm done --project agent-context-manager ...`
+6. `acm memory --project agent-context-manager ...` when the result should survive future sessions
 
-Do not skip `work` for multi-step changes. Do not skip `verify` for executable changes. Do not treat `report-completion` as optional.
+Use `acm fetch` only when a receipt or plan returned a key you actually need to hydrate. Do not skip `work` for multi-step changes or when governed file scope expands beyond the initial receipt. Do not skip `verify` for executable changes. Do not treat `done` as optional.
 
 ## Repository-Specific Rules
 
@@ -53,15 +53,15 @@ Keep these constraints front-of-mind. They are derived from `.acm/acm-rules.yaml
 - Storage parity:
   Postgres and SQLite behavior must stay aligned unless a backend-specific divergence is intentional and documented. Update both adapters, migrations, and parity tests together.
 - Onboarding invariants:
-  `bootstrap` must leave a clean repo in a usable first-run state. Do not let ACM-managed runtime files or SQLite sidecars leak into indexing, retrieval, or health coverage.
+  `init` must leave a clean repo in a usable first-run state. Do not let ACM-managed runtime files or SQLite sidecars leak into indexing or health findings.
 - Docs, examples, and skills sync:
   User-facing command, onboarding, install, or workflow changes must update `README.md`, `docs/getting-started.md`, `docs/examples`, and `skills/acm-broker/**` in the same change.
 - Verification before completion:
-  Code, config, contract, onboarding, and behavior changes require `verify` evidence before `report-completion`.
+  Code, config, contract, onboarding, and behavior changes require `verify` evidence before `done`.
 - Workflow gates:
-  `report-completion` may enforce additional required work item keys from `.acm/acm-workflows.yaml`; keep workflow definitions aligned with actual task keys and docs, and prefer `acm review --run` when a required review gate defines a `run` block.
+  `done` may enforce additional required work item keys from `.acm/acm-workflows.yaml`; keep workflow definitions aligned with actual task keys and docs, and prefer `acm review --run` when a required review gate defines a `run` block.
 - Durable decisions:
-  If a decision or pitfall would save future agent time, record it with `propose-memory`.
+  If a decision or pitfall would save future agent time, record it with `memory`.
 
 ## When To Use work
 
@@ -98,7 +98,7 @@ Use the richer ACM feature plan contract for net-new feature work and large capa
   - `full-go-suite` runs in `review` when `cmd/**`, `internal/**`, `spec/**`, `skills/**`, `scripts/**`, `go.mod`, or `go.sum` changes
 - If your change is not adequately covered, update `.acm/acm-tests.yaml` before claiming completion.
 - For broad product changes, expect `go test ./...` to run through `verify` or as explicit supplemental validation.
-- For changes that match the repo-local review workflow gate, run `acm review --run --project agent-context-manager --receipt-id <receipt-id>` before `report-completion`.
+- For changes that match the repo-local review workflow gate, run `acm review --run --project agent-context-manager --receipt-id <receipt-id>` before `done`.
 
 ## Governance And Maintenance Changes
 

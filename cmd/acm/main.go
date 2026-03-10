@@ -20,7 +20,7 @@ type helpCommand struct {
 	summary string
 }
 
-var entryPointCommands = []helpCommand{
+var automationEntryPoints = []helpCommand{
 	{
 		usage:   "acm run --in <request.json|->",
 		summary: "Execute a full v1 command envelope from stdin or a file.",
@@ -56,25 +56,11 @@ func main() {
 		if route, consumed, ok := matchConvenienceRoute(os.Args[1:]); ok {
 			os.Exit(runConvenience(ctx, logger, route.Name, os.Args[1+consumed:]))
 		}
-		if os.Args[1] == "history" {
-			logger.Error(ctx, logging.EventACMRun, "stage", "parse", "subcommand", "history", "ok", false, "error_code", "UNKNOWN_SUBCOMMAND")
-			fmt.Fprintln(os.Stderr, "history requires a nested subcommand such as `search`")
-			usage()
-			os.Exit(2)
-		}
 		logger.Error(ctx, logging.EventACMRun, "stage", "parse", "subcommand", os.Args[1], "ok", false, "error_code", "UNKNOWN_SUBCOMMAND")
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		usage()
 		os.Exit(2)
 	}
-}
-
-func nestedConvenienceSubcommand(command string, args []string) (string, bool) {
-	route, consumed, ok := matchConvenienceRoute(append([]string{command}, args...))
-	if !ok || consumed <= 1 {
-		return "", false
-	}
-	return route.Name, true
 }
 
 func run(ctx context.Context, logger logging.Logger, args []string) int {
@@ -192,31 +178,29 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  acm <command> [flags]")
 	fmt.Fprintln(w, "  acm --version | -v")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Entry Points:")
-	printHelpCommands(w, entryPointCommands)
-	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Agent Workflow Commands:")
 	printHelpCommands(w, helpCommandsForGroup(routeGroupWorkflow))
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Maintenance Commands:")
 	printHelpCommands(w, helpCommandsForGroup(routeGroupMaintenance))
 	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Structured JSON Automation:")
+	printHelpCommands(w, automationEntryPoints)
+	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Shared Conventions:")
-	fmt.Fprintln(w, "  - Convenience commands accept optional `--project` or `--project-id`; explicit values override env and repo-root defaults.")
+	fmt.Fprintln(w, "  - Convenience commands accept optional `--project`; explicit values override env and repo-root defaults.")
 	fmt.Fprintln(w, "  - Run `acm <subcommand> --help` for exhaustive flags and examples for one command.")
 	fmt.Fprintln(w, "  - Run `acm health --help` to list available fixers and preview/apply examples.")
-	fmt.Fprintln(w, "  - `--project` and `--project-id` are aliases on convenience commands.")
-	fmt.Fprintln(w, "  - `--request` and `--request-id` are aliases on convenience commands.")
+	fmt.Fprintln(w, "  - `--request-id` overrides the generated request id on convenience commands.")
 	fmt.Fprintln(w, "  - Most text/list payloads support inline values, `--*-json`, and `--*-file` variants.")
 	fmt.Fprintln(w, "  - `-` means stdin for `--in` and file-backed flags.")
 	fmt.Fprintln(w, "  - Repeatable flags may be provided more than once.")
 	fmt.Fprintln(w, "  - Optional bool flags accept `--flag`, `--flag=true`, or `--flag=false`.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "High-Signal Requirements:")
-	fmt.Fprintln(w, "  - `get-context` requires one of `--task-text` or `--task-file`.")
-	fmt.Fprintln(w, "  - `propose-memory` requires `--receipt-id`, `--category`, `--subject`, `--confidence`, and one of `--content` or `--content-file`.")
-	fmt.Fprintln(w, "  - `report-completion` requires `--receipt-id` and one of `--outcome` or `--outcome-file`.")
-	fmt.Fprintln(w, "  - `eval` requires exactly one of `--eval-suite-path`, `--eval-suite-inline-file`, or `--eval-suite-inline-json`.")
+	fmt.Fprintln(w, "  - `context` requires one of `--task-text` or `--task-file`.")
+	fmt.Fprintln(w, "  - `memory` requires `--receipt-id` or `--plan-key`, `--category`, `--subject`, `--confidence`, one of `--content` or `--content-file`, and at least one evidence key.")
+	fmt.Fprintln(w, "  - `done` requires `--receipt-id` or `--plan-key` and one of `--outcome` or `--outcome-file`.")
 	fmt.Fprintln(w, "  - `work` enforces exclusive payload groups such as `--plan-file|--plan-json` and `--tasks-file|--tasks-json`.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Config Resolution:")
@@ -234,7 +218,7 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  - `ACM_PROJECT_ID`: Optional default project identifier for convenience, run, validate, and MCP tool calls.")
 	fmt.Fprintln(w, "  - `ACM_PROJECT_ROOT`: Optional explicit repo root when running acm from another directory.")
 	fmt.Fprintln(w, "  - `ACM_SQLITE_PATH`: Optional explicit SQLite path. Relative paths resolve from the detected project root.")
-	fmt.Fprintln(w, "  - `ACM_UNBOUNDED`: `true|false`. When true, retrieval/list surfaces stop applying built-in result caps.")
+	fmt.Fprintln(w, "  - `ACM_UNBOUNDED`: `true|false`. When true, history surfaces stop applying built-in result caps.")
 	fmt.Fprintln(w, "  - `ACM_LOG_LEVEL`: `debug|info|warn|error`.")
 	fmt.Fprintln(w, "  - `ACM_LOG_SINK`: `stderr|stdout|discard`.")
 	fmt.Fprintln(w)
@@ -245,14 +229,14 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  - `.acm/acm-tests.yaml` or `acm-tests.yaml`: repo-local executable verification definitions.")
 	fmt.Fprintln(w, "  - `.acm/acm-workflows.yaml` or `acm-workflows.yaml`: repo-local completion gate definitions.")
 	fmt.Fprintln(w, "  - `.env`: repo-local runtime/env overrides, loaded automatically.")
-	fmt.Fprintln(w, "  - `.env.example`: seeded bootstrap example for ACM runtime variables.")
-	fmt.Fprintln(w, "  - `.acm/bootstrap_candidates.json`: optional persisted bootstrap candidate output.")
+	fmt.Fprintln(w, "  - `.env.example`: seeded example for ACM runtime variables.")
+	fmt.Fprintln(w, "  - `.acm/init_candidates.json`: optional persisted init candidate output.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "First-Run Recovery:")
-	fmt.Fprintln(w, "  # zero-config local bootstrap")
-	fmt.Fprintln(w, "  acm bootstrap")
+	fmt.Fprintln(w, "  # zero-config local init")
+	fmt.Fprintln(w, "  acm init")
 	fmt.Fprintln(w, "  # later, opt into additive starter templates without overwriting edited files")
-	fmt.Fprintln(w, "  acm bootstrap --apply-template starter-contract --apply-template verify-generic")
+	fmt.Fprintln(w, "  acm init --apply-template starter-contract --apply-template verify-generic")
 	fmt.Fprintln(w, "  acm health --include-details")
 	fmt.Fprintln(w, "  # after later edits, refresh changed files")
 	fmt.Fprintln(w, "  acm sync --mode working_tree --insert-new-candidates")

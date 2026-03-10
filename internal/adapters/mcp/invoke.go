@@ -13,20 +13,6 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/runtime"
 )
 
-const (
-	toolFetch         = string(v1.CommandFetch)
-	toolReview        = string(v1.CommandReview)
-	toolWork          = string(v1.CommandWork)
-	toolHistorySearch = string(v1.CommandHistorySearch)
-	toolSync          = string(v1.CommandSync)
-	toolHealthCheck   = string(v1.CommandHealthCheck)
-	toolHealthFix     = string(v1.CommandHealthFix)
-	toolCoverage      = string(v1.CommandCoverage)
-	toolEval          = string(v1.CommandEval)
-	toolVerify        = string(v1.CommandVerify)
-	toolBootstrap     = string(v1.CommandBootstrap)
-)
-
 type ToolDef struct {
 	Name         string         `json:"name"`
 	Title        string         `json:"title"`

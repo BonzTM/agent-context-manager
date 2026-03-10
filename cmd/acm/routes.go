@@ -36,24 +36,6 @@ func matchConvenienceRoute(args []string) (routeSpec, int, bool) {
 	if len(args) == 0 {
 		return routeSpec{}, 0, false
 	}
-	switch args[0] {
-	case "work":
-		if len(args) > 1 {
-			switch args[1] {
-			case "list":
-				spec, ok := lookupRouteSpec("work-list")
-				return spec, 2, ok
-			case "search":
-				spec, ok := lookupRouteSpec("work-search")
-				return spec, 2, ok
-			}
-		}
-	case "history":
-		if len(args) > 1 && args[1] == "search" {
-			spec, ok := lookupRouteSpec("history-search")
-			return spec, 2, ok
-		}
-	}
 	spec, ok := lookupRouteSpec(args[0])
 	return spec, 1, ok
 }
@@ -67,7 +49,7 @@ func maintenanceHelpCommands() []helpCommand {
 }
 
 func buildRouteCatalog() []routeSpec {
-	specs := make([]routeSpec, 0, len(v1.CommandSpecs())+4)
+	specs := make([]routeSpec, 0, len(v1.CommandSpecs()))
 	for _, spec := range v1.CommandSpecs() {
 		builder, ok := canonicalRouteBuilder(spec.CLISubcommand)
 		if !ok {
@@ -79,86 +61,40 @@ func buildRouteCatalog() []routeSpec {
 			Summary: spec.CLISummary,
 			Group:   routeGroupForCommand(spec.Group),
 			Build:   builder,
-			Hidden:  spec.CLISubcommand == "health-check" || spec.CLISubcommand == "health-fix",
 		})
 	}
-
-	specs = append(specs,
-		routeSpec{
-			Name:    "work-list",
-			Usage:   "acm work list [--project <id>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
-			Summary: "List compact plan summaries for current, deferred, completed, or all work.",
-			Group:   routeGroupWorkflow,
-			Build: func(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-				return buildHistorySearchEnvelope("work-list", args, now)
-			},
-		},
-		routeSpec{
-			Name:    "work-search",
-			Usage:   "acm work search [--project <id>] (--query <text>|--query-file <path>) [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
-			Summary: "Search plan and task history without direct database access.",
-			Group:   routeGroupWorkflow,
-			Build: func(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-				return buildHistorySearchEnvelope("work-search", args, now)
-			},
-		},
-		routeSpec{
-			Name:    "health",
-			Usage:   "acm health [--project <id>] [--include-details[=true|false]] [--max-findings-per-check <n>] | [--fix <name>]... [--dry-run[=true|false]] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]",
-			Summary: "Check project health or run selected health fixers via `--fix`.",
-			Group:   routeGroupMaintenance,
-			Build: func(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-				return buildHealthAliasEnvelope(args, now)
-			},
-		},
-		routeSpec{
-			Name:    "doctor",
-			Usage:   "acm doctor [flags]",
-			Summary: "Alias for `acm status`.",
-			Group:   routeGroupMaintenance,
-			Build: func(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-				return buildDoctorEnvelope(args, now)
-			},
-		},
-	)
 
 	return specs
 }
 
 func canonicalRouteBuilder(name string) (routeBuilder, bool) {
 	switch name {
-	case "get-context":
-		return buildGetContextEnvelope, true
+	case "context":
+		return buildContextEnvelope, true
 	case "fetch":
 		return buildFetchEnvelope, true
-	case "propose-memory":
-		return buildProposeMemoryEnvelope, true
+	case "memory":
+		return buildMemoryEnvelope, true
 	case "work":
 		return buildWorkEnvelope, true
-	case "history-search":
+	case "history":
 		return func(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-			return buildHistorySearchEnvelope("history-search", args, now)
+			return buildHistorySearchEnvelope("history", args, now)
 		}, true
-	case "report-completion":
-		return buildReportCompletionEnvelope, true
+	case "done":
+		return buildDoneEnvelope, true
 	case "review":
 		return buildReviewEnvelope, true
 	case "sync":
 		return buildSyncEnvelope, true
-	case "health-check":
-		return buildHealthCheckEnvelope, true
-	case "health-fix":
-		return buildHealthFixEnvelope, true
+	case "health":
+		return buildHealthEnvelope, true
 	case "status":
 		return buildStatusEnvelope, true
-	case "coverage":
-		return buildCoverageEnvelope, true
-	case "eval":
-		return buildEvalEnvelope, true
 	case "verify":
 		return buildVerifyEnvelope, true
-	case "bootstrap":
-		return buildBootstrapEnvelope, true
+	case "init":
+		return buildInitEnvelope, true
 	default:
 		return nil, false
 	}

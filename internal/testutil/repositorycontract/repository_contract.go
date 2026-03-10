@@ -35,11 +35,11 @@ func RunRepositoryParity(t *testing.T, cfg ContractConfig) {
 		projectID = fmt.Sprintf("project.%s.%d", cfg.BackendLabel, time.Now().UTC().UnixNano())
 	}
 
-	t.Run("candidate_pointer_retrieval", func(t *testing.T) {
+	t.Run("candidate_pointer_inventory", func(t *testing.T) {
 		runCandidatePointerRetrieval(t, projectID+".candidates", cfg.Repo)
 	})
-	t.Run("candidate_pointer_ranking", func(t *testing.T) {
-		runCandidatePointerRanking(t, projectID+".candidate-ranking", cfg.Repo)
+	t.Run("candidate_pointer_limits", func(t *testing.T) {
+		runCandidatePointerLimits(t, projectID+".candidate-limits", cfg.Repo)
 	})
 	t.Run("lookup_round_trip", func(t *testing.T) {
 		runLookupRoundTrip(t, projectID+".lookup", cfg.Repo)
@@ -49,6 +49,12 @@ func RunRepositoryParity(t *testing.T, cfg ContractConfig) {
 	})
 	t.Run("work_plan_round_trip", func(t *testing.T) {
 		runWorkPlanRoundTrip(t, projectID+".workplan", cfg.Repo)
+	})
+	t.Run("work_plan_merge_preserves_task_metadata", func(t *testing.T) {
+		runWorkPlanMergePreservesTaskMetadata(t, projectID+".workplan-merge", cfg.Repo)
+	})
+	t.Run("receipt_scope_snapshot_round_trip", func(t *testing.T) {
+		runReceiptScopeSnapshotRoundTrip(t, projectID+".receipt-scope", cfg.Repo)
 	})
 	t.Run("review_attempt_round_trip", func(t *testing.T) {
 		runReviewAttemptRoundTrip(t, projectID+".review", cfg.Repo)
@@ -111,33 +117,22 @@ func runCandidatePointerRetrieval(t *testing.T, projectID string, repo ContractR
 
 	planRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
 		ProjectID: projectID,
-		TaskText:  "plan",
-		Phase:     " PLAN ",
 		Limit:     10,
 	})
 	if err != nil {
 		t.Fatalf("fetch plan candidates: %v", err)
 	}
-	if got := candidateKeys(planRows); !reflect.DeepEqual(got, []string{"pointer.rule.plan", "pointer.doc.plan"}) {
-		t.Fatalf("unexpected plan candidate order: got %v", got)
-	}
-
-	reviewRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
-		ProjectID: projectID,
-		TaskText:  "execute",
-		Tags:      []string{"execute"},
-		Phase:     " ReViEw ",
-		Limit:     10,
-	})
-	if err != nil {
-		t.Fatalf("fetch review candidates: %v", err)
-	}
-	if got := candidateKeys(reviewRows); !reflect.DeepEqual(got, []string{"pointer.test.execute", "pointer.code.execute"}) {
-		t.Fatalf("unexpected review candidate order: got %v", got)
+	if got := candidateKeys(planRows); !reflect.DeepEqual(got, []string{
+		"pointer.doc.plan",
+		"pointer.rule.plan",
+		"pointer.code.execute",
+		"pointer.test.execute",
+	}) {
+		t.Fatalf("unexpected candidate inventory order: got %v", got)
 	}
 }
 
-func runCandidatePointerRanking(t *testing.T, projectID string, repo ContractRepository) {
+func runCandidatePointerLimits(t *testing.T, projectID string, repo ContractRepository) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -163,173 +158,63 @@ func runCandidatePointerRanking(t *testing.T, projectID string, repo ContractRep
 			Path:        "internal/alpha/runtime_test.go",
 			Kind:        "test",
 			Label:       "Alpha tests",
-			Description: "Alpha verification coverage",
+			Description: "Alpha verification inventory",
 			Tags:        []string{"alpha", "focus"},
 		},
 		{
 			PointerKey:  "pointer.code.full",
-			Path:        "internal/ranking/full.go",
+			Path:        "internal/inventory/full.go",
 			Kind:        "code",
-			Label:       "Alpha beta ranking",
-			Description: "Alpha beta retrieval ranking reference",
-			Tags:        []string{"focus", "ranking"},
+			Label:       "Alpha beta inventory",
+			Description: "Alpha beta inventory reference",
+			Tags:        []string{"focus", "inventory"},
 		},
 		{
 			PointerKey:  "pointer.code.tag",
-			Path:        "internal/ranking/tag.go",
+			Path:        "internal/inventory/tag.go",
 			Kind:        "code",
-			Label:       "Ranking tag signal",
-			Description: "Focus-only retrieval signal",
+			Label:       "Inventory tag signal",
+			Description: "Focus-only inventory signal",
 			Tags:        []string{"focus"},
 		},
 		{
 			PointerKey:  "pointer.code.text",
-			Path:        "internal/ranking/text.go",
+			Path:        "internal/inventory/text.go",
 			Kind:        "code",
 			Label:       "Alpha text signal",
-			Description: "Text-only retrieval signal",
-			Tags:        []string{"ranking"},
+			Description: "Text-only inventory signal",
+			Tags:        []string{"inventory"},
 		},
 	}
 	if _, err := repo.UpsertPointerStubs(ctx, projectID, stubs); err != nil {
-		t.Fatalf("seed ranking candidate pointers: %v", err)
+		t.Fatalf("seed inventory candidate pointers: %v", err)
 	}
 
-	executeRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
+	limitedRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
 		ProjectID: projectID,
-		TaskText:  "alpha",
-		Tags:      []string{"focus"},
-		Phase:     "execute",
-		Limit:     10,
-	})
-	if err != nil {
-		t.Fatalf("fetch execute ranking candidates: %v", err)
-	}
-	if got := candidateKeys(executeRows); !reflect.DeepEqual(got, []string{
-		"pointer.code.alpha",
-		"pointer.code.full",
-		"pointer.code.tag",
-		"pointer.test.alpha",
-		"pointer.code.text",
-		"pointer.doc.alpha",
-	}) {
-		t.Fatalf("unexpected execute ranking order: got %v", got)
-	}
-	assertCandidateRanks(t, executeRows, map[string]float64{
-		"pointer.code.alpha": 45,
-		"pointer.code.full":  45,
-		"pointer.code.tag":   30,
-		"pointer.test.alpha": 30,
-		"pointer.code.text":  15,
-		"pointer.doc.alpha":  15,
-	})
-
-	reviewRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
-		ProjectID: projectID,
-		TaskText:  "alpha",
-		Tags:      []string{"focus"},
-		Phase:     "review",
-		Limit:     10,
-	})
-	if err != nil {
-		t.Fatalf("fetch review ranking candidates: %v", err)
-	}
-	if got := candidateKeys(reviewRows); !reflect.DeepEqual(got, []string{
-		"pointer.test.alpha",
-		"pointer.code.alpha",
-		"pointer.code.full",
-		"pointer.doc.alpha",
-		"pointer.code.tag",
-		"pointer.code.text",
-	}) {
-		t.Fatalf("unexpected review ranking order: got %v", got)
-	}
-	assertCandidateRanks(t, reviewRows, map[string]float64{
-		"pointer.test.alpha": 30,
-		"pointer.code.alpha": 15,
-		"pointer.code.full":  15,
-		"pointer.doc.alpha":  15,
-		"pointer.code.tag":   10,
-		"pointer.code.text":  5,
-	})
-
-	planRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
-		ProjectID: projectID,
-		TaskText:  "alpha",
-		Tags:      []string{"focus"},
-		Phase:     "plan",
-		Limit:     10,
-	})
-	if err != nil {
-		t.Fatalf("fetch plan ranking candidates: %v", err)
-	}
-	if got := candidateKeys(planRows); !reflect.DeepEqual(got, []string{
-		"pointer.doc.alpha",
-		"pointer.code.alpha",
-		"pointer.code.full",
-		"pointer.test.alpha",
-		"pointer.code.tag",
-		"pointer.code.text",
-	}) {
-		t.Fatalf("unexpected plan ranking order: got %v", got)
-	}
-	assertCandidateRanks(t, planRows, map[string]float64{
-		"pointer.doc.alpha":  30,
-		"pointer.code.alpha": 15,
-		"pointer.code.full":  15,
-		"pointer.test.alpha": 15,
-		"pointer.code.tag":   10,
-		"pointer.code.text":  5,
-	})
-
-	signalRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
-		ProjectID: projectID,
-		TaskText:  "alpha beta",
-		Tags:      []string{"focus"},
-		Phase:     "execute",
 		Limit:     3,
 	})
 	if err != nil {
-		t.Fatalf("fetch signal ranking candidates: %v", err)
+		t.Fatalf("fetch limited candidate pointers: %v", err)
 	}
-	if got := candidateKeys(signalRows); !reflect.DeepEqual(got, []string{
-		"pointer.code.full",
+	if got := candidateKeys(limitedRows); !reflect.DeepEqual(got, []string{
+		"pointer.doc.alpha",
 		"pointer.code.alpha",
-		"pointer.code.tag",
+		"pointer.test.alpha",
 	}) {
-		t.Fatalf("unexpected signal ranking order: got %v", got)
+		t.Fatalf("unexpected limited candidate order: got %v", got)
 	}
-	assertCandidateRanks(t, signalRows, map[string]float64{
-		"pointer.code.full":  60,
-		"pointer.code.alpha": 45,
-		"pointer.code.tag":   30,
-	})
 
 	unboundedRows, err := repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
 		ProjectID: projectID,
-		TaskText:  "alpha",
-		Tags:      []string{"focus"},
-		Phase:     "execute",
 		Unbounded: true,
 		Limit:     1,
 	})
 	if err != nil {
-		t.Fatalf("fetch unbounded ranking candidates: %v", err)
+		t.Fatalf("fetch unbounded candidate pointers: %v", err)
 	}
 	if len(unboundedRows) != 6 {
-		t.Fatalf("expected six unbounded ranking candidates, got %d", len(unboundedRows))
-	}
-}
-
-func assertCandidateRanks(t *testing.T, rows []core.CandidatePointer, want map[string]float64) {
-	t.Helper()
-
-	got := make(map[string]float64, len(rows))
-	for _, row := range rows {
-		got[row.Key] = row.Rank
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected candidate ranks: got %#v want %#v", got, want)
+		t.Fatalf("expected six unbounded candidate pointers, got %d", len(unboundedRows))
 	}
 }
 
@@ -388,13 +273,13 @@ func runActiveMemoryRetrieval(t *testing.T, projectID string, repo ContractRepos
 		Path:        "docs/memory.md",
 		Kind:        "doc",
 		Label:       "Memory pointer",
-		Description: "Pointer used for active memory retrieval",
-		Tags:        []string{"memory", "retrieval"},
+		Description: "Pointer used for active memory lookup",
+		Tags:        []string{"memory", "lookup"},
 	}}); err != nil {
 		t.Fatalf("seed memory pointer: %v", err)
 	}
 
-	persistPromotedMemory(t, ctx, repo, projectID, "pointer.memory", "Backend parity", "Direct repository parity coverage is required.")
+	persistPromotedMemory(t, ctx, repo, projectID, "pointer.memory", "Backend parity", "Direct repository parity checks are required.")
 
 	rows, err := repo.FetchActiveMemories(ctx, core.ActiveMemoryQuery{
 		ProjectID:   projectID,
@@ -426,7 +311,12 @@ func runWorkPlanRoundTrip(t *testing.T, projectID string, repo ContractRepositor
 		Objective:     "Keep task fetches compact",
 		Kind:          "story",
 		ParentPlanKey: "plan:receipt.parent123",
-		ExternalRefs:  []string{"jira:ACM-1"},
+		DiscoveredPaths: []string{
+			" ./cmd//acm/main.go ",
+			"internal/contracts/v1/command_catalog.go",
+			"cmd/acm/main.go",
+		},
+		ExternalRefs: []string{"jira:ACM-1"},
 		Tasks: []core.WorkItem{
 			{
 				ItemKey:       "task.blocked",
@@ -467,6 +357,9 @@ func runWorkPlanRoundTrip(t *testing.T, projectID string, repo ContractRepositor
 	if !reflect.DeepEqual(plan.ExternalRefs, []string{"jira:ACM-1"}) {
 		t.Fatalf("unexpected plan external refs: %+v", plan.ExternalRefs)
 	}
+	if !reflect.DeepEqual(plan.DiscoveredPaths, []string{"cmd/acm/main.go", "internal/contracts/v1/command_catalog.go"}) {
+		t.Fatalf("unexpected discovered paths: %+v", plan.DiscoveredPaths)
+	}
 	if len(plan.Tasks) != 3 {
 		t.Fatalf("expected three tasks, got %+v", plan.Tasks)
 	}
@@ -499,6 +392,90 @@ func runWorkPlanRoundTrip(t *testing.T, projectID string, repo ContractRepositor
 	}
 	if !reflect.DeepEqual(summary.ActiveTaskKeys, []string{"task.blocked", "task.active"}) {
 		t.Fatalf("unexpected active task keys: %+v", summary.ActiveTaskKeys)
+	}
+}
+
+func runWorkPlanMergePreservesTaskMetadata(t *testing.T, projectID string, repo ContractRepository) {
+	t.Helper()
+	ctx := context.Background()
+
+	_, err := repo.UpsertWorkPlan(ctx, core.WorkPlanUpsertInput{
+		ProjectID: projectID,
+		PlanKey:   "plan:receipt.merge123",
+		ReceiptID: "receipt.merge123",
+		Mode:      core.WorkPlanModeReplace,
+		Tasks: []core.WorkItem{
+			{
+				ItemKey:            "impl.merge",
+				Summary:            "Preserve task metadata",
+				Status:             core.WorkItemStatusInProgress,
+				ParentTaskKey:      "stage:implementation-plan",
+				DependsOn:          []string{"spec:merge"},
+				AcceptanceCriteria: []string{"acceptance survives status-only merge"},
+				References:         []string{"docs/feature-plans.md"},
+				ExternalRefs:       []string{"jira:ACM-42"},
+				BlockedReason:      "waiting on follow-up",
+				Evidence:           []string{"verifyrun:seed"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed merge-preservation plan: %v", err)
+	}
+
+	_, err = repo.UpsertWorkPlan(ctx, core.WorkPlanUpsertInput{
+		ProjectID: projectID,
+		PlanKey:   "plan:receipt.merge123",
+		ReceiptID: "receipt.merge123",
+		Mode:      core.WorkPlanModeMerge,
+		Tasks: []core.WorkItem{
+			{
+				ItemKey:  "impl.merge",
+				Summary:  "Preserve task metadata",
+				Status:   core.WorkItemStatusComplete,
+				Outcome:  "completed after verification",
+				Evidence: []string{"verifyrun:final"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("merge work plan task: %v", err)
+	}
+
+	plan, err := repo.LookupWorkPlan(ctx, core.WorkPlanLookupQuery{
+		ProjectID: projectID,
+		PlanKey:   "plan:receipt.merge123",
+	})
+	if err != nil {
+		t.Fatalf("lookup merged work plan: %v", err)
+	}
+	if len(plan.Tasks) != 1 {
+		t.Fatalf("expected one merged task, got %+v", plan.Tasks)
+	}
+	task := plan.Tasks[0]
+	if task.Status != core.WorkItemStatusComplete || task.Outcome != "completed after verification" {
+		t.Fatalf("unexpected merged task state: %+v", task)
+	}
+	if task.ParentTaskKey != "stage:implementation-plan" {
+		t.Fatalf("expected parent task key to survive merge, got %+v", task)
+	}
+	if !reflect.DeepEqual(task.DependsOn, []string{"spec:merge"}) {
+		t.Fatalf("expected depends_on to survive merge, got %+v", task.DependsOn)
+	}
+	if !reflect.DeepEqual(task.AcceptanceCriteria, []string{"acceptance survives status-only merge"}) {
+		t.Fatalf("expected acceptance criteria to survive merge, got %+v", task.AcceptanceCriteria)
+	}
+	if !reflect.DeepEqual(task.References, []string{"docs/feature-plans.md"}) {
+		t.Fatalf("expected references to survive merge, got %+v", task.References)
+	}
+	if !reflect.DeepEqual(task.ExternalRefs, []string{"jira:ACM-42"}) {
+		t.Fatalf("expected external refs to survive merge, got %+v", task.ExternalRefs)
+	}
+	if task.BlockedReason != "" {
+		t.Fatalf("expected blocked reason to clear after non-blocked merge update, got %+v", task)
+	}
+	if !reflect.DeepEqual(task.Evidence, []string{"verifyrun:final"}) {
+		t.Fatalf("expected evidence to update on merge, got %+v", task.Evidence)
 	}
 }
 
@@ -554,6 +531,75 @@ func runReviewAttemptRoundTrip(t *testing.T, projectID string, repo ContractRepo
 	}
 	if rows[0].AttemptID != attemptID || !rows[0].Passed || rows[0].Fingerprint != "sha256:review-attempt" {
 		t.Fatalf("unexpected review attempt row: %+v", rows[0])
+	}
+}
+
+func runReceiptScopeSnapshotRoundTrip(t *testing.T, projectID string, repo ContractRepository) {
+	t.Helper()
+	ctx := context.Background()
+
+	if _, err := repo.UpsertPointerStubs(ctx, projectID, []core.PointerStub{{
+		PointerKey:  "pointer.scope.runtime",
+		Path:        "docs/runtime.md",
+		Kind:        "doc",
+		Label:       "Runtime scope",
+		Description: "Original scoped runtime path",
+		Tags:        []string{"runtime"},
+	}}); err != nil {
+		t.Fatalf("seed pointer stub: %v", err)
+	}
+
+	if err := repo.UpsertReceiptScope(ctx, core.ReceiptScope{
+		ProjectID:         projectID,
+		ReceiptID:         "receipt-scope-1234",
+		TaskText:          "snapshot receipt scope",
+		Phase:             "execute",
+		ResolvedTags:      []string{"runtime"},
+		PointerKeys:       []string{"pointer.scope.runtime"},
+		InitialScopePaths: []string{" ./docs//runtime.md ", "docs/runtime.md"},
+		BaselineCaptured:  true,
+		BaselinePaths: []core.SyncPath{
+			{Path: " internal/service/backend/context.go ", ContentHash: "ctx"},
+			{Path: "./docs/runtime.md", ContentHash: "runtime"},
+			{Path: "docs/runtime.md", ContentHash: "runtime"},
+		},
+	}); err != nil {
+		t.Fatalf("seed receipt scope snapshot: %v", err)
+	}
+
+	if _, err := repo.UpsertPointerStubs(ctx, projectID, []core.PointerStub{{
+		PointerKey:  "pointer.scope.runtime",
+		Path:        "docs/runtime-renamed.md",
+		Kind:        "doc",
+		Label:       "Runtime scope",
+		Description: "Renamed runtime path",
+		Tags:        []string{"runtime"},
+	}}); err != nil {
+		t.Fatalf("rename pointer stub: %v", err)
+	}
+
+	got, err := repo.FetchReceiptScope(ctx, core.ReceiptScopeQuery{
+		ProjectID: projectID,
+		ReceiptID: "receipt-scope-1234",
+	})
+	if err != nil {
+		t.Fatalf("fetch receipt scope: %v", err)
+	}
+
+	if got.ReceiptID != "receipt-scope-1234" || got.ProjectID != projectID || got.TaskText != "snapshot receipt scope" || got.Phase != "execute" {
+		t.Fatalf("unexpected receipt scope metadata: %+v", got)
+	}
+	if !reflect.DeepEqual(got.PointerKeys, []string{"pointer.scope.runtime"}) {
+		t.Fatalf("unexpected pointer keys: %+v", got.PointerKeys)
+	}
+	if !reflect.DeepEqual(got.InitialScopePaths, []string{"docs/runtime.md"}) {
+		t.Fatalf("expected stored initial scope path snapshot, got %+v", got.InitialScopePaths)
+	}
+	if !got.BaselineCaptured {
+		t.Fatalf("expected baseline_captured to round-trip as true")
+	}
+	if gotPaths := syncPaths(got.BaselinePaths); !reflect.DeepEqual(gotPaths, []string{"docs/runtime.md", "internal/service/backend/context.go"}) {
+		t.Fatalf("unexpected baseline paths: got %v", gotPaths)
 	}
 }
 
@@ -613,7 +659,7 @@ func runRunSummaryRoundTrip(t *testing.T, projectID string, repo ContractReposit
 func persistPromotedMemory(t *testing.T, ctx context.Context, repo ContractRepository, projectID, pointerKey, subject, content string) core.ActiveMemory {
 	t.Helper()
 
-	result, err := repo.PersistProposedMemory(ctx, core.ProposeMemoryPersistence{
+	result, err := repo.PersistMemory(ctx, core.MemoryPersistence{
 		ProjectID:           projectID,
 		ReceiptID:           "receipt-memory-1234",
 		Category:            "decision",
@@ -624,7 +670,7 @@ func persistPromotedMemory(t *testing.T, ctx context.Context, repo ContractRepos
 		RelatedPointerKeys:  []string{pointerKey},
 		EvidencePointerKeys: []string{pointerKey},
 		DedupeKey:           projectID + ":" + pointerKey + ":" + subject,
-		Validation: core.ProposeMemoryValidation{
+		Validation: core.MemoryValidation{
 			HardPassed: true,
 			SoftPassed: true,
 		},
@@ -654,4 +700,15 @@ func candidateKeys(rows []core.CandidatePointer) []string {
 		keys = append(keys, row.Key)
 	}
 	return keys
+}
+
+func syncPaths(rows []core.SyncPath) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Path)
+	}
+	return out
 }

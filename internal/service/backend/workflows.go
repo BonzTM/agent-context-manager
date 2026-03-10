@@ -59,7 +59,6 @@ type workflowRequiredTaskDefinition struct {
 	Phases                      []v1.Phase
 	TagsAny                     []string
 	ChangedPathsAny             []string
-	PointerKeysAny              []string
 	AlwaysRun                   bool
 	Run                         *workflowRunDefinition
 }
@@ -187,16 +186,12 @@ func normalizeWorkflowRequiredTask(sourcePath string, index int, raw workflowReq
 	if err != nil {
 		return workflowRequiredTaskDefinition{}, fmt.Errorf("%s.select.changed_paths_any %w", prefix, err)
 	}
-	pointerKeysAny, err := normalizeVerifyPointerKeys(raw.Select.PointerKeysAny)
-	if err != nil {
-		return workflowRequiredTaskDefinition{}, fmt.Errorf("%s.select.pointer_keys_any %w", prefix, err)
-	}
-	if raw.Select.AlwaysRun && (len(phases) > 0 || len(tagsAny) > 0 || len(changedPathsAny) > 0 || len(pointerKeysAny) > 0) {
+	if raw.Select.AlwaysRun && (len(phases) > 0 || len(tagsAny) > 0 || len(changedPathsAny) > 0) {
 		return workflowRequiredTaskDefinition{}, fmt.Errorf("%s.select.always_run must not be combined with other selector fields", prefix)
 	}
 
 	alwaysRun := raw.Select.AlwaysRun
-	if !alwaysRun && len(phases) == 0 && len(tagsAny) == 0 && len(changedPathsAny) == 0 && len(pointerKeysAny) == 0 {
+	if !alwaysRun && len(phases) == 0 && len(tagsAny) == 0 && len(changedPathsAny) == 0 {
 		alwaysRun = true
 	}
 
@@ -245,7 +240,6 @@ func normalizeWorkflowRequiredTask(sourcePath string, index int, raw workflowReq
 		Phases:                      phases,
 		TagsAny:                     tagsAny,
 		ChangedPathsAny:             changedPathsAny,
-		PointerKeysAny:              pointerKeysAny,
 		AlwaysRun:                   alwaysRun,
 		Run:                         run,
 	}, nil
@@ -311,15 +305,13 @@ func matchWorkflowRequiredTask(definition workflowRequiredTaskDefinition, select
 			return false
 		}
 	}
-	if len(definition.PointerKeysAny) > 0 {
-		if _, ok := firstVerifyStringIntersection(definition.PointerKeysAny, selection.PointerKeys); !ok {
-			return false
-		}
-	}
 	return true
 }
 
-func defaultCompletionRequiredTaskKeys() []string {
+func defaultCompletionRequiredTaskKeys(hasFilesChanged bool) []string {
+	if !hasFilesChanged {
+		return nil
+	}
 	return []string{requiredVerifyTestsKey}
 }
 

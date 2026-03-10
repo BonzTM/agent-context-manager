@@ -20,19 +20,19 @@ type fakeService struct{}
 
 type capturingService struct {
 	fakeService
-	bootstrapPayload v1.BootstrapPayload
+	initPayload v1.InitPayload
 }
 
-func (f fakeService) GetContext(_ context.Context, _ v1.GetContextPayload) (v1.GetContextResult, *core.APIError) {
-	return v1.GetContextResult{Status: "insufficient_context"}, nil
+func (f fakeService) Context(_ context.Context, _ v1.ContextPayload) (v1.ContextResult, *core.APIError) {
+	return v1.ContextResult{Status: "ok"}, nil
 }
 
 func (f fakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult, *core.APIError) {
 	return v1.FetchResult{Items: []v1.FetchItem{}}, nil
 }
 
-func (f fakeService) ProposeMemory(_ context.Context, _ v1.ProposeMemoryPayload) (v1.ProposeMemoryResult, *core.APIError) {
-	return v1.ProposeMemoryResult{}, nil
+func (f fakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
+	return v1.MemoryResult{}, nil
 }
 
 func (f fakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
@@ -53,51 +53,42 @@ func (f fakeService) HistorySearch(_ context.Context, _ v1.HistorySearchPayload)
 	return v1.HistorySearchResult{}, nil
 }
 
-func (f fakeService) ReportCompletion(_ context.Context, _ v1.ReportCompletionPayload) (v1.ReportCompletionResult, *core.APIError) {
-	return v1.ReportCompletionResult{}, nil
+func (f fakeService) Done(_ context.Context, _ v1.DonePayload) (v1.DoneResult, *core.APIError) {
+	return v1.DoneResult{}, nil
 }
 
 func (f fakeService) Sync(_ context.Context, _ v1.SyncPayload) (v1.SyncResult, *core.APIError) {
 	return v1.SyncResult{}, nil
 }
 
-func (f fakeService) HealthCheck(_ context.Context, _ v1.HealthCheckPayload) (v1.HealthCheckResult, *core.APIError) {
-	return v1.HealthCheckResult{}, nil
-}
-
-func (f fakeService) HealthFix(_ context.Context, _ v1.HealthFixPayload) (v1.HealthFixResult, *core.APIError) {
-	return v1.HealthFixResult{DryRun: true, PlannedActions: []v1.HealthFixAction{}, AppliedActions: []v1.HealthFixAction{}, Summary: "ok"}, nil
+func (f fakeService) Health(_ context.Context, _ v1.HealthPayload) (v1.HealthResult, *core.APIError) {
+	return v1.HealthResult{
+		Mode: "fix",
+		Fix:  &v1.HealthFixResult{DryRun: true, PlannedActions: []v1.HealthFixAction{}, AppliedActions: []v1.HealthFixAction{}, Summary: "ok"},
+	}, nil
 }
 
 func (f fakeService) Status(_ context.Context, _ v1.StatusPayload) (v1.StatusResult, *core.APIError) {
 	return v1.StatusResult{}, nil
 }
 
-func (f fakeService) Coverage(_ context.Context, _ v1.CoveragePayload) (v1.CoverageResult, *core.APIError) {
-	return v1.CoverageResult{}, nil
-}
-
-func (f fakeService) Eval(_ context.Context, _ v1.EvalPayload) (v1.EvalResult, *core.APIError) {
-	return v1.EvalResult{}, nil
-}
-
 func (f fakeService) Verify(_ context.Context, _ v1.VerifyPayload) (v1.VerifyResult, *core.APIError) {
 	return v1.VerifyResult{}, nil
 }
 
-func (f fakeService) Bootstrap(_ context.Context, _ v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {
-	return v1.BootstrapResult{}, nil
+func (f fakeService) Init(_ context.Context, _ v1.InitPayload) (v1.InitResult, *core.APIError) {
+	return v1.InitResult{}, nil
 }
 
-func (c *capturingService) Bootstrap(_ context.Context, payload v1.BootstrapPayload) (v1.BootstrapResult, *core.APIError) {
-	c.bootstrapPayload = payload
-	return v1.BootstrapResult{}, nil
+func (c *capturingService) Init(_ context.Context, payload v1.InitPayload) (v1.InitResult, *core.APIError) {
+	c.initPayload = payload
+	return v1.InitResult{}, nil
 }
 
 func TestRun_SuccessEnvelope(t *testing.T) {
 	in := bytes.NewBufferString(`{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -118,13 +109,13 @@ func TestRun_SuccessEnvelope(t *testing.T) {
 	if !env.OK {
 		t.Fatalf("expected ok=true, got false: %+v", env.Error)
 	}
-	if env.Command != v1.CommandGetContext {
+	if env.Command != v1.CommandContext {
 		t.Fatalf("unexpected command: %s", env.Command)
 	}
 }
 
 func TestRun_ValidationFailure(t *testing.T) {
-	in := bytes.NewBufferString(`{"version":"acm.v1","command":"get_context","request_id":"bad","payload":{}}`)
+	in := bytes.NewBufferString(`{"version":"acm.v1","command":"context","request_id":"bad","payload":{}}`)
 	out := &bytes.Buffer{}
 	code := Run(context.Background(), fakeService{}, in, out, time.Now)
 	if code == 0 {
@@ -143,12 +134,32 @@ func TestRun_ValidationFailure(t *testing.T) {
 	}
 }
 
+func TestRun_RejectsRemovedLegacyCommand(t *testing.T) {
+	in := bytes.NewBufferString(`{"version":"acm.v1","command":"get_context","request_id":"req-12345","payload":{"project_id":"my-cool-app","task_text":"x","phase":"execute"}}`)
+	out := &bytes.Buffer{}
+	code := Run(context.Background(), fakeService{}, in, out, time.Now)
+	if code == 0 {
+		t.Fatalf("expected nonzero code")
+	}
+
+	var env v1.ResultEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "INVALID_COMMAND" {
+		t.Fatalf("unexpected error payload: %+v", env.Error)
+	}
+}
+
 func TestRun_DefaultsProjectIDFromEnv(t *testing.T) {
 	t.Setenv(runtime.ProjectIDEnvVar, "env-project")
 
 	in := bytes.NewBufferString(`{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"task_text":"x",
@@ -170,13 +181,13 @@ func TestRun_DefaultsProjectIDFromEnv(t *testing.T) {
 	}
 }
 
-func TestRun_BootstrapPrefersProjectRootInferenceOverEnvProjectID(t *testing.T) {
+func TestRun_InitPrefersProjectRootInferenceOverEnvProjectID(t *testing.T) {
 	t.Setenv(runtime.ProjectIDEnvVar, "env-project")
 	projectRoot := filepath.Join(t.TempDir(), "Target Repo")
 
 	in := bytes.NewBufferString(`{
 		"version":"acm.v1",
-		"command":"bootstrap",
+		"command":"init",
 		"request_id":"req-12345",
 		"payload":{
 			"project_root":"` + projectRoot + `"
@@ -188,7 +199,7 @@ func TestRun_BootstrapPrefersProjectRootInferenceOverEnvProjectID(t *testing.T) 
 	if code != 0 {
 		t.Fatalf("expected exit code 0 got %d", code)
 	}
-	if got, want := svc.bootstrapPayload.ProjectID, "Target-Repo"; got != want {
+	if got, want := svc.initPayload.ProjectID, "Target-Repo"; got != want {
 		t.Fatalf("unexpected inferred project_id: got %q want %q", got, want)
 	}
 }
@@ -196,7 +207,7 @@ func TestRun_BootstrapPrefersProjectRootInferenceOverEnvProjectID(t *testing.T) 
 func TestRun_UnconfiguredServiceNotImplementedEnvelope(t *testing.T) {
 	in := bytes.NewBufferString(`{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -227,35 +238,20 @@ func TestRun_UnconfiguredServiceNotImplementedEnvelope(t *testing.T) {
 	}
 }
 
-func TestRun_DispatchesHealthCheckEvalAndBootstrap(t *testing.T) {
+func TestRun_DispatchesHealthAndInit(t *testing.T) {
 	tests := []struct {
 		name    string
 		command string
 		payload string
 	}{
 		{
-			name:    "health_check",
-			command: "health_check",
+			name:    "health",
+			command: "health",
 			payload: `{"project_id":"my-cool-app"}`,
 		},
 		{
-			name:    "health_fix",
-			command: "health_fix",
-			payload: `{"project_id":"my-cool-app"}`,
-		},
-		{
-			name:    "coverage",
-			command: "coverage",
-			payload: `{"project_id":"my-cool-app"}`,
-		},
-		{
-			name:    "eval",
-			command: "eval",
-			payload: `{"project_id":"my-cool-app","eval_suite_inline":[{"task_text":"x","phase":"execute"}]}`,
-		},
-		{
-			name:    "bootstrap",
-			command: "bootstrap",
+			name:    "init",
+			command: "init",
 			payload: `{"project_id":"my-cool-app","project_root":"."}`,
 		},
 	}
@@ -312,7 +308,7 @@ func TestDispatch_RoutesFetchWorkAndHistorySearch(t *testing.T) {
 			payload: v1.ReviewPayload{ProjectID: "my-cool-app", ReceiptID: "receipt-1234", Outcome: "No blocking review findings."},
 		},
 		{
-			name:    "history_search",
+			name:    "history",
 			command: v1.CommandHistorySearch,
 			payload: v1.HistorySearchPayload{ProjectID: "my-cool-app", Query: "bootstrap", Scope: v1.HistoryScopeAll},
 		},
@@ -364,7 +360,7 @@ func TestProjectIDFromPayload_ExtractsFromMapAndStruct(t *testing.T) {
 func TestRunWithLogger_LogsIngressDispatchAndResultOnSuccess(t *testing.T) {
 	in := bytes.NewBufferString(`{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
@@ -433,7 +429,7 @@ func TestRunWithLogger_LogsReadFailure(t *testing.T) {
 }
 
 func TestRunWithLogger_LogsValidationFailure(t *testing.T) {
-	in := bytes.NewBufferString(`{"version":"acm.v1","command":"get_context","request_id":"bad","payload":{}}`)
+	in := bytes.NewBufferString(`{"version":"acm.v1","command":"context","request_id":"bad","payload":{}}`)
 	out := &bytes.Buffer{}
 	recorder := logging.NewRecorder()
 
@@ -466,7 +462,7 @@ func TestRunWithLogger_LogsValidationFailure(t *testing.T) {
 func TestRunWithLogger_LogsDispatchFailure(t *testing.T) {
 	in := bytes.NewBufferString(`{
 		"version":"acm.v1",
-		"command":"get_context",
+		"command":"context",
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",

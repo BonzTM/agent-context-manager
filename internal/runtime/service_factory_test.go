@@ -23,14 +23,14 @@ func TestNewServiceWithLogger_DefaultsToSQLiteAndIsLoggingDecorated(t *testing.T
 	}
 	t.Cleanup(cleanup)
 
-	result, apiErr := svc.HealthCheck(context.Background(), v1.HealthCheckPayload{
+	result, apiErr := svc.Health(context.Background(), v1.HealthPayload{
 		ProjectID: "project.alpha",
 	})
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if result.Summary.TotalFindings < 0 {
-		t.Fatalf("unexpected summary: %+v", result.Summary)
+	if result.Check == nil || result.Check.Summary.TotalFindings < 0 {
+		t.Fatalf("unexpected summary: %+v", result)
 	}
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("expected sqlite file at %q: %v", dbPath, err)
@@ -87,14 +87,14 @@ func TestNewServiceWithLogger_ImplicitRepoSQLiteDoesNotMutateGitIgnore(t *testin
 	}
 	t.Cleanup(cleanup)
 
-	result, apiErr := svc.HealthCheck(context.Background(), v1.HealthCheckPayload{
+	result, apiErr := svc.Health(context.Background(), v1.HealthPayload{
 		ProjectID: "project.alpha",
 	})
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if result.Summary.TotalFindings < 0 {
-		t.Fatalf("unexpected summary: %+v", result.Summary)
+	if result.Check == nil || result.Check.Summary.TotalFindings < 0 {
+		t.Fatalf("unexpected summary: %+v", result)
 	}
 
 	if _, err := os.Stat(filepath.Join(root, ".gitignore")); !os.IsNotExist(err) {

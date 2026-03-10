@@ -4,7 +4,7 @@
   "request_id": "req-review-001",
   "payload": {
     "project_id": "customer-portal",
-    "receipt_id": "replace-from-get-context-receipt",
+    "receipt_id": "replace-from-context-receipt",
     "run": true
   }
 }
