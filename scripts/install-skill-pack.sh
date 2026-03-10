@@ -123,6 +123,10 @@ if [[ "${install_codex}" == true ]]; then
   rm -rf "${codex_target}"
   cp -R "${skill_src}" "${codex_target}"
   echo "Installed Codex skill: ${codex_target}"
+  if [[ -d "${codex_target}/codex" ]]; then
+    echo "Installed Codex companion docs: ${codex_target}/codex"
+  fi
+  echo "Optional repo-local Codex companion: acm init --apply-template codex-pack"
 fi
 
 if [[ "${install_claude}" == true ]]; then

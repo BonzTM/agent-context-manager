@@ -11,6 +11,8 @@ acm init \
   --apply-template claude-command-pack
 ```
 
+Swap in `--apply-template codex-pack` when you want repo-local Codex companion docs under `.codex/acm-broker/` instead of Claude-specific command assets.
+
 For repos that want stricter feature planning, add `--apply-template detailed-planning-enforcement`. It can be applied directly or after `starter-contract` + `verify-generic`, and it only upgrades those scaffolds while they are still pristine.
 
 Current built-ins:
@@ -32,6 +34,9 @@ Current built-ins:
   - upgrades blank ACM test scaffolds to a Python-oriented verify profile
 - `verify-rust`
   - upgrades blank ACM test scaffolds to a Rust-oriented verify profile
+- `codex-pack`
+  - seeds `.codex/acm-broker/README.md` and `.codex/acm-broker/AGENTS.example.md`
+  - adds repo-local Codex companion docs without pretending slash-command or hook parity
 - `claude-command-pack`
   - seeds `.claude/commands/*` and `.claude/acm-broker/*`
 - `claude-hooks`

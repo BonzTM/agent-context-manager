@@ -69,6 +69,8 @@ acm init \
   --apply-template claude-command-pack
 ```
 
+Swap in `--apply-template codex-pack` when you want repo-local Codex companion docs under `.codex/acm-broker/` instead of Claude-specific command assets.
+
 This scans your repo and creates auto-indexed pointer stubs for discovered files so `fetch`, health, memory evidence, and governed scope checks can work immediately. When `--project` is omitted, acm uses `ACM_PROJECT_ID` first and otherwise infers the project identifier from the effective repo root. Pass `--project` when you want a short stable namespace that differs from the folder name.
 
 `init` automatically:
@@ -81,7 +83,7 @@ This scans your repo and creates auto-indexed pointer stubs for discovered files
 
 Use `--persist-candidates` to save the enumerated file list to `.acm/init_candidates.json`.
 
-Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `detailed-planning-enforcement`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `claude-command-pack`, `claude-hooks`, `git-hooks-precommit`. See [docs/examples/init-templates.md](examples/init-templates.md) for the seeded files and template-specific behavior.
+Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `detailed-planning-enforcement`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `codex-pack`, `claude-command-pack`, `claude-hooks`, `git-hooks-precommit`. See [docs/examples/init-templates.md](examples/init-templates.md) for the seeded files and template-specific behavior.
 
 If you want to inspect indexing drift later, use `acm health --include-details` or `acm status`. The standalone `coverage` command is gone; the useful signals now live in health/status.
 
@@ -437,6 +439,49 @@ git config core.hooksPath .githooks
 ```
 
 Add a thin `CLAUDE.md` to your project root. A starter template is at [docs/examples/CLAUDE.md](examples/CLAUDE.md).
+
+### Codex
+
+Install the skill pack:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --codex
+```
+
+This installs the global `acm-broker` skill to `~/.codex/skills/acm-broker`, including `codex/README.md` and `codex/AGENTS.example.md` companion docs inside the installed skill.
+
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --codex`.
+
+If you also want repo-local Codex companion docs in the project itself, seed them with:
+
+```bash
+acm init --apply-template codex-pack
+```
+
+That template creates:
+
+- `.codex/acm-broker/README.md`
+- `.codex/acm-broker/AGENTS.example.md`
+
+Keep the repo-root `AGENTS.md` authoritative. A starter template is at [docs/examples/AGENTS.md](examples/AGENTS.md), and the Codex companion example above is there to make the full ACM loop explicit for Codex-driven repos.
+
+Codex is a primary ACM operator, not only a review backend. The normal loop is:
+
+1. `context`
+2. `work`
+3. `verify`
+4. `review`
+5. `done`
+6. `memory`
+
+Claude and Codex hand off through the same ACM state. A common pattern is:
+
+1. Start in one tool with `context`
+2. Record or update the durable plan with `work`
+3. Let the other tool resume from the same `receipt_id` or `plan_key`
+4. Close with shared `verify`, `review`, `done`, and `memory` history instead of vendor-local notes
+
+There is intentionally no fake slash-command or hook parity here. Codex relies on the installed skill, the repo-root `AGENTS.md`, and normal CLI/MCP access.
 
 ### MCP
 

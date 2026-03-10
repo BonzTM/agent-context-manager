@@ -63,6 +63,31 @@ func TestClaudeCommandPackTemplateMatchesSkillPack(t *testing.T) {
 	}
 }
 
+func TestCodexPackTemplateMatchesSkillPack(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"bootstrap_templates/codex-pack/files/.codex/acm-broker/README.md":         "../../skills/acm-broker/codex/README.md",
+		"bootstrap_templates/codex-pack/files/.codex/acm-broker/AGENTS.example.md": "../../skills/acm-broker/codex/AGENTS.example.md",
+	}
+
+	for embeddedPath, repoRelativePath := range cases {
+		t.Run(filepath.Base(embeddedPath), func(t *testing.T) {
+			expected, err := os.ReadFile(filepath.Clean(repoRelativePath))
+			if err != nil {
+				t.Fatalf("read skill-pack asset: %v", err)
+			}
+			actual, err := initTemplateFS.ReadFile(embeddedPath)
+			if err != nil {
+				t.Fatalf("read embedded template asset: %v", err)
+			}
+			if string(actual) != string(expected) {
+				t.Fatalf("template asset drifted from skill-pack counterpart: %s", embeddedPath)
+			}
+		})
+	}
+}
+
 func TestRepoClaudeCommandPackMatchesSkillPack(t *testing.T) {
 	t.Parallel()
 
@@ -75,6 +100,31 @@ func TestRepoClaudeCommandPackMatchesSkillPack(t *testing.T) {
 		"../../.claude/commands/acm-review.md":  "../../skills/acm-broker/claude/commands/acm-review.md",
 		"../../.claude/commands/acm-verify.md":  "../../skills/acm-broker/claude/commands/acm-verify.md",
 		"../../.claude/commands/acm-work.md":    "../../skills/acm-broker/claude/commands/acm-work.md",
+	}
+
+	for repoRelativePath, skillRelativePath := range cases {
+		t.Run(filepath.Base(repoRelativePath), func(t *testing.T) {
+			actual, err := os.ReadFile(filepath.Clean(repoRelativePath))
+			if err != nil {
+				t.Fatalf("read repo asset: %v", err)
+			}
+			expected, err := os.ReadFile(filepath.Clean(skillRelativePath))
+			if err != nil {
+				t.Fatalf("read skill-pack asset: %v", err)
+			}
+			if string(actual) != string(expected) {
+				t.Fatalf("repo asset drifted from skill-pack counterpart: %s", repoRelativePath)
+			}
+		})
+	}
+}
+
+func TestRepoCodexCompanionMatchesSkillPack(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"../../.codex/acm-broker/README.md":         "../../skills/acm-broker/codex/README.md",
+		"../../.codex/acm-broker/AGENTS.example.md": "../../skills/acm-broker/codex/AGENTS.example.md",
 	}
 
 	for repoRelativePath, skillRelativePath := range cases {
@@ -429,6 +479,88 @@ func TestClaudeBrokerCompanionCoversMaintenanceAndDiscoveredScope(t *testing.T) 
 	} {
 		if !strings.Contains(content, snippet) {
 			t.Fatalf("Claude companion is missing snippet %q", snippet)
+		}
+	}
+}
+
+func TestCodexCompanionCoversPrimaryWorkflowWithoutFakeClaudeParity(t *testing.T) {
+	t.Parallel()
+
+	raw, err := initTemplateFS.ReadFile("bootstrap_templates/codex-pack/files/.codex/acm-broker/README.md")
+	if err != nil {
+		t.Fatalf("read embedded Codex companion: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{
+		"acm init --apply-template codex-pack",
+		"work.plan.discovered_paths",
+		"acm sync --mode working_tree --insert-new-candidates",
+		"acm health --include-details",
+		"`acm context`",
+		"`acm work`",
+		"`acm verify`",
+		"`acm done`",
+		"`acm memory`",
+	} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("Codex companion is missing snippet %q", snippet)
+		}
+	}
+	for _, forbidden := range []string{"/acm-context", "SessionStart", "claude-hooks"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("Codex companion must not imply Claude-only surface snippet %q", forbidden)
+		}
+	}
+}
+
+func TestCodexCompanionExampleTreatsCodexAsPrimaryOperator(t *testing.T) {
+	t.Parallel()
+
+	raw, err := initTemplateFS.ReadFile("bootstrap_templates/codex-pack/files/.codex/acm-broker/AGENTS.example.md")
+	if err != nil {
+		t.Fatalf("read embedded Codex AGENTS example: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{
+		"Codex is a primary ACM operator",
+		"acm context",
+		"acm verify",
+		"acm done",
+		"acm memory",
+		"work.plan.discovered_paths",
+	} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("Codex AGENTS example is missing snippet %q", snippet)
+		}
+	}
+}
+
+func TestInitTemplateDocsListCodexPack(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Clean("../../docs/examples/init-templates.md"))
+	if err != nil {
+		t.Fatalf("read init-template docs: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{"`codex-pack`", ".codex/acm-broker/README.md", ".codex/acm-broker/AGENTS.example.md"} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("init-template docs are missing snippet %q", snippet)
+		}
+	}
+}
+
+func TestInstallSkillPackMentionsCodexCompanionDocs(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Clean("../../scripts/install-skill-pack.sh"))
+	if err != nil {
+		t.Fatalf("read install script: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{"Installed Codex companion docs", "codex-pack"} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("install script is missing snippet %q", snippet)
 		}
 	}
 }

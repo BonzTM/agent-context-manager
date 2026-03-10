@@ -54,6 +54,7 @@ Defaults:
 ## Templates
 
 Use templates from `references/templates.md` and `assets/requests/*.json`.
+For Codex-first repo setup, see `codex/README.md` and `codex/AGENTS.example.md` inside this skill for the companion docs that pair the global skill with a repo-root `AGENTS.md`.
 
 ## Rules
 

@@ -4,6 +4,7 @@
 
 These examples assume installed `acm` and `acm-mcp` binaries are available on `PATH`.
 Example payloads show explicit `project_id` values for clarity. In live usage you may omit `project_id` when `ACM_PROJECT_ID` is set or acm can infer the project from the effective repo root.
+For Codex-first repo setup, the installed skill also ships `codex/README.md` and `codex/AGENTS.example.md`, and `acm init --apply-template codex-pack` seeds repo-local copies under `.codex/acm-broker/`.
 
 1. Run `acm context`.
 2. Follow the returned rules block (or rule pointers) as hard requirements.
