@@ -379,16 +379,6 @@ func memorySummary(memory core.ActiveMemory) string {
 	return summary
 }
 
-func indexEntryVersion(parts ...string) string {
-	var b strings.Builder
-	for _, part := range parts {
-		b.WriteString(strings.TrimSpace(part))
-		b.WriteString("\n")
-	}
-	digest := sha256.Sum256([]byte(b.String()))
-	return hex.EncodeToString(digest[:8])
-}
-
 func mapKeysSorted(values map[string]struct{}) []string {
 	if len(values) == 0 {
 		return nil
@@ -399,20 +389,6 @@ func mapKeysSorted(values map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func maxZero(value int) int {
-	if value < 0 {
-		return 0
-	}
-	return value
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func internalError(operation string, err error) *core.APIError {

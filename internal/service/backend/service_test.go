@@ -875,6 +875,41 @@ func TestContext_DefaultMemoryLimitStillApplies(t *testing.T) {
 	}
 }
 
+func TestContext_PersistsOnlyPositiveMemoryIDs(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{
+		memoryResults: [][]core.ActiveMemory{{
+			memory(0, "Zero", "placeholder memory should not persist an id", []string{"backend"}, []string{"code:zero"}),
+			memory(-9, "Negative", "invalid memory should not persist an id", []string{"backend"}, []string{"code:negative"}),
+			memory(42, "Real", "valid memory id should be persisted", []string{"backend"}, []string{"code:real"}),
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Context(context.Background(), v1.ContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "persist only valid memory ids",
+		Phase:     v1.PhaseExecute,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "ok" || result.Receipt == nil {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(repo.receiptUpsertCalls) != 1 {
+		t.Fatalf("expected one receipt scope upsert, got %d", len(repo.receiptUpsertCalls))
+	}
+	if got, want := repo.receiptUpsertCalls[0].MemoryIDs, []int64{42}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected persisted memory ids: got %v want %v", got, want)
+	}
+}
+
 func TestContext_PhaseAndCanonicalTagsThreadedToRuleAndMemoryQueries(t *testing.T) {
 	repo := &fakeRepository{
 		memoryResults: [][]core.ActiveMemory{{}},
