@@ -9,6 +9,7 @@ type Command string
 const (
 	CommandContext       Command = "context"
 	CommandFetch         Command = "fetch"
+	CommandExport        Command = "export"
 	CommandMemory        Command = "memory"
 	CommandDone          Command = "done"
 	CommandReview        Command = "review"
@@ -81,6 +82,54 @@ type FetchPayload struct {
 	Keys             []string          `json:"keys,omitempty"`
 	ReceiptID        string            `json:"receipt_id,omitempty"`
 	ExpectedVersions map[string]string `json:"expected_versions,omitempty"`
+}
+
+type ExportFormat string
+
+const (
+	ExportFormatJSON     ExportFormat = "json"
+	ExportFormatMarkdown ExportFormat = "markdown"
+)
+
+type ExportContextSelector struct {
+	TaskText          string   `json:"task_text"`
+	Phase             Phase    `json:"phase"`
+	TagsFile          string   `json:"tags_file,omitempty"`
+	InitialScopePaths []string `json:"initial_scope_paths,omitempty"`
+}
+
+type ExportFetchSelector struct {
+	Keys             []string          `json:"keys,omitempty"`
+	ReceiptID        string            `json:"receipt_id,omitempty"`
+	ExpectedVersions map[string]string `json:"expected_versions,omitempty"`
+}
+
+type ExportHistorySelector struct {
+	Entity    HistoryEntity `json:"entity,omitempty"`
+	Query     string        `json:"query,omitempty"`
+	Scope     HistoryScope  `json:"scope,omitempty"`
+	Kind      string        `json:"kind,omitempty"`
+	Limit     int           `json:"limit,omitempty"`
+	Unbounded *bool         `json:"unbounded,omitempty"`
+}
+
+type ExportStatusSelector struct {
+	ProjectRoot   string `json:"project_root,omitempty"`
+	RulesFile     string `json:"rules_file,omitempty"`
+	TagsFile      string `json:"tags_file,omitempty"`
+	TestsFile     string `json:"tests_file,omitempty"`
+	WorkflowsFile string `json:"workflows_file,omitempty"`
+	TaskText      string `json:"task_text,omitempty"`
+	Phase         Phase  `json:"phase,omitempty"`
+}
+
+type ExportPayload struct {
+	ProjectID string                 `json:"project_id"`
+	Format    ExportFormat           `json:"format"`
+	Context   *ExportContextSelector `json:"context,omitempty"`
+	Fetch     *ExportFetchSelector   `json:"fetch,omitempty"`
+	History   *ExportHistorySelector `json:"history,omitempty"`
+	Status    *ExportStatusSelector  `json:"status,omitempty"`
 }
 
 type MemoryPayload struct {
@@ -337,6 +386,164 @@ type FetchResult struct {
 	Items             []FetchItem            `json:"items"`
 	NotFound          []string               `json:"not_found,omitempty"`
 	VersionMismatches []FetchVersionMismatch `json:"version_mismatches,omitempty"`
+}
+
+type ExportDocumentKind string
+
+const (
+	ExportDocumentKindContext     ExportDocumentKind = "context"
+	ExportDocumentKindMemory      ExportDocumentKind = "memory"
+	ExportDocumentKindPlan        ExportDocumentKind = "plan"
+	ExportDocumentKindReceipt     ExportDocumentKind = "receipt"
+	ExportDocumentKindTask        ExportDocumentKind = "task"
+	ExportDocumentKindRun         ExportDocumentKind = "run"
+	ExportDocumentKindFetchBundle ExportDocumentKind = "fetch_bundle"
+	ExportDocumentKindHistory     ExportDocumentKind = "history"
+	ExportDocumentKindStatus      ExportDocumentKind = "status"
+)
+
+type ExportMemoryDocument struct {
+	Key                string         `json:"key"`
+	Summary            string         `json:"summary"`
+	Category           MemoryCategory `json:"category,omitempty"`
+	Subject            string         `json:"subject,omitempty"`
+	Content            string         `json:"content,omitempty"`
+	Confidence         int            `json:"confidence,omitempty"`
+	Tags               []string       `json:"tags,omitempty"`
+	RelatedPointerKeys []string       `json:"related_pointer_keys,omitempty"`
+	UpdatedAt          string         `json:"updated_at,omitempty"`
+}
+
+type ExportPlanStages struct {
+	SpecOutline        WorkItemStatus `json:"spec_outline,omitempty"`
+	RefinedSpec        WorkItemStatus `json:"refined_spec,omitempty"`
+	ImplementationPlan WorkItemStatus `json:"implementation_plan,omitempty"`
+}
+
+type ExportTaskDocument struct {
+	PlanKey            string         `json:"plan_key,omitempty"`
+	Key                string         `json:"key"`
+	Summary            string         `json:"summary"`
+	Status             WorkItemStatus `json:"status"`
+	ParentTaskKey      string         `json:"parent_task_key,omitempty"`
+	DependsOn          []string       `json:"depends_on,omitempty"`
+	AcceptanceCriteria []string       `json:"acceptance_criteria,omitempty"`
+	References         []string       `json:"references,omitempty"`
+	ExternalRefs       []string       `json:"external_refs,omitempty"`
+	BlockedReason      string         `json:"blocked_reason,omitempty"`
+	Outcome            string         `json:"outcome,omitempty"`
+	Evidence           []string       `json:"evidence,omitempty"`
+}
+
+type ExportPlanDocument struct {
+	PlanKey         string               `json:"plan_key"`
+	ReceiptID       string               `json:"receipt_id,omitempty"`
+	Title           string               `json:"title,omitempty"`
+	Objective       string               `json:"objective,omitempty"`
+	Kind            string               `json:"kind,omitempty"`
+	ParentPlanKey   string               `json:"parent_plan_key,omitempty"`
+	Status          WorkItemStatus       `json:"status"`
+	Stages          *ExportPlanStages    `json:"stages,omitempty"`
+	InScope         []string             `json:"in_scope,omitempty"`
+	OutOfScope      []string             `json:"out_of_scope,omitempty"`
+	DiscoveredPaths []string             `json:"discovered_paths,omitempty"`
+	Constraints     []string             `json:"constraints,omitempty"`
+	References      []string             `json:"references,omitempty"`
+	ExternalRefs    []string             `json:"external_refs,omitempty"`
+	Tasks           []ExportTaskDocument `json:"tasks"`
+}
+
+type ExportBaselinePath struct {
+	Path        string `json:"path"`
+	Deleted     bool   `json:"deleted"`
+	ContentHash string `json:"content_hash,omitempty"`
+}
+
+type ExportReceiptRunDocument struct {
+	RunID      int64                `json:"run_id"`
+	Status     string               `json:"status,omitempty"`
+	PlanStatus WorkItemStatus       `json:"plan_status,omitempty"`
+	Tasks      []ExportTaskDocument `json:"tasks,omitempty"`
+}
+
+type ExportReceiptDocument struct {
+	ReceiptID         string                    `json:"receipt_id"`
+	TaskText          string                    `json:"task_text,omitempty"`
+	Phase             Phase                     `json:"phase,omitempty"`
+	ResolvedTags      []string                  `json:"resolved_tags,omitempty"`
+	PointerKeys       []string                  `json:"pointer_keys,omitempty"`
+	MemoryKeys        []string                  `json:"memory_keys,omitempty"`
+	InitialScopePaths []string                  `json:"initial_scope_paths,omitempty"`
+	BaselineCaptured  bool                      `json:"baseline_captured"`
+	BaselinePaths     []ExportBaselinePath      `json:"baseline_paths,omitempty"`
+	LatestRun         *ExportReceiptRunDocument `json:"latest_run,omitempty"`
+}
+
+type ExportRunDocument struct {
+	RunID        int64    `json:"run_id"`
+	ReceiptID    string   `json:"receipt_id,omitempty"`
+	RequestID    string   `json:"request_id,omitempty"`
+	TaskText     string   `json:"task_text,omitempty"`
+	Phase        Phase    `json:"phase,omitempty"`
+	Status       string   `json:"status,omitempty"`
+	FilesChanged []string `json:"files_changed,omitempty"`
+	Outcome      string   `json:"outcome,omitempty"`
+	UpdatedAt    string   `json:"updated_at,omitempty"`
+}
+
+type ExportBundleItemKind string
+
+const (
+	ExportBundleItemKindMemory  ExportBundleItemKind = "memory"
+	ExportBundleItemKindPlan    ExportBundleItemKind = "plan"
+	ExportBundleItemKindReceipt ExportBundleItemKind = "receipt"
+	ExportBundleItemKindTask    ExportBundleItemKind = "task"
+	ExportBundleItemKindRun     ExportBundleItemKind = "run"
+	ExportBundleItemKindPointer ExportBundleItemKind = "pointer"
+	ExportBundleItemKindRule    ExportBundleItemKind = "rule"
+)
+
+type ExportBundleItem struct {
+	Kind    ExportBundleItemKind   `json:"kind"`
+	Key     string                 `json:"key"`
+	Type    string                 `json:"type"`
+	Summary string                 `json:"summary"`
+	Status  string                 `json:"status,omitempty"`
+	Version string                 `json:"version,omitempty"`
+	Memory  *ExportMemoryDocument  `json:"memory,omitempty"`
+	Plan    *ExportPlanDocument    `json:"plan,omitempty"`
+	Receipt *ExportReceiptDocument `json:"receipt,omitempty"`
+	Task    *ExportTaskDocument    `json:"task,omitempty"`
+	Run     *ExportRunDocument     `json:"run,omitempty"`
+	Content string                 `json:"content,omitempty"`
+}
+
+type ExportBundleDocument struct {
+	RequestedKeys     []string               `json:"requested_keys,omitempty"`
+	Items             []ExportBundleItem     `json:"items"`
+	NotFound          []string               `json:"not_found,omitempty"`
+	VersionMismatches []FetchVersionMismatch `json:"version_mismatches,omitempty"`
+}
+
+type ExportDocument struct {
+	Kind    ExportDocumentKind     `json:"kind"`
+	Title   string                 `json:"title,omitempty"`
+	Summary string                 `json:"summary,omitempty"`
+	Context *ContextReceipt        `json:"context,omitempty"`
+	Memory  *ExportMemoryDocument  `json:"memory,omitempty"`
+	Plan    *ExportPlanDocument    `json:"plan,omitempty"`
+	Receipt *ExportReceiptDocument `json:"receipt,omitempty"`
+	Task    *ExportTaskDocument    `json:"task,omitempty"`
+	Run     *ExportRunDocument     `json:"run,omitempty"`
+	Bundle  *ExportBundleDocument  `json:"bundle,omitempty"`
+	History *HistorySearchResult   `json:"history,omitempty"`
+	Status  *StatusResult          `json:"status,omitempty"`
+}
+
+type ExportResult struct {
+	Format   ExportFormat    `json:"format"`
+	Document *ExportDocument `json:"document,omitempty"`
+	Content  string          `json:"content"`
 }
 
 type MemoryValidation struct {

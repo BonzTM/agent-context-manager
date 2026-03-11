@@ -16,6 +16,9 @@ var handlers = map[v1.Command]handlerFunc{
 	v1.CommandFetch: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
 		return svc.Fetch(ctx, payload.(v1.FetchPayload))
 	},
+	v1.CommandExport: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
+		return svc.Export(ctx, payload.(v1.ExportPayload))
+	},
 	v1.CommandMemory: func(ctx context.Context, svc core.Service, payload any) (any, *core.APIError) {
 		return svc.Memory(ctx, payload.(v1.MemoryCommandPayload))
 	},

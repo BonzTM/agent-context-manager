@@ -17,8 +17,8 @@
       "items": {
         "$ref": "#/$defs/toolContract"
       },
-      "minItems": 12,
-      "maxItems": 12
+      "minItems": 13,
+      "maxItems": 13
     }
   },
   "$defs": {
@@ -38,6 +38,7 @@
           "enum": [
             "context",
             "fetch",
+            "export",
             "memory",
             "done",
             "review",
@@ -79,6 +80,12 @@
     },
     "fetchOutput": {
       "$ref": "cli.result.schema.json#/$defs/fetchResult"
+    },
+    "exportInput": {
+      "$ref": "cli.command.schema.json#/$defs/exportPayload"
+    },
+    "exportOutput": {
+      "$ref": "cli.result.schema.json#/$defs/exportResult"
     },
     "memoryInput": {
       "$ref": "cli.command.schema.json#/$defs/memoryPayload"
@@ -167,6 +174,19 @@
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/fetchResult"
+      }
+    },
+    {
+      "name": "export",
+      "title": "Export Structured Artifacts",
+      "description": "Render ACM-owned context, fetch, history, or status data as stable JSON or Markdown content.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/exportPayload"
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/exportResult"
       }
     },
     {

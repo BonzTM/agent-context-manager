@@ -37,7 +37,7 @@ var commandCatalog = []CommandSpec{
 	newCommandSpec(
 		CommandContext,
 		"context",
-		"acm context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--scope-path <path>]...",
+		"acm context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--scope-path <path>]... [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
 		"Resolve a scoped receipt with rules, durable memory, active work, and optional known scope paths.",
 		CommandGroupWorkflow,
 		"contextPayload",
@@ -56,7 +56,7 @@ var commandCatalog = []CommandSpec{
 	newCommandSpec(
 		CommandFetch,
 		"fetch",
-		"acm fetch [--project <id>] [--key <pointer>]... [--keys-file <path>] [--keys-json <json>] [--receipt-id <id>] [--expect <key=version>]... [--expected-versions-file <path>] [--expected-versions-json <json>]",
+		"acm fetch [--project <id>] [--key <pointer>]... [--keys-file <path>] [--keys-json <json>] [--receipt-id <id>] [--expect <key=version>]... [--expected-versions-file <path>] [--expected-versions-json <json>] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
 		"Fetch pointer, plan, or task content by key, with optional version checks.",
 		CommandGroupWorkflow,
 		"fetchPayload",
@@ -69,6 +69,29 @@ var commandCatalog = []CommandSpec{
 					p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 				},
 				validateFetchPayload,
+			)
+		},
+	),
+	newCommandSpec(
+		CommandExport,
+		"export",
+		`acm run --in <request.json>  # {"command":"export",...}`,
+		"Render ACM-owned structured artifacts as JSON or Markdown through the backend export surface.",
+		CommandGroupWorkflow,
+		"exportPayload",
+		"exportResult",
+		"Export Structured Artifacts",
+		"Render ACM-owned context, fetch, history, or status data as stable JSON or Markdown content.",
+		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
+			return decodeValidatedCommandPayloadWithFields(raw, defaults,
+				func(p *ExportPayload, defaults ValidationDefaults) {
+					if p.Status != nil {
+						p.ProjectID = defaultProjectIDForRoot(p.ProjectID, p.Status.ProjectRoot, defaults)
+						return
+					}
+					p.ProjectID = defaultProjectID(p.ProjectID, defaults)
+				},
+				validateExportPayload,
 			)
 		},
 	),
@@ -151,7 +174,7 @@ var commandCatalog = []CommandSpec{
 	newCommandSpec(
 		CommandHistorySearch,
 		"history",
-		"acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
+		"acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
 		"Search recent work, memory, receipt, and run history without direct database access.",
 		CommandGroupWorkflow,
 		"historySearchPayload",
@@ -208,7 +231,7 @@ var commandCatalog = []CommandSpec{
 	newCommandSpec(
 		CommandStatus,
 		"status",
-		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
+		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
 		"Explain active project/runtime state, loaded ACM files, installed integrations, and governance inputs.",
 		CommandGroupMaintenance,
 		"statusPayload",
@@ -332,6 +355,8 @@ func ProjectIDFromPayload(payload any) string {
 	case ContextPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case FetchPayload:
+		return strings.TrimSpace(p.ProjectID)
+	case ExportPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case MemoryCommandPayload:
 		return strings.TrimSpace(p.ProjectID)

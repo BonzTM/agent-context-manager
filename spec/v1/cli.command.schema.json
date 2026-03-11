@@ -619,6 +619,244 @@
         }
       ]
     },
+    "exportFormat": {
+      "type": "string",
+      "enum": [
+        "json",
+        "markdown"
+      ]
+    },
+    "exportContextSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_text",
+        "phase"
+      ],
+      "properties": {
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "initial_scope_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 4096,
+          "uniqueItems": true
+        }
+      }
+    },
+    "exportFetchSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keys": {
+          "$ref": "shared.schema.json#/$defs/contractKeyList"
+        },
+        "receipt_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "expected_versions": {
+          "$ref": "shared.schema.json#/$defs/expectedVersions"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "keys"
+          ]
+        },
+        {
+          "required": [
+            "receipt_id"
+          ]
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "expected_versions"
+            ]
+          },
+          "then": {
+            "required": [
+              "keys"
+            ]
+          }
+        }
+      ]
+    },
+    "exportHistorySelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "type": "string",
+          "enum": [
+            "all",
+            "work",
+            "memory",
+            "receipt",
+            "run"
+          ],
+          "default": "all"
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "current",
+            "deferred",
+            "completed",
+            "all"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        },
+        "unbounded": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "entity": {
+                "enum": [
+                  "all",
+                  "memory",
+                  "receipt",
+                  "run"
+                ]
+              }
+            },
+            "required": [
+              "entity"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "scope"
+                  ]
+                },
+                {
+                  "required": [
+                    "kind"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "exportStatusSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "rules_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "tags_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "tests_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "workflows_file": {
+          "$ref": "shared.schema.json#/$defs/overrideFilePath"
+        },
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        }
+      }
+    },
+    "exportPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "shared.schema.json#/$defs/projectId"
+        },
+        "format": {
+          "$ref": "#/$defs/exportFormat"
+        },
+        "context": {
+          "$ref": "#/$defs/exportContextSelector"
+        },
+        "fetch": {
+          "$ref": "#/$defs/exportFetchSelector"
+        },
+        "history": {
+          "$ref": "#/$defs/exportHistorySelector"
+        },
+        "status": {
+          "$ref": "#/$defs/exportStatusSelector"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "context"
+          ]
+        },
+        {
+          "required": [
+            "fetch"
+          ]
+        },
+        {
+          "required": [
+            "history"
+          ]
+        },
+        {
+          "required": [
+            "status"
+          ]
+        }
+      ]
+    },
     "workPayload": {
       "type": "object",
       "additionalProperties": false,
@@ -776,6 +1014,25 @@
         "properties": {
           "payload": {
             "$ref": "#/$defs/fetchPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "export"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/exportPayload"
           }
         }
       }

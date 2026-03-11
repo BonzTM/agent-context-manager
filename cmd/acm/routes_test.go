@@ -9,7 +9,14 @@ import (
 func TestRouteCatalogCoversCanonicalCommands(t *testing.T) {
 	specs := v1.CommandSpecs()
 	for _, spec := range specs {
+		_, wantsRoute := canonicalRouteBuilder(spec.CLISubcommand)
 		route, ok := lookupRouteSpec(spec.CLISubcommand)
+		if !wantsRoute {
+			if ok {
+				t.Fatalf("expected no convenience route for %q", spec.CLISubcommand)
+			}
+			continue
+		}
 		if !ok {
 			t.Fatalf("missing route for %q", spec.CLISubcommand)
 		}
@@ -27,6 +34,9 @@ func TestRouteCatalogCoversCanonicalCommands(t *testing.T) {
 	}
 	if healthRoute.Summary == "" {
 		t.Fatal("expected health route summary")
+	}
+	if _, ok := lookupRouteSpec("export"); ok {
+		t.Fatal("expected export convenience route to be absent")
 	}
 	for _, name := range []string{"get-context", "propose-memory", "report-completion", "bootstrap", "doctor", "health-check", "health-fix"} {
 		if _, ok := lookupRouteSpec(name); ok {

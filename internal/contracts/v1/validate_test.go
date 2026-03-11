@@ -666,6 +666,80 @@ func TestDecodeAndValidateCommand_FetchRejectsLongKey(t *testing.T) {
 	}
 }
 
+func TestDecodeAndValidateCommand_ExportSuccess(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"export",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"format":"markdown",
+			"fetch":{
+				"receipt_id":"receipt-1234"
+			}
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(ExportPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if p.ProjectID != "my-cool-app" || p.Format != ExportFormatMarkdown {
+		t.Fatalf("unexpected payload: %+v", p)
+	}
+	if p.Fetch == nil || p.Fetch.ReceiptID != "receipt-1234" {
+		t.Fatalf("unexpected fetch selector: %+v", p.Fetch)
+	}
+}
+
+func TestDecodeAndValidateCommand_ExportRejectsMissingSelector(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"export",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"format":"json"
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
+func TestDecodeAndValidateCommand_ExportRejectsMultipleSelectors(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"export",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"format":"json",
+			"fetch":{
+				"receipt_id":"receipt-1234"
+			},
+			"status":{
+				"task_text":"inspect export drift",
+				"phase":"plan"
+			}
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
 func TestDecodeAndValidateCommand_WorkSuccess(t *testing.T) {
 	json := `{
 		"version":"acm.v1",

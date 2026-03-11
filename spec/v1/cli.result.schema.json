@@ -1139,6 +1139,626 @@
         }
       }
     },
+    "exportDocumentKind": {
+      "type": "string",
+      "enum": [
+        "context",
+        "memory",
+        "plan",
+        "receipt",
+        "task",
+        "run",
+        "fetch_bundle",
+        "history",
+        "status"
+      ]
+    },
+    "fetchVersionMismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "expected",
+        "actual"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "expected": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "actual": {
+          "type": "string",
+          "maxLength": 128
+        }
+      }
+    },
+    "exportMemoryDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "summary"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "category": {
+          "$ref": "shared.schema.json#/$defs/memoryCategory"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000000
+        },
+        "confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "tags": {
+          "$ref": "shared.schema.json#/$defs/tagList"
+        },
+        "related_pointer_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/pointerKey"
+          },
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "updated_at": {
+          "$ref": "shared.schema.json#/$defs/timestamp"
+        }
+      }
+    },
+    "exportPlanStages": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spec_outline": {
+          "$ref": "shared.schema.json#/$defs/workItemStatus"
+        },
+        "refined_spec": {
+          "$ref": "shared.schema.json#/$defs/workItemStatus"
+        },
+        "implementation_plan": {
+          "$ref": "shared.schema.json#/$defs/workItemStatus"
+        }
+      }
+    },
+    "exportTaskDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "summary",
+        "status"
+      ],
+      "properties": {
+        "plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
+        },
+        "key": {
+          "$ref": "shared.schema.json#/$defs/contractKey"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "status": {
+          "$ref": "shared.schema.json#/$defs/workItemStatus"
+        },
+        "parent_task_key": {
+          "$ref": "shared.schema.json#/$defs/contractKey"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/contractKey"
+          },
+          "maxItems": 64
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          },
+          "maxItems": 64
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          },
+          "maxItems": 128
+        },
+        "external_refs": {
+          "$ref": "shared.schema.json#/$defs/externalRefs"
+        },
+        "blocked_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600
+        },
+        "outcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          },
+          "maxItems": 64
+        }
+      }
+    },
+    "exportPlanDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_key",
+        "status",
+        "tasks"
+      ],
+      "properties": {
+        "plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
+        },
+        "receipt_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "title": {
+          "$ref": "shared.schema.json#/$defs/planTitle"
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "parent_plan_key": {
+          "$ref": "shared.schema.json#/$defs/planKey"
+        },
+        "status": {
+          "$ref": "shared.schema.json#/$defs/workItemStatus"
+        },
+        "stages": {
+          "$ref": "#/$defs/exportPlanStages"
+        },
+        "in_scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          },
+          "maxItems": 128
+        },
+        "out_of_scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          },
+          "maxItems": 128
+        },
+        "discovered_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          },
+          "maxItems": 512
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          },
+          "maxItems": 128
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          },
+          "maxItems": 128
+        },
+        "external_refs": {
+          "$ref": "shared.schema.json#/$defs/externalRefs"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/exportTaskDocument"
+          },
+          "maxItems": 512
+        }
+      }
+    },
+    "exportBaselinePath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "deleted"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "shared.schema.json#/$defs/relativePath"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "content_hash": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "exportReceiptRunDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "plan_status": {
+          "$ref": "shared.schema.json#/$defs/workItemStatus"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/exportTaskDocument"
+          },
+          "maxItems": 512
+        }
+      }
+    },
+    "exportReceiptDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_id",
+        "baseline_captured"
+      ],
+      "properties": {
+        "receipt_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        },
+        "resolved_tags": {
+          "$ref": "shared.schema.json#/$defs/tagList"
+        },
+        "pointer_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/pointerKey"
+          },
+          "maxItems": 512,
+          "uniqueItems": true
+        },
+        "memory_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "initial_scope_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 512,
+          "uniqueItems": true
+        },
+        "baseline_captured": {
+          "type": "boolean"
+        },
+        "baseline_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/exportBaselinePath"
+          },
+          "maxItems": 2000
+        },
+        "latest_run": {
+          "$ref": "#/$defs/exportReceiptRunDocument"
+        }
+      }
+    },
+    "exportRunDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "receipt_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "request_id": {
+          "$ref": "shared.schema.json#/$defs/requestId"
+        },
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "phase": {
+          "$ref": "shared.schema.json#/$defs/phase"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "files_changed": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/relativePath"
+          },
+          "maxItems": 2000
+        },
+        "outcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "updated_at": {
+          "$ref": "shared.schema.json#/$defs/timestamp"
+        }
+      }
+    },
+    "exportBundleItemKind": {
+      "type": "string",
+      "enum": [
+        "memory",
+        "plan",
+        "receipt",
+        "task",
+        "run",
+        "pointer",
+        "rule"
+      ]
+    },
+    "exportBundleItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "key",
+        "type",
+        "summary"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/exportBundleItemKind"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "memory": {
+          "$ref": "#/$defs/exportMemoryDocument"
+        },
+        "plan": {
+          "$ref": "#/$defs/exportPlanDocument"
+        },
+        "receipt": {
+          "$ref": "#/$defs/exportReceiptDocument"
+        },
+        "task": {
+          "$ref": "#/$defs/exportTaskDocument"
+        },
+        "run": {
+          "$ref": "#/$defs/exportRunDocument"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000000
+        }
+      }
+    },
+    "exportBundleDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "requested_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/contractKey"
+          },
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/exportBundleItem"
+          },
+          "maxItems": 256
+        },
+        "not_found": {
+          "type": "array",
+          "items": {
+            "$ref": "shared.schema.json#/$defs/contractKey"
+          },
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "version_mismatches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fetchVersionMismatch"
+          },
+          "maxItems": 256
+        }
+      }
+    },
+    "exportDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/exportDocumentKind"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "context": {
+          "$ref": "shared.schema.json#/$defs/contextReceipt"
+        },
+        "memory": {
+          "$ref": "#/$defs/exportMemoryDocument"
+        },
+        "plan": {
+          "$ref": "#/$defs/exportPlanDocument"
+        },
+        "receipt": {
+          "$ref": "#/$defs/exportReceiptDocument"
+        },
+        "task": {
+          "$ref": "#/$defs/exportTaskDocument"
+        },
+        "run": {
+          "$ref": "#/$defs/exportRunDocument"
+        },
+        "bundle": {
+          "$ref": "#/$defs/exportBundleDocument"
+        },
+        "history": {
+          "$ref": "#/$defs/historySearchResult"
+        },
+        "status": {
+          "$ref": "#/$defs/statusResult"
+        }
+      }
+    },
+    "exportResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "document",
+        "content"
+      ],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        },
+        "document": {
+          "$ref": "#/$defs/exportDocument"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000000
+        }
+      }
+    },
     "workResult": {
       "type": "object",
       "additionalProperties": false,
@@ -1402,6 +2022,29 @@
         "properties": {
           "result": {
             "$ref": "#/$defs/fetchResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "export"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/exportResult"
           }
         }
       }

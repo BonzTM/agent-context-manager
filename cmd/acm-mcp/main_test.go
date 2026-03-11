@@ -213,6 +213,35 @@ func TestInvokeWithDeps_HistoryDispatchesThroughWrapper(t *testing.T) {
 	}
 }
 
+func TestInvokeWithDeps_ExportDispatchesThroughWrapper(t *testing.T) {
+	var out bytes.Buffer
+	code := invokeWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		[]string{"--tool", "export"},
+		strings.NewReader(`{"project_id":"my-cool-app","format":"markdown","fetch":{"receipt_id":"receipt-1234"}}`),
+		&out,
+		fixedMCPNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			return mcpMainFakeService{}, func() {}, nil
+		},
+	)
+	if code != 0 {
+		t.Fatalf("unexpected exit code: got %d want 0", code)
+	}
+
+	var env v1.ResultEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true, got error %+v", env.Error)
+	}
+	if env.Command != v1.CommandExport {
+		t.Fatalf("unexpected command: %q", env.Command)
+	}
+}
+
 func TestInvokeWithDeps_ReviewDispatchesThroughWrapper(t *testing.T) {
 	var out bytes.Buffer
 	code := invokeWithDeps(
@@ -508,6 +537,16 @@ func (mcpMainFakeService) Context(_ context.Context, _ v1.ContextPayload) (v1.Co
 
 func (mcpMainFakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult, *core.APIError) {
 	return v1.FetchResult{}, nil
+}
+
+func (mcpMainFakeService) Export(_ context.Context, payload v1.ExportPayload) (v1.ExportResult, *core.APIError) {
+	return v1.ExportResult{
+		Format:  payload.Format,
+		Content: "# export",
+		Document: &v1.ExportDocument{
+			Kind: v1.ExportDocumentKindFetchBundle,
+		},
+	}, nil
 }
 
 func (mcpMainFakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {

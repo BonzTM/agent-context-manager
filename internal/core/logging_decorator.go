@@ -47,6 +47,12 @@ func (s *loggingService) Fetch(ctx context.Context, payload v1.FetchPayload) (v1
 	})
 }
 
+func (s *loggingService) Export(ctx context.Context, payload v1.ExportPayload) (v1.ExportResult, *APIError) {
+	return withOperation(ctx, s.now, s.logger, logging.OperationExport, payload.ProjectID, func() (v1.ExportResult, *APIError) {
+		return s.next.Export(ctx, payload)
+	})
+}
+
 func (s *loggingService) Memory(ctx context.Context, payload v1.MemoryCommandPayload) (v1.MemoryResult, *APIError) {
 	return withOperation(ctx, s.now, s.logger, logging.OperationMemory, payload.ProjectID, func() (v1.MemoryResult, *APIError) {
 		return s.next.Memory(ctx, payload)

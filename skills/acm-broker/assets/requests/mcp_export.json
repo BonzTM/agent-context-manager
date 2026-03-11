@@ -1,0 +1,7 @@
+{
+  "project_id": "customer-portal",
+  "format": "markdown",
+  "fetch": {
+    "receipt_id": "receipt-12345678"
+  }
+}

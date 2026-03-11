@@ -21,6 +21,10 @@ func (s *Service) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult, *
 	return v1.FetchResult{}, notImplemented("fetch")
 }
 
+func (s *Service) Export(_ context.Context, _ v1.ExportPayload) (v1.ExportResult, *core.APIError) {
+	return v1.ExportResult{}, notImplemented("export")
+}
+
 func (s *Service) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
 	return v1.MemoryResult{}, notImplemented("memory")
 }

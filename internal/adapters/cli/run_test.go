@@ -31,6 +31,16 @@ func (f fakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult
 	return v1.FetchResult{Items: []v1.FetchItem{}}, nil
 }
 
+func (f fakeService) Export(_ context.Context, payload v1.ExportPayload) (v1.ExportResult, *core.APIError) {
+	return v1.ExportResult{
+		Format:  payload.Format,
+		Content: "# export",
+		Document: &v1.ExportDocument{
+			Kind: v1.ExportDocumentKindFetchBundle,
+		},
+	}, nil
+}
+
 func (f fakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
 	return v1.MemoryResult{}, nil
 }
@@ -110,6 +120,35 @@ func TestRun_SuccessEnvelope(t *testing.T) {
 		t.Fatalf("expected ok=true, got false: %+v", env.Error)
 	}
 	if env.Command != v1.CommandContext {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+}
+
+func TestRun_ExportSuccessEnvelope(t *testing.T) {
+	in := bytes.NewBufferString(`{
+		"version":"acm.v1",
+		"command":"export",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"format":"markdown",
+			"fetch":{"receipt_id":"receipt-1234"}
+		}
+	}`)
+	out := &bytes.Buffer{}
+	code := Run(context.Background(), fakeService{}, in, out, func() time.Time { return time.Date(2026, 3, 4, 10, 0, 0, 0, time.UTC) })
+	if code != 0 {
+		t.Fatalf("expected exit code 0 got %d", code)
+	}
+
+	var env v1.ResultEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true, got false: %+v", env.Error)
+	}
+	if env.Command != v1.CommandExport {
 		t.Fatalf("unexpected command: %s", env.Command)
 	}
 }

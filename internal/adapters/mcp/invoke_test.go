@@ -31,6 +31,16 @@ func (f fakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult
 	return v1.FetchResult{Items: []v1.FetchItem{}}, nil
 }
 
+func (f fakeService) Export(_ context.Context, payload v1.ExportPayload) (v1.ExportResult, *core.APIError) {
+	return v1.ExportResult{
+		Format:  payload.Format,
+		Content: "# export",
+		Document: &v1.ExportDocument{
+			Kind: v1.ExportDocumentKindFetchBundle,
+		},
+	}, nil
+}
+
 func (f fakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
 	return v1.MemoryResult{CandidateID: 1, Status: "pending", Validation: v1.MemoryValidation{HardPassed: true, SoftPassed: true}}, nil
 }
@@ -210,6 +220,15 @@ func TestInvoke_FetchAndWork(t *testing.T) {
 	if _, ok := reviewResult.(v1.ReviewResult); !ok {
 		t.Fatalf("unexpected review result type: %T", reviewResult)
 	}
+
+	exportPayload := []byte(`{"project_id":"my-cool-app","format":"markdown","fetch":{"receipt_id":"receipt-1234"}}`)
+	exportResult, exportErr := Invoke(context.Background(), fakeService{}, string(v1.CommandExport), exportPayload)
+	if exportErr != nil {
+		t.Fatalf("unexpected export error: %v", exportErr)
+	}
+	if _, ok := exportResult.(v1.ExportResult); !ok {
+		t.Fatalf("unexpected export result type: %T", exportResult)
+	}
 }
 
 func TestInvoke_RemainingTools(t *testing.T) {
@@ -304,13 +323,14 @@ func TestInvoke_RemainingTools(t *testing.T) {
 
 func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 	defs := ToolDefinitions()
-	if len(defs) != 12 {
-		t.Fatalf("unexpected tool count: got %d want 12", len(defs))
+	if len(defs) != 13 {
+		t.Fatalf("unexpected tool count: got %d want 13", len(defs))
 	}
 
 	expectedInputRefs := map[string]string{
 		"context": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/contextPayload",
 		"fetch":   "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/fetchPayload",
+		"export":  "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/exportPayload",
 		"memory":  "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/memoryPayload",
 		"done":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/donePayload",
 		"review":  "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reviewPayload",
@@ -325,6 +345,7 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 	expectedOutputRefs := map[string]string{
 		"context": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/contextResult",
 		"fetch":   "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/fetchResult",
+		"export":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/exportResult",
 		"memory":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/memoryResult",
 		"done":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/doneResult",
 		"review":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reviewResult",

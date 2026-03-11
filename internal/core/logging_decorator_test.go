@@ -21,6 +21,10 @@ func (f decoratorFakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.Fe
 	return v1.FetchResult{}, f.errorFor(logging.OperationFetch)
 }
 
+func (f decoratorFakeService) Export(_ context.Context, _ v1.ExportPayload) (v1.ExportResult, *APIError) {
+	return v1.ExportResult{}, f.errorFor(logging.OperationExport)
+}
+
 func (f decoratorFakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *APIError) {
 	return v1.MemoryResult{}, f.errorFor(logging.OperationMemory)
 }
@@ -173,6 +177,19 @@ func decoratorOperationCases() []decoratorOperationCase {
 				_, apiErr := svc.Fetch(ctx, v1.FetchPayload{
 					ProjectID: "project.alpha",
 					Keys:      []string{"docs/runtime.md"},
+				})
+				return apiErr
+			},
+		},
+		{
+			operation: logging.OperationExport,
+			call: func(ctx context.Context, svc Service) *APIError {
+				_, apiErr := svc.Export(ctx, v1.ExportPayload{
+					ProjectID: "project.alpha",
+					Format:    v1.ExportFormatMarkdown,
+					Fetch: &v1.ExportFetchSelector{
+						ReceiptID: "receipt-12345",
+					},
 				})
 				return apiErr
 			},

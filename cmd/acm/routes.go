@@ -13,7 +13,7 @@ const (
 	routeGroupMaintenance routeGroup = "maintenance"
 )
 
-type routeBuilder func([]string, func() time.Time) (v1.CommandEnvelope, error)
+type routeBuilder func([]string, func() time.Time) (convenienceBuildResult, error)
 
 type routeSpec struct {
 	Name    string
@@ -70,33 +70,43 @@ func buildRouteCatalog() []routeSpec {
 func canonicalRouteBuilder(name string) (routeBuilder, bool) {
 	switch name {
 	case "context":
-		return buildContextEnvelope, true
+		return buildContextRequest, true
 	case "fetch":
-		return buildFetchEnvelope, true
+		return buildFetchRequest, true
 	case "memory":
-		return buildMemoryEnvelope, true
+		return envelopeOnlyBuilder(buildMemoryEnvelope), true
 	case "work":
-		return buildWorkEnvelope, true
+		return envelopeOnlyBuilder(buildWorkEnvelope), true
 	case "history":
-		return func(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-			return buildHistorySearchEnvelope("history", args, now)
+		return func(args []string, now func() time.Time) (convenienceBuildResult, error) {
+			return buildHistorySearchRequest("history", args, now)
 		}, true
 	case "done":
-		return buildDoneEnvelope, true
+		return envelopeOnlyBuilder(buildDoneEnvelope), true
 	case "review":
-		return buildReviewEnvelope, true
+		return envelopeOnlyBuilder(buildReviewEnvelope), true
 	case "sync":
-		return buildSyncEnvelope, true
+		return envelopeOnlyBuilder(buildSyncEnvelope), true
 	case "health":
-		return buildHealthEnvelope, true
+		return envelopeOnlyBuilder(buildHealthEnvelope), true
 	case "status":
-		return buildStatusEnvelope, true
+		return buildStatusRequest, true
 	case "verify":
-		return buildVerifyEnvelope, true
+		return envelopeOnlyBuilder(buildVerifyEnvelope), true
 	case "init":
-		return buildInitEnvelope, true
+		return envelopeOnlyBuilder(buildInitEnvelope), true
 	default:
 		return nil, false
+	}
+}
+
+func envelopeOnlyBuilder(builder func([]string, func() time.Time) (v1.CommandEnvelope, error)) routeBuilder {
+	return func(args []string, now func() time.Time) (convenienceBuildResult, error) {
+		env, err := builder(args, now)
+		if err != nil {
+			return convenienceBuildResult{}, err
+		}
+		return convenienceBuildResult{Envelope: env}, nil
 	}
 }
 

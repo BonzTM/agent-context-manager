@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,16 @@ import (
 type serviceFactory func(context.Context, logging.Logger) (core.Service, runtime.CleanupFunc, error)
 
 type adapterRunner func(context.Context, core.Service, io.Reader, io.Writer, func() time.Time, logging.Logger) int
+
+type convenienceBuildResult struct {
+	Envelope  v1.CommandEnvelope
+	RawOutput *rawOutputOptions
+}
+
+type rawOutputOptions struct {
+	OutFile string
+	Force   bool
+}
 
 func runConvenience(ctx context.Context, logger logging.Logger, subcommand string, args []string) int {
 	return runConvenienceWithDeps(
@@ -64,7 +75,7 @@ func runConvenienceWithDeps(
 		runAdapter = cli.RunWithLogger
 	}
 
-	env, err := buildConvenienceEnvelope(subcommand, args, now)
+	requestSpec, err := buildConvenienceRequest(subcommand, args, now)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			logger.Info(ctx, logging.EventACMRun, "stage", "finish", "subcommand", subcommand, "exit_code", 0)
@@ -75,7 +86,7 @@ func runConvenienceWithDeps(
 		return 2
 	}
 
-	request, err := json.Marshal(env)
+	request, err := json.Marshal(requestSpec.Envelope)
 	if err != nil {
 		logger.Error(ctx, logging.EventACMRun, "stage", "marshal", "subcommand", subcommand, "ok", false, "error_code", "INTERNAL_ERROR")
 		fmt.Fprintf(os.Stderr, "failed to build request: %v\n", err)
@@ -90,23 +101,64 @@ func runConvenienceWithDeps(
 	}
 	defer closeService()
 
-	code := runAdapter(ctx, svc, bytes.NewReader(request), out, now, logger)
+	adapterOut := out
+	var rawBuffer bytes.Buffer
+	if requestSpec.RawOutput != nil {
+		adapterOut = &rawBuffer
+	}
+
+	code := runAdapter(ctx, svc, bytes.NewReader(request), adapterOut, now, logger)
+	if requestSpec.RawOutput != nil {
+		if code != 0 {
+			_, _ = io.Copy(out, &rawBuffer)
+			logger.Info(ctx, logging.EventACMRun, "stage", "finish", "subcommand", subcommand, "exit_code", code)
+			return code
+		}
+
+		content, err := extractExportContent(rawBuffer.Bytes())
+		if err != nil {
+			logger.Error(ctx, logging.EventACMRun, "stage", "raw_output_parse", "subcommand", subcommand, "ok", false, "error_code", "INTERNAL_ERROR")
+			fmt.Fprintf(os.Stderr, "failed to parse export output: %v\n", err)
+			return 1
+		}
+		if err := emitRawExportContent(out, content, *requestSpec.RawOutput); err != nil {
+			logger.Error(ctx, logging.EventACMRun, "stage", "raw_output_write", "subcommand", subcommand, "ok", false, "error_code", "WRITE_FAILED")
+			fmt.Fprintf(os.Stderr, "failed to write export output: %v\n", err)
+			return 1
+		}
+	}
 	logger.Info(ctx, logging.EventACMRun, "stage", "finish", "subcommand", subcommand, "exit_code", code)
 	return code
 }
 
 func buildConvenienceEnvelope(subcommand string, args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	request, err := buildConvenienceRequest(subcommand, args, now)
+	if err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	return request.Envelope, nil
+}
+
+func buildConvenienceRequest(subcommand string, args []string, now func() time.Time) (convenienceBuildResult, error) {
 	route, ok := lookupRouteSpec(subcommand)
 	if !ok {
-		return v1.CommandEnvelope{}, fmt.Errorf("unknown subcommand: %s", subcommand)
+		return convenienceBuildResult{}, fmt.Errorf("unknown subcommand: %s", subcommand)
 	}
 	return route.Build(args, now)
 }
 
 func buildContextEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-	return buildContextCommandEnvelope(
+	request, err := buildContextRequest(args, now)
+	if err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	return request.Envelope, nil
+}
+
+func buildContextRequest(args []string, now func() time.Time) (convenienceBuildResult, error) {
+	return buildContextCommandRequest(
 		"context",
-		"acm context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--scope-path <path>]...",
+		"acm context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--scope-path <path>]... [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
 		"acm context --task-text \"Add sync checks\" --phase execute",
 		v1.CommandContext,
 		args,
@@ -115,6 +167,14 @@ func buildContextEnvelope(args []string, now func() time.Time) (v1.CommandEnvelo
 }
 
 func buildContextCommandEnvelope(subcommand, usage, example string, command v1.Command, args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	request, err := buildContextCommandRequest(subcommand, usage, example, command, args, now)
+	if err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	return request.Envelope, nil
+}
+
+func buildContextCommandRequest(subcommand, usage, example string, command v1.Command, args []string, now func() time.Time) (convenienceBuildResult, error) {
 	fs := newCommandFlagSet(
 		subcommand,
 		usage,
@@ -125,28 +185,32 @@ func buildContextCommandEnvelope(subcommand, usage, example string, command v1.C
 	taskFile := fs.String("task-file", "", "file containing task text ('-' for stdin)")
 	phase := fs.String("phase", string(v1.PhaseExecute), "phase: plan|execute|review")
 	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
+	exportFlags := addReadSurfaceExportFlags(fs)
 	var scopePaths repeatedStringFlag
 	fs.Var(&scopePaths, "scope-path", "known repository-relative path to seed into initial scope (repeatable)")
 	if err := parseCommandFlags(fs, args); err != nil {
-		return v1.CommandEnvelope{}, err
+		return convenienceBuildResult{}, err
 	}
 	trimmedTaskText := strings.TrimSpace(*taskText)
 	trimmedTaskFile := strings.TrimSpace(*taskFile)
 	if trimmedTaskText != "" && trimmedTaskFile != "" {
-		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --task-text or --task-file")
+		return convenienceBuildResult{}, fmt.Errorf("use only one of --task-text or --task-file")
 	}
 	if trimmedTaskText == "" {
 		if trimmedTaskFile == "" {
-			return v1.CommandEnvelope{}, fmt.Errorf("--task-text or --task-file is required")
+			return convenienceBuildResult{}, fmt.Errorf("--task-text or --task-file is required")
 		}
 		blob, err := readTextFile(trimmedTaskFile)
 		if err != nil {
-			return v1.CommandEnvelope{}, fmt.Errorf("read --task-file %s: %w", trimmedTaskFile, err)
+			return convenienceBuildResult{}, fmt.Errorf("read --task-file %s: %w", trimmedTaskFile, err)
 		}
 		trimmedTaskText = strings.TrimSpace(blob)
 	}
 	if trimmedTaskText == "" {
-		return v1.CommandEnvelope{}, fmt.Errorf("task text must not be empty")
+		return convenienceBuildResult{}, fmt.Errorf("task text must not be empty")
+	}
+	if err := exportFlags.Validate(); err != nil {
+		return convenienceBuildResult{}, err
 	}
 
 	payload := v1.ContextPayload{
@@ -159,13 +223,43 @@ func buildContextCommandEnvelope(subcommand, usage, example string, command v1.C
 		payload.InitialScopePaths = append([]string(nil), values...)
 	}
 
-	return buildEnvelope(command, *requestID, payload, now)
+	if exportFlags.Enabled() {
+		exportPayload := v1.ExportPayload{
+			ProjectID: payload.ProjectID,
+			Format:    exportFlags.Format,
+			Context: &v1.ExportContextSelector{
+				TaskText:          payload.TaskText,
+				Phase:             payload.Phase,
+				TagsFile:          payload.TagsFile,
+				InitialScopePaths: append([]string(nil), payload.InitialScopePaths...),
+			},
+		}
+		env, err := buildEnvelope(v1.CommandExport, *requestID, exportPayload, now)
+		if err != nil {
+			return convenienceBuildResult{}, err
+		}
+		return convenienceBuildResult{Envelope: env, RawOutput: exportFlags.RawOutput()}, nil
+	}
+
+	env, err := buildEnvelope(command, *requestID, payload, now)
+	if err != nil {
+		return convenienceBuildResult{}, err
+	}
+	return convenienceBuildResult{Envelope: env}, nil
 }
 
 func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	request, err := buildFetchRequest(args, now)
+	if err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	return request.Envelope, nil
+}
+
+func buildFetchRequest(args []string, now func() time.Time) (convenienceBuildResult, error) {
 	fs := newCommandFlagSet(
 		"fetch",
-		"acm fetch [--project <id>] [--key <pointer>]... [--keys-file <path>] [--keys-json <json>] [--receipt-id <id>] [--expect <key=version>]... [--expected-versions-file <path>] [--expected-versions-json <json>]",
+		"acm fetch [--project <id>] [--key <pointer>]... [--keys-file <path>] [--keys-json <json>] [--receipt-id <id>] [--expect <key=version>]... [--expected-versions-file <path>] [--expected-versions-json <json>] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
 		"acm fetch --key plan:req-12345678 --expect plan:req-12345678=v3",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
@@ -174,25 +268,29 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 	keysJSON := fs.String("keys-json", "", "inline JSON array of keys")
 	expectedVersionsFile := fs.String("expected-versions-file", "", "JSON file containing an object map of key->version")
 	expectedVersionsJSON := fs.String("expected-versions-json", "", "inline JSON object map of key->version")
+	exportFlags := addReadSurfaceExportFlags(fs)
 	var keys repeatedStringFlag
 	var expects repeatedStringFlag
 	fs.Var(&keys, "key", "key to fetch (repeatable)")
 	fs.Var(&expects, "expect", "expected version in key=version form (repeatable)")
 	if err := parseCommandFlags(fs, args); err != nil {
-		return v1.CommandEnvelope{}, err
+		return convenienceBuildResult{}, err
+	}
+	if err := exportFlags.Validate(); err != nil {
+		return convenienceBuildResult{}, err
 	}
 	allKeys := keys.Values()
 	if trimmedKeysFile := strings.TrimSpace(*keysFile); trimmedKeysFile != "" {
 		fileKeys, err := readStringListFromFile(trimmedKeysFile, "--keys-file")
 		if err != nil {
-			return v1.CommandEnvelope{}, err
+			return convenienceBuildResult{}, err
 		}
 		allKeys = mergeUnique(allKeys, fileKeys)
 	}
 	if trimmedKeysJSON := strings.TrimSpace(*keysJSON); trimmedKeysJSON != "" {
 		inlineKeys, err := readStringListFromJSON(trimmedKeysJSON, "--keys-json")
 		if err != nil {
-			return v1.CommandEnvelope{}, err
+			return convenienceBuildResult{}, err
 		}
 		allKeys = mergeUnique(allKeys, inlineKeys)
 	}
@@ -201,7 +299,7 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 	if trimmedExpectedVersionsFile := strings.TrimSpace(*expectedVersionsFile); trimmedExpectedVersionsFile != "" {
 		fileMap, err := readStringMapFromFile(trimmedExpectedVersionsFile, "--expected-versions-file")
 		if err != nil {
-			return v1.CommandEnvelope{}, err
+			return convenienceBuildResult{}, err
 		}
 		for k, v := range fileMap {
 			expectedVersions[k] = v
@@ -210,7 +308,7 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 	if trimmedExpectedVersionsJSON := strings.TrimSpace(*expectedVersionsJSON); trimmedExpectedVersionsJSON != "" {
 		inlineMap, err := readStringMapFromJSON(trimmedExpectedVersionsJSON, "--expected-versions-json")
 		if err != nil {
-			return v1.CommandEnvelope{}, err
+			return convenienceBuildResult{}, err
 		}
 		for k, v := range inlineMap {
 			expectedVersions[k] = v
@@ -219,7 +317,7 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 	for _, expectedArg := range expects {
 		key, version, err := parseExpectedVersion(expectedArg)
 		if err != nil {
-			return v1.CommandEnvelope{}, err
+			return convenienceBuildResult{}, err
 		}
 		expectedVersions[key] = version
 	}
@@ -236,7 +334,228 @@ func buildFetchEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope
 		payload.ExpectedVersions = expectedVersions
 	}
 
-	return buildEnvelope(v1.CommandFetch, *requestID, payload, now)
+	if exportFlags.Enabled() {
+		exportPayload := v1.ExportPayload{
+			ProjectID: payload.ProjectID,
+			Format:    exportFlags.Format,
+			Fetch: &v1.ExportFetchSelector{
+				Keys:             append([]string(nil), payload.Keys...),
+				ReceiptID:        payload.ReceiptID,
+				ExpectedVersions: cloneStringMap(payload.ExpectedVersions),
+			},
+		}
+		env, err := buildEnvelope(v1.CommandExport, *requestID, exportPayload, now)
+		if err != nil {
+			return convenienceBuildResult{}, err
+		}
+		return convenienceBuildResult{Envelope: env, RawOutput: exportFlags.RawOutput()}, nil
+	}
+
+	env, err := buildEnvelope(v1.CommandFetch, *requestID, payload, now)
+	if err != nil {
+		return convenienceBuildResult{}, err
+	}
+	return convenienceBuildResult{Envelope: env}, nil
+}
+
+func buildHistorySearchEnvelope(subcommand string, args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	request, err := buildHistorySearchRequest(subcommand, args, now)
+	if err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	return request.Envelope, nil
+}
+
+func buildHistorySearchRequest(subcommand string, args []string, now func() time.Time) (convenienceBuildResult, error) {
+	usageLine := "acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]"
+	example := "acm history --entity work --scope current --query \"MCP parity\""
+	defaultEntity := v1.HistoryEntityAll
+
+	fs := newCommandFlagSet(subcommand, usageLine, example)
+	projectID, requestID := addProjectAndRequestFlags(fs)
+	entity := fs.String("entity", string(defaultEntity), "history entity: all|work|memory|receipt|run")
+	query := fs.String("query", "", "search text applied to plan, memory, receipt, and run summaries")
+	queryFile := fs.String("query-file", "", "file containing search text ('-' for stdin)")
+	limit := fs.Int("limit", 20, "maximum number of plans to return (1-100)")
+	unbounded := optionalBoolFlag{}
+	scope := fs.String("scope", "", "work-history scope when --entity=work: current|deferred|completed|all")
+	kind := fs.String("kind", "", "optional work-plan kind filter when --entity=work")
+	exportFlags := addReadSurfaceExportFlags(fs)
+	fs.Var(&unbounded, "unbounded", "remove built-in history result caps (optional bool)")
+	if err := parseCommandFlags(fs, args); err != nil {
+		return convenienceBuildResult{}, err
+	}
+	if err := exportFlags.Validate(); err != nil {
+		return convenienceBuildResult{}, err
+	}
+	entityValue := strings.TrimSpace(*entity)
+	trimmedQuery := strings.TrimSpace(*query)
+	trimmedQueryFile := strings.TrimSpace(*queryFile)
+	trimmedScope := strings.TrimSpace(*scope)
+	trimmedKind := strings.TrimSpace(*kind)
+	if trimmedQuery != "" && trimmedQueryFile != "" {
+		return convenienceBuildResult{}, fmt.Errorf("use only one of --query or --query-file")
+	}
+	if trimmedQuery == "" && trimmedQueryFile != "" {
+		blob, err := readTextFile(trimmedQueryFile)
+		if err != nil {
+			return convenienceBuildResult{}, fmt.Errorf("read --query-file %s: %w", trimmedQueryFile, err)
+		}
+		trimmedQuery = strings.TrimSpace(blob)
+	}
+	payload := v1.HistorySearchPayload{
+		ProjectID: strings.TrimSpace(*projectID),
+		Entity:    v1.HistoryEntity(entityValue),
+		Query:     trimmedQuery,
+	}
+	if payload.Entity == v1.HistoryEntityWork {
+		payload.Scope = v1.HistoryScope(trimmedScope)
+	}
+	if trimmedKind != "" {
+		if payload.Entity != v1.HistoryEntityWork {
+			return convenienceBuildResult{}, fmt.Errorf("kind is only supported when entity=work")
+		}
+		payload.Kind = trimmedKind
+	}
+	if trimmedScope != "" && payload.Entity != v1.HistoryEntityWork {
+		return convenienceBuildResult{}, fmt.Errorf("scope is only supported when entity=work")
+	}
+	if *limit > 0 {
+		payload.Limit = *limit
+	}
+	if unbounded.set {
+		value := unbounded.value
+		payload.Unbounded = &value
+	}
+
+	if exportFlags.Enabled() {
+		exportPayload := v1.ExportPayload{
+			ProjectID: payload.ProjectID,
+			Format:    exportFlags.Format,
+			History: &v1.ExportHistorySelector{
+				Entity:    payload.Entity,
+				Query:     payload.Query,
+				Scope:     payload.Scope,
+				Kind:      payload.Kind,
+				Limit:     payload.Limit,
+				Unbounded: payload.Unbounded,
+			},
+		}
+		env, err := buildEnvelope(v1.CommandExport, *requestID, exportPayload, now)
+		if err != nil {
+			return convenienceBuildResult{}, err
+		}
+		return convenienceBuildResult{Envelope: env, RawOutput: exportFlags.RawOutput()}, nil
+	}
+
+	env, err := buildEnvelope(v1.CommandHistorySearch, *requestID, payload, now)
+	if err != nil {
+		return convenienceBuildResult{}, err
+	}
+	return convenienceBuildResult{Envelope: env}, nil
+}
+
+func buildStatusEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	request, err := buildStatusRequest(args, now)
+	if err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	return request.Envelope, nil
+}
+
+func buildStatusRequest(args []string, now func() time.Time) (convenienceBuildResult, error) {
+	return buildStatusRequestForCommand(
+		"status",
+		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
+		"acm status --task-text \"add review gate\" --phase execute",
+		args,
+		now,
+	)
+}
+
+func buildStatusEnvelopeForCommand(commandName, usageLine, example string, args []string, now func() time.Time) (v1.CommandEnvelope, error) {
+	request, err := buildStatusRequestForCommand(commandName, usageLine, example, args, now)
+	if err != nil {
+		return v1.CommandEnvelope{}, err
+	}
+	return request.Envelope, nil
+}
+
+func buildStatusRequestForCommand(commandName, usageLine, example string, args []string, now func() time.Time) (convenienceBuildResult, error) {
+	fs := newCommandFlagSet(
+		commandName,
+		usageLine,
+		example,
+	)
+	projectID, requestID := addProjectAndRequestFlags(fs)
+	projectRoot := fs.String("project-root", "", "project root")
+	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
+	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
+	testsFile := fs.String("tests-file", "", "explicit verify tests file path (overrides default discovery)")
+	workflowsFile := fs.String("workflows-file", "", "explicit workflow definitions file path (overrides default discovery)")
+	taskText := fs.String("task-text", "", "optional task text to preview simplified context load")
+	taskFile := fs.String("task-file", "", "optional file containing task text ('-' for stdin)")
+	phase := fs.String("phase", string(v1.PhaseExecute), "phase: plan|execute|review")
+	exportFlags := addReadSurfaceExportFlags(fs)
+	if err := parseCommandFlags(fs, args); err != nil {
+		return convenienceBuildResult{}, err
+	}
+	if err := exportFlags.Validate(); err != nil {
+		return convenienceBuildResult{}, err
+	}
+	trimmedTaskText := strings.TrimSpace(*taskText)
+	trimmedTaskFile := strings.TrimSpace(*taskFile)
+	if trimmedTaskText != "" && trimmedTaskFile != "" {
+		return convenienceBuildResult{}, fmt.Errorf("use only one of --task-text or --task-file")
+	}
+	if trimmedTaskText == "" && trimmedTaskFile != "" {
+		blob, err := readTextFile(trimmedTaskFile)
+		if err != nil {
+			return convenienceBuildResult{}, fmt.Errorf("read --task-file %s: %w", trimmedTaskFile, err)
+		}
+		trimmedTaskText = strings.TrimSpace(blob)
+	}
+
+	payload := v1.StatusPayload{
+		ProjectID:     strings.TrimSpace(*projectID),
+		ProjectRoot:   strings.TrimSpace(*projectRoot),
+		RulesFile:     strings.TrimSpace(*rulesFile),
+		TagsFile:      strings.TrimSpace(*tagsFile),
+		TestsFile:     strings.TrimSpace(*testsFile),
+		WorkflowsFile: strings.TrimSpace(*workflowsFile),
+		TaskText:      trimmedTaskText,
+		Phase:         v1.Phase(strings.TrimSpace(*phase)),
+	}
+	if payload.TaskText == "" {
+		payload.Phase = ""
+	}
+
+	if exportFlags.Enabled() {
+		exportPayload := v1.ExportPayload{
+			ProjectID: payload.ProjectID,
+			Format:    exportFlags.Format,
+			Status: &v1.ExportStatusSelector{
+				ProjectRoot:   payload.ProjectRoot,
+				RulesFile:     payload.RulesFile,
+				TagsFile:      payload.TagsFile,
+				TestsFile:     payload.TestsFile,
+				WorkflowsFile: payload.WorkflowsFile,
+				TaskText:      payload.TaskText,
+				Phase:         payload.Phase,
+			},
+		}
+		env, err := buildEnvelope(v1.CommandExport, *requestID, exportPayload, now)
+		if err != nil {
+			return convenienceBuildResult{}, err
+		}
+		return convenienceBuildResult{Envelope: env, RawOutput: exportFlags.RawOutput()}, nil
+	}
+
+	env, err := buildEnvelope(v1.CommandStatus, *requestID, payload, now)
+	if err != nil {
+		return convenienceBuildResult{}, err
+	}
+	return convenienceBuildResult{Envelope: env}, nil
 }
 
 func buildMemoryEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
@@ -512,67 +831,6 @@ func buildWorkEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope,
 	return buildEnvelope(v1.CommandWork, *requestID, payload, now)
 }
 
-func buildHistorySearchEnvelope(subcommand string, args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-	usageLine := "acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]"
-	example := "acm history --entity work --scope current --query \"MCP parity\""
-	defaultEntity := v1.HistoryEntityAll
-
-	fs := newCommandFlagSet(subcommand, usageLine, example)
-	projectID, requestID := addProjectAndRequestFlags(fs)
-	entity := fs.String("entity", string(defaultEntity), "history entity: all|work|memory|receipt|run")
-	query := fs.String("query", "", "search text applied to plan, memory, receipt, and run summaries")
-	queryFile := fs.String("query-file", "", "file containing search text ('-' for stdin)")
-	limit := fs.Int("limit", 20, "maximum number of plans to return (1-100)")
-	unbounded := optionalBoolFlag{}
-	scope := fs.String("scope", "", "work-history scope when --entity=work: current|deferred|completed|all")
-	kind := fs.String("kind", "", "optional work-plan kind filter when --entity=work")
-	fs.Var(&unbounded, "unbounded", "remove built-in history result caps (optional bool)")
-	if err := parseCommandFlags(fs, args); err != nil {
-		return v1.CommandEnvelope{}, err
-	}
-	entityValue := strings.TrimSpace(*entity)
-	trimmedQuery := strings.TrimSpace(*query)
-	trimmedQueryFile := strings.TrimSpace(*queryFile)
-	trimmedScope := strings.TrimSpace(*scope)
-	trimmedKind := strings.TrimSpace(*kind)
-	if trimmedQuery != "" && trimmedQueryFile != "" {
-		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --query or --query-file")
-	}
-	if trimmedQuery == "" && trimmedQueryFile != "" {
-		blob, err := readTextFile(trimmedQueryFile)
-		if err != nil {
-			return v1.CommandEnvelope{}, fmt.Errorf("read --query-file %s: %w", trimmedQueryFile, err)
-		}
-		trimmedQuery = strings.TrimSpace(blob)
-	}
-	payload := v1.HistorySearchPayload{
-		ProjectID: strings.TrimSpace(*projectID),
-		Entity:    v1.HistoryEntity(entityValue),
-		Query:     trimmedQuery,
-	}
-	if payload.Entity == v1.HistoryEntityWork {
-		payload.Scope = v1.HistoryScope(trimmedScope)
-	}
-	if trimmedKind != "" {
-		if payload.Entity != v1.HistoryEntityWork {
-			return v1.CommandEnvelope{}, fmt.Errorf("kind is only supported when entity=work")
-		}
-		payload.Kind = trimmedKind
-	}
-	if trimmedScope != "" && payload.Entity != v1.HistoryEntityWork {
-		return v1.CommandEnvelope{}, fmt.Errorf("scope is only supported when entity=work")
-	}
-	if *limit > 0 {
-		payload.Limit = *limit
-	}
-	if unbounded.set {
-		value := unbounded.value
-		payload.Unbounded = &value
-	}
-
-	return buildEnvelope(v1.CommandHistorySearch, *requestID, payload, now)
-}
-
 func buildDoneEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	return buildDoneCommandEnvelope(
 		"done",
@@ -810,64 +1068,6 @@ func buildHealthEnvelope(args []string, now func() time.Time) (v1.CommandEnvelop
 	return buildEnvelope(v1.CommandHealth, *requestID, payload, now)
 }
 
-func buildStatusEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-	return buildStatusEnvelopeForCommand(
-		"status",
-		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
-		"acm status --task-text \"add review gate\" --phase execute",
-		args,
-		now,
-	)
-}
-
-func buildStatusEnvelopeForCommand(commandName, usageLine, example string, args []string, now func() time.Time) (v1.CommandEnvelope, error) {
-	fs := newCommandFlagSet(
-		commandName,
-		usageLine,
-		example,
-	)
-	projectID, requestID := addProjectAndRequestFlags(fs)
-	projectRoot := fs.String("project-root", "", "project root")
-	rulesFile := fs.String("rules-file", "", "explicit canonical rules file path (overrides default discovery)")
-	tagsFile := fs.String("tags-file", "", "explicit canonical tag dictionary file path (overrides default discovery)")
-	testsFile := fs.String("tests-file", "", "explicit verify tests file path (overrides default discovery)")
-	workflowsFile := fs.String("workflows-file", "", "explicit workflow definitions file path (overrides default discovery)")
-	taskText := fs.String("task-text", "", "optional task text to preview simplified context load")
-	taskFile := fs.String("task-file", "", "optional file containing task text ('-' for stdin)")
-	phase := fs.String("phase", string(v1.PhaseExecute), "phase: plan|execute|review")
-	if err := parseCommandFlags(fs, args); err != nil {
-		return v1.CommandEnvelope{}, err
-	}
-	trimmedTaskText := strings.TrimSpace(*taskText)
-	trimmedTaskFile := strings.TrimSpace(*taskFile)
-	if trimmedTaskText != "" && trimmedTaskFile != "" {
-		return v1.CommandEnvelope{}, fmt.Errorf("use only one of --task-text or --task-file")
-	}
-	if trimmedTaskText == "" && trimmedTaskFile != "" {
-		blob, err := readTextFile(trimmedTaskFile)
-		if err != nil {
-			return v1.CommandEnvelope{}, fmt.Errorf("read --task-file %s: %w", trimmedTaskFile, err)
-		}
-		trimmedTaskText = strings.TrimSpace(blob)
-	}
-
-	payload := v1.StatusPayload{
-		ProjectID:     strings.TrimSpace(*projectID),
-		ProjectRoot:   strings.TrimSpace(*projectRoot),
-		RulesFile:     strings.TrimSpace(*rulesFile),
-		TagsFile:      strings.TrimSpace(*tagsFile),
-		TestsFile:     strings.TrimSpace(*testsFile),
-		WorkflowsFile: strings.TrimSpace(*workflowsFile),
-		TaskText:      trimmedTaskText,
-		Phase:         v1.Phase(strings.TrimSpace(*phase)),
-	}
-	if payload.TaskText == "" {
-		payload.Phase = ""
-	}
-
-	return buildEnvelope(v1.CommandStatus, *requestID, payload, now)
-}
-
 func buildVerifyEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"verify",
@@ -992,6 +1192,143 @@ func buildEnvelope(command v1.Command, requestID string, payload any, now func()
 		RequestID: trimmedRequestID,
 		Payload:   payloadJSON,
 	}, nil
+}
+
+type readSurfaceExportFlags struct {
+	formatRaw *string
+	outFile   *string
+	force     optionalBoolFlag
+	Format    v1.ExportFormat
+}
+
+func addReadSurfaceExportFlags(fs *flag.FlagSet) *readSurfaceExportFlags {
+	flags := &readSurfaceExportFlags{}
+	flags.formatRaw = fs.String("format", "", "raw export format: json|markdown")
+	flags.outFile = fs.String("out-file", "", "write raw export content to a file instead of stdout")
+	fs.Var(&flags.force, "force", "allow overwriting an existing --out-file target (optional bool)")
+	return flags
+}
+
+func (f *readSurfaceExportFlags) Validate() error {
+	if f == nil {
+		return nil
+	}
+	formatValue := strings.TrimSpace(derefString(f.formatRaw))
+	outFileValue := strings.TrimSpace(derefString(f.outFile))
+	if formatValue == "" {
+		if outFileValue != "" || f.force.IsSet() {
+			return fmt.Errorf("--out-file and --force require --format")
+		}
+		f.Format = ""
+		return nil
+	}
+
+	switch v1.ExportFormat(formatValue) {
+	case v1.ExportFormatJSON, v1.ExportFormatMarkdown:
+		f.Format = v1.ExportFormat(formatValue)
+	default:
+		return fmt.Errorf("unsupported --format %q (want json or markdown)", formatValue)
+	}
+
+	if f.force.IsSet() && outFileValue == "" {
+		return fmt.Errorf("--force requires --out-file")
+	}
+	return nil
+}
+
+func (f *readSurfaceExportFlags) Enabled() bool {
+	return f != nil && f.Format != ""
+}
+
+func (f *readSurfaceExportFlags) RawOutput() *rawOutputOptions {
+	if !f.Enabled() {
+		return nil
+	}
+	return &rawOutputOptions{
+		OutFile: strings.TrimSpace(derefString(f.outFile)),
+		Force:   f.force.IsSet() && f.force.value,
+	}
+}
+
+func extractExportContent(raw []byte) (string, error) {
+	var env struct {
+		OK     bool            `json:"ok"`
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return "", err
+	}
+	if !env.OK {
+		return "", fmt.Errorf("export envelope did not report success")
+	}
+	var result v1.ExportResult
+	if err := json.Unmarshal(env.Result, &result); err != nil {
+		return "", err
+	}
+	return result.Content, nil
+}
+
+func emitRawExportContent(out io.Writer, content string, options rawOutputOptions) error {
+	if strings.TrimSpace(options.OutFile) == "" {
+		_, err := io.WriteString(out, content)
+		return err
+	}
+	return writeRawExportFile(options.OutFile, content, options.Force)
+}
+
+func writeRawExportFile(targetPath, content string, force bool) error {
+	cleanPath := filepath.Clean(strings.TrimSpace(targetPath))
+	if cleanPath == "" || cleanPath == "." {
+		return fmt.Errorf("--out-file must not be empty")
+	}
+	if !force {
+		if _, err := os.Stat(cleanPath); err == nil {
+			return fmt.Errorf("%s already exists; rerun with --force to overwrite", cleanPath)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	dir := filepath.Dir(cleanPath)
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+
+	tempFile, err := os.CreateTemp(dir, filepath.Base(cleanPath)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		if tempPath != "" {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if _, err := io.WriteString(tempFile, content); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	if err := tempFile.Chmod(0o644); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	if err := tempFile.Sync(); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, cleanPath); err != nil {
+		return err
+	}
+	tempPath = ""
+	return nil
 }
 
 func newRequestID(command v1.Command, now func() time.Time) string {
@@ -1208,6 +1545,17 @@ func readStringMapFromJSON(raw, flagName string) (map[string]string, error) {
 		normalized[key] = value
 	}
 	return normalized, nil
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func readJSONFileStrict(path string, out any) error {

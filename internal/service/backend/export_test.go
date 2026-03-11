@@ -1,0 +1,566 @@
+package backend
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
+	"github.com/bonztm/agent-context-manager/internal/core"
+)
+
+func TestExportFetchPlanRendersStructuredJSON(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanLookupResult: []core.WorkPlan{{
+			ProjectID: "project.alpha",
+			PlanKey:   "plan:receipt-12345678",
+			ReceiptID: "receipt-12345678",
+			Title:     "Export renderer implementation",
+			Objective: "Ship the backend export renderer",
+			Kind:      "feature",
+			Status:    core.PlanStatusInProgress,
+			Stages: core.WorkPlanStages{
+				SpecOutline:        core.WorkItemStatusComplete,
+				RefinedSpec:        core.WorkItemStatusComplete,
+				ImplementationPlan: core.WorkItemStatusInProgress,
+			},
+			InScope:      []string{"internal/service/backend/export.go"},
+			References:   []string{"AGENTS.md"},
+			Constraints:  []string{"Keep renderers deterministic"},
+			ExternalRefs: []string{"plan:receipt-12345678"},
+			Tasks: []core.WorkItem{
+				{
+					ItemKey:            "impl:renderer-json-content",
+					Summary:            "Render stable JSON content",
+					Status:             core.WorkItemStatusInProgress,
+					AcceptanceCriteria: []string{"export content is deterministic"},
+				},
+			},
+		}},
+	}
+
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Export(context.Background(), v1.ExportPayload{
+		ProjectID: "project.alpha",
+		Format:    v1.ExportFormatJSON,
+		Fetch: &v1.ExportFetchSelector{
+			Keys: []string{"plan:receipt-12345678"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Document == nil || result.Document.Kind != v1.ExportDocumentKindPlan {
+		t.Fatalf("expected plan export document, got %+v", result.Document)
+	}
+	if result.Document.Plan == nil {
+		t.Fatal("expected plan payload")
+	}
+	if got := result.Document.Plan.PlanKey; got != "plan:receipt-12345678" {
+		t.Fatalf("unexpected plan key: %q", got)
+	}
+	if got := len(result.Document.Plan.Tasks); got != 1 {
+		t.Fatalf("unexpected task count: got %d want 1", got)
+	}
+
+	var rendered v1.ExportDocument
+	if err := json.Unmarshal([]byte(result.Content), &rendered); err != nil {
+		t.Fatalf("unmarshal rendered content: %v", err)
+	}
+	if rendered.Kind != v1.ExportDocumentKindPlan {
+		t.Fatalf("unexpected rendered kind: %q", rendered.Kind)
+	}
+	if rendered.Plan == nil || rendered.Plan.Tasks[0].Key != "impl:renderer-json-content" {
+		t.Fatalf("unexpected rendered plan payload: %+v", rendered.Plan)
+	}
+}
+
+func TestExportFetchBundleMarkdownPreservesMemoryShapeAndOmitsPointerContent(t *testing.T) {
+	root := t.TempDir()
+	writeRepoFile(t, root, "docs/export.md", "render pointer content\nwith multiple lines\n")
+	withWorkingDir(t, root)
+
+	mem := memory(42, "Export renderer decision", "Keep the markdown output deterministic.", []string{"backend", "export"}, []string{"rule:export"})
+	mem.UpdatedAt = time.Date(2026, 3, 10, 15, 4, 5, 0, time.UTC)
+
+	repo := &fakeRepository{
+		memoryLookupResults: []core.ActiveMemory{mem, mem},
+		pointerLookupResults: []core.CandidatePointer{
+			candidate("project.alpha:docs/export.md#renderer", "docs/export.md", false, []string{"docs"}),
+		},
+	}
+
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Export(context.Background(), v1.ExportPayload{
+		ProjectID: "project.alpha",
+		Format:    v1.ExportFormatMarkdown,
+		Fetch: &v1.ExportFetchSelector{
+			Keys: []string{"mem:42", "project.alpha:docs/export.md#renderer"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Document == nil || result.Document.Kind != v1.ExportDocumentKindFetchBundle {
+		t.Fatalf("expected fetch bundle document, got %+v", result.Document)
+	}
+	if result.Document.Bundle == nil || len(result.Document.Bundle.Items) != 2 {
+		t.Fatalf("unexpected bundle payload: %+v", result.Document.Bundle)
+	}
+
+	first := result.Document.Bundle.Items[0]
+	if first.Kind != v1.ExportBundleItemKindMemory || first.Memory == nil {
+		t.Fatalf("expected first bundle item to be a memory, got %+v", first)
+	}
+	if got := first.Memory.Subject; got != "Export renderer decision" {
+		t.Fatalf("unexpected memory subject: %q", got)
+	}
+	if got := first.Memory.Category; got != v1.MemoryCategoryDecision {
+		t.Fatalf("unexpected memory category: %q", got)
+	}
+
+	second := result.Document.Bundle.Items[1]
+	if second.Kind != v1.ExportBundleItemKindPointer {
+		t.Fatalf("expected second bundle item to be a pointer, got %+v", second)
+	}
+	if !strings.Contains(second.Content, "render pointer content") {
+		t.Fatalf("expected raw pointer content in canonical document, got %q", second.Content)
+	}
+
+	if !strings.Contains(result.Content, "Markdown omits raw pointer or rule file content in v1.") {
+		t.Fatalf("expected markdown omission note, got:\n%s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Export renderer decision") {
+		t.Fatalf("expected markdown to mention memory details, got:\n%s", result.Content)
+	}
+}
+
+func TestExportContextMarkdownIncludesReceiptSections(t *testing.T) {
+	root := t.TempDir()
+	writeRepoFile(t, root, ".acm/acm-rules.yaml", strings.Join([]string{
+		"version: acm.rules.v1",
+		"rules:",
+		"  - id: export_rule",
+		"    summary: Export rules stay deterministic",
+		"    content: Render ACM-owned artifacts with stable section ordering.",
+		"    enforcement: hard",
+		"    tags: [backend]",
+		"",
+	}, "\n"))
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{
+		memoryResults: [][]core.ActiveMemory{{
+			memory(101, "Renderer format", "Prefer stable markdown headings.", []string{"backend"}, []string{"rule:export"}),
+		}},
+		workPlanListResults: [][]core.WorkPlanSummary{{
+			{
+				PlanKey:   "plan:receipt-12345678",
+				Summary:   "Exportable ACM artifacts",
+				Status:    core.PlanStatusInProgress,
+				ReceiptID: "receipt-12345678",
+			},
+		}},
+	}
+
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Export(context.Background(), v1.ExportPayload{
+		ProjectID: "project.alpha",
+		Format:    v1.ExportFormatMarkdown,
+		Context: &v1.ExportContextSelector{
+			TaskText:          "continue export renderer implementation",
+			Phase:             v1.PhaseExecute,
+			InitialScopePaths: []string{"internal/service/backend/export.go"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Document == nil || result.Document.Kind != v1.ExportDocumentKindContext {
+		t.Fatalf("expected context export document, got %+v", result.Document)
+	}
+	if result.Document.Context == nil || result.Document.Context.Meta.TaskText == "" {
+		t.Fatalf("expected context receipt payload, got %+v", result.Document.Context)
+	}
+	for _, needle := range []string{"# Context", "## Rules", "## Memories", "## Plans", "## Initial Scope"} {
+		if !strings.Contains(result.Content, needle) {
+			t.Fatalf("expected markdown to contain %q, got:\n%s", needle, result.Content)
+		}
+	}
+}
+
+func TestExportHistoryMarkdownIncludesWorkMetadata(t *testing.T) {
+	repo := &fakeRepository{
+		workPlanListResults: [][]core.WorkPlanSummary{{
+			{
+				PlanKey:             "plan:receipt-12345678",
+				ReceiptID:           "receipt-12345678",
+				Summary:             "Export renderer implementation",
+				Status:              core.PlanStatusInProgress,
+				Kind:                "feature",
+				ParentPlanKey:       "plan:receipt-parent",
+				TaskCountTotal:      4,
+				TaskCountPending:    1,
+				TaskCountInProgress: 2,
+				TaskCountBlocked:    1,
+				TaskCountComplete:   0,
+				UpdatedAt:           time.Date(2026, 3, 9, 12, 0, 0, 0, time.UTC),
+			},
+		}},
+	}
+
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Export(context.Background(), v1.ExportPayload{
+		ProjectID: "project.alpha",
+		Format:    v1.ExportFormatMarkdown,
+		History: &v1.ExportHistorySelector{
+			Entity: v1.HistoryEntityWork,
+			Scope:  v1.HistoryScopeCurrent,
+			Limit:  10,
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Document == nil || result.Document.Kind != v1.ExportDocumentKindHistory {
+		t.Fatalf("expected history export document, got %+v", result.Document)
+	}
+	if result.Document.History == nil || result.Document.History.Count != 1 {
+		t.Fatalf("unexpected history payload: %+v", result.Document.History)
+	}
+	if !strings.Contains(result.Content, "Task Counts: total=4 pending=1 in_progress=2 blocked=1 complete=0") {
+		t.Fatalf("expected task counts in markdown, got:\n%s", result.Content)
+	}
+	if !strings.Contains(result.Content, "plan:receipt-12345678") {
+		t.Fatalf("expected plan key in markdown, got:\n%s", result.Content)
+	}
+}
+
+func TestExportStatusMarkdownIncludesProjectAndContextPreview(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	writeRepoFile(t, root, ".acm/acm-rules.yaml", "version: acm.rules.v1\nrules:\n  - summary: Keep export deterministic\n")
+	writeRepoFile(t, root, ".acm/acm-tags.yaml", "version: acm.tags.v1\ncanonical_tags:\n  backend:\n    - export\n")
+	writeRepoFile(t, root, ".acm/acm-tests.yaml", "version: acm.tests.v1\ndefaults:\n  cwd: .\n  timeout_sec: 120\ntests:\n  - id: smoke\n    summary: Run smoke tests\n    command:\n      argv: [\"go\", \"test\", \"./...\"]\n")
+	writeRepoFile(t, root, ".acm/acm-workflows.yaml", "version: acm.workflows.v1\ncompletion:\n  required_tasks:\n    - key: verify:tests\n")
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{
+		memoryResults: [][]core.ActiveMemory{{}},
+	}
+	svc, err := NewWithRuntimeStatus(repo, root, RuntimeStatusSnapshot{
+		Backend:                "sqlite",
+		SQLitePath:             filepath.Join(root, ".acm", "context.db"),
+		UsesImplicitSQLitePath: true,
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Export(context.Background(), v1.ExportPayload{
+		ProjectID: "project.alpha",
+		Format:    v1.ExportFormatMarkdown,
+		Status: &v1.ExportStatusSelector{
+			TaskText: "inspect export readiness",
+			Phase:    v1.PhaseExecute,
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Document == nil || result.Document.Kind != v1.ExportDocumentKindStatus {
+		t.Fatalf("expected status export document, got %+v", result.Document)
+	}
+	if result.Document.Status == nil || result.Document.Status.Project.ProjectID != "project.alpha" {
+		t.Fatalf("unexpected status payload: %+v", result.Document.Status)
+	}
+	if result.Document.Status.Context == nil || result.Document.Status.Context.Status != "ok" {
+		t.Fatalf("expected context preview in status payload, got %+v", result.Document.Status.Context)
+	}
+	for _, needle := range []string{"# Status", "## Project", "## Sources", "## Context Preview"} {
+		if !strings.Contains(result.Content, needle) {
+			t.Fatalf("expected markdown to contain %q, got:\n%s", needle, result.Content)
+		}
+	}
+}
+
+func TestRenderExportMarkdown_Golden(t *testing.T) {
+	tests := []struct {
+		name   string
+		golden string
+		doc    *v1.ExportDocument
+	}{
+		{
+			name:   "memory",
+			golden: "memory.md",
+			doc: &v1.ExportDocument{
+				Kind:    v1.ExportDocumentKindMemory,
+				Title:   "Memory",
+				Summary: "Stable export guidance",
+				Memory: &v1.ExportMemoryDocument{
+					Key:                "mem:7",
+					Summary:            "Stable export guidance",
+					Category:           v1.MemoryCategoryDecision,
+					Subject:            "Renderer choice",
+					Content:            "Use one canonical export document.",
+					Confidence:         5,
+					Tags:               []string{"backend", "export"},
+					RelatedPointerKeys: []string{"internal/service/backend/export.go", "spec/v1/cli.result.schema.json"},
+					UpdatedAt:          "2026-03-11T13:00:00Z",
+				},
+			},
+		},
+		{
+			name:   "plan",
+			golden: "plan.md",
+			doc: &v1.ExportDocument{
+				Kind:    v1.ExportDocumentKindPlan,
+				Title:   "Export Plan",
+				Summary: "Implement deterministic markdown",
+				Plan: &v1.ExportPlanDocument{
+					PlanKey:       "plan:receipt-339e5cfde29fa58b2c5f1c16",
+					ReceiptID:     "receipt-339e5cfde29fa58b2c5f1c16",
+					Title:         "Exportable ACM artifacts with JSON and Markdown renderers",
+					Objective:     "Ship export output across read surfaces.",
+					Kind:          "feature",
+					ParentPlanKey: "plan:receipt-parent",
+					Status:        v1.WorkItemStatusInProgress,
+					Stages: &v1.ExportPlanStages{
+						SpecOutline:        v1.WorkItemStatusComplete,
+						ImplementationPlan: v1.WorkItemStatusInProgress,
+					},
+					InScope:      []string{"internal/service/backend/export.go", "spec/v1/cli.result.schema.json"},
+					Constraints:  []string{"Keep markdown deterministic", "Keep contracts in lockstep"},
+					References:   []string{"AGENTS.md", "README.md"},
+					ExternalRefs: []string{"plan:receipt-parent"},
+					Tasks: []v1.ExportTaskDocument{{
+						PlanKey:            "plan:receipt-339e5cfde29fa58b2c5f1c16",
+						Key:                "impl:tests-markdown-golden",
+						Summary:            "Add golden tests",
+						Status:             v1.WorkItemStatusPending,
+						ParentTaskKey:      "group:parity-tests-docs",
+						DependsOn:          []string{"impl:renderer-markdown-plan"},
+						AcceptanceCriteria: []string{"Golden fixtures stay stable across repeated runs"},
+						References:         []string{"internal/service/backend/export_test.go"},
+						ExternalRefs:       []string{"verifyrun:verify-1"},
+						Evidence:           []string{"go test ./internal/service/backend"},
+					}},
+				},
+			},
+		},
+		{
+			name:   "receipt",
+			golden: "receipt.md",
+			doc: &v1.ExportDocument{
+				Kind:    v1.ExportDocumentKindReceipt,
+				Title:   "Receipt receipt-339e5cfde29fa58b2c5f1c16",
+				Summary: "Continue implementing export",
+				Receipt: &v1.ExportReceiptDocument{
+					ReceiptID:         "receipt-339e5cfde29fa58b2c5f1c16",
+					TaskText:          "Continue implementing export",
+					Phase:             v1.PhaseExecute,
+					ResolvedTags:      []string{"backend", "export"},
+					PointerKeys:       []string{"project.alpha:internal/service/backend/export.go#renderer"},
+					MemoryKeys:        []string{"mem:7"},
+					InitialScopePaths: []string{"internal/service/backend/export.go"},
+					BaselineCaptured:  true,
+					BaselinePaths: []v1.ExportBaselinePath{{
+						Path:        "internal/service/backend/export.go",
+						ContentHash: "sha256:abc123",
+					}},
+					LatestRun: &v1.ExportReceiptRunDocument{
+						RunID:      44,
+						Status:     "completed",
+						PlanStatus: v1.WorkItemStatusInProgress,
+						Tasks: []v1.ExportTaskDocument{{
+							Key:     "impl:tests-markdown-golden",
+							Summary: "Add golden tests",
+							Status:  v1.WorkItemStatusComplete,
+							Outcome: "Added deterministic fixtures.",
+						}},
+					},
+				},
+			},
+		},
+		{
+			name:   "bundle",
+			golden: "bundle.md",
+			doc: &v1.ExportDocument{
+				Kind:    v1.ExportDocumentKindFetchBundle,
+				Title:   "Fetch bundle",
+				Summary: "2 item(s), 1 missing",
+				Bundle: &v1.ExportBundleDocument{
+					RequestedKeys: []string{"mem:7", "project.alpha:docs/export.md#renderer"},
+					Items: []v1.ExportBundleItem{
+						{
+							Kind:    v1.ExportBundleItemKindMemory,
+							Key:     "mem:7",
+							Type:    "memory",
+							Summary: "Stable export guidance",
+							Status:  "active",
+							Version: "v1",
+							Memory: &v1.ExportMemoryDocument{
+								Key:     "mem:7",
+								Summary: "Stable export guidance",
+								Subject: "Renderer choice",
+							},
+						},
+						{
+							Kind:    v1.ExportBundleItemKindPointer,
+							Key:     "project.alpha:docs/export.md#renderer",
+							Type:    "pointer",
+							Summary: "Renderer notes",
+							Status:  "indexed",
+							Version: "sha256:def456",
+							Content: "raw pointer content",
+						},
+					},
+					NotFound: []string{"mem:999"},
+				},
+			},
+		},
+		{
+			name:   "history",
+			golden: "history.md",
+			doc: &v1.ExportDocument{
+				Kind:    v1.ExportDocumentKindHistory,
+				Title:   "History work",
+				Summary: "1 item(s) matching \"export\"",
+				History: &v1.HistorySearchResult{
+					Entity: v1.HistoryEntityWork,
+					Scope:  v1.HistoryScopeCurrent,
+					Query:  "export",
+					Limit:  10,
+					Count:  1,
+					Items: []v1.HistoryItem{{
+						Key:           "plan:receipt-339e5cfde29fa58b2c5f1c16",
+						Entity:        v1.HistoryEntityWork,
+						Summary:       "Exportable ACM artifacts",
+						Status:        "in_progress",
+						Scope:         v1.HistoryScopeCurrent,
+						PlanKey:       "plan:receipt-339e5cfde29fa58b2c5f1c16",
+						ReceiptID:     "receipt-339e5cfde29fa58b2c5f1c16",
+						RequestID:     "req-work-123",
+						Phase:         v1.PhaseExecute,
+						Kind:          "feature",
+						ParentPlanKey: "plan:receipt-parent",
+						TaskCounts: &v1.ContextPlanTaskCounts{
+							Total:      4,
+							Pending:    1,
+							InProgress: 2,
+							Complete:   1,
+						},
+						FetchKeys: []string{"plan:receipt-339e5cfde29fa58b2c5f1c16", "mem:7"},
+						UpdatedAt: "2026-03-11T13:30:00Z",
+					}},
+				},
+			},
+		},
+		{
+			name:   "status",
+			golden: "status.md",
+			doc: &v1.ExportDocument{
+				Kind:    v1.ExportDocumentKindStatus,
+				Title:   "Status project.alpha",
+				Summary: "ready=false missing=1 warnings=1",
+				Status: &v1.StatusResult{
+					Summary: v1.StatusSummary{
+						Ready:        false,
+						MissingCount: 1,
+						WarningCount: 1,
+					},
+					Project: v1.StatusProject{
+						ProjectID:              "project.alpha",
+						ProjectRoot:            "/repo",
+						DetectedRepoRoot:       "/repo",
+						Backend:                "sqlite",
+						SQLitePath:             "/repo/.acm/context.db",
+						UsesImplicitSQLitePath: true,
+					},
+					Sources: []v1.StatusSource{{
+						Kind:         "rules",
+						SourcePath:   ".acm/acm-rules.yaml",
+						AbsolutePath: "/repo/.acm/acm-rules.yaml",
+						Exists:       true,
+						Loaded:       true,
+						ItemCount:    3,
+						Notes:        []string{"loaded from project root"},
+					}},
+					Integrations: []v1.StatusIntegration{{
+						ID:              "acm-broker",
+						Summary:         "Skill pack installed",
+						Installed:       true,
+						PresentTargets:  2,
+						ExpectedTargets: 2,
+					}},
+					Context: &v1.StatusContextPreview{
+						TaskText:              "inspect export readiness",
+						Phase:                 v1.PhaseExecute,
+						Status:                "ok",
+						ResolvedTags:          []string{"backend", "export"},
+						RuleCount:             3,
+						MemoryCount:           1,
+						PlanCount:             1,
+						InitialScopePathCount: 1,
+					},
+					Missing: []v1.StatusMissingItem{{
+						Code:    "tests_file_missing",
+						Message: "tests file not configured",
+					}},
+					Warnings: []v1.StatusMissingItem{{
+						Code:    "stale_plan",
+						Message: "plan needs status refresh",
+					}},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assertMarkdownGolden(t, tc.golden, renderExportMarkdown(tc.doc))
+		})
+	}
+}
+
+func assertMarkdownGolden(t *testing.T, golden string, got string) {
+	t.Helper()
+
+	path := filepath.Join("testdata", "export_markdown", golden)
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden %s: %v", path, err)
+	}
+	normalizedGot := normalizeGoldenMarkdown(got)
+	normalizedWant := normalizeGoldenMarkdown(string(want))
+	if normalizedGot != normalizedWant {
+		t.Fatalf("markdown golden mismatch for %s\n--- got ---\n%s\n--- want ---\n%s", golden, normalizedGot, normalizedWant)
+	}
+}
+
+func normalizeGoldenMarkdown(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	return strings.TrimSuffix(value, "\n")
+}

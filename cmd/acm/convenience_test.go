@@ -154,6 +154,119 @@ func TestBuildFetchEnvelope_ReceiptShorthandOmitsEmptyKeys(t *testing.T) {
 	}
 }
 
+func TestBuildContextEnvelope_LowersToExportWhenFormatRequested(t *testing.T) {
+	env, err := buildConvenienceEnvelope("context", []string{
+		"--project", "myproject",
+		"--task-text", "Add sync checks",
+		"--phase", "execute",
+		"--format", "markdown",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandExport {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.ExportPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.Format != v1.ExportFormatMarkdown {
+		t.Fatalf("unexpected format: %q", payload.Format)
+	}
+	if payload.Context == nil || payload.Context.TaskText != "Add sync checks" {
+		t.Fatalf("unexpected export context payload: %+v", payload.Context)
+	}
+}
+
+func TestBuildFetchEnvelope_LowersToExportWhenFormatRequested(t *testing.T) {
+	env, err := buildConvenienceEnvelope("fetch", []string{
+		"--project", "myproject",
+		"--key", "plan:req-12345678",
+		"--expect", "plan:req-12345678=v3",
+		"--format", "json",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandExport {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.ExportPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.Fetch == nil || len(payload.Fetch.Keys) != 1 {
+		t.Fatalf("unexpected export fetch payload: %+v", payload.Fetch)
+	}
+	if payload.Fetch.ExpectedVersions["plan:req-12345678"] != "v3" {
+		t.Fatalf("unexpected expected version map: %+v", payload.Fetch.ExpectedVersions)
+	}
+}
+
+func TestBuildHistoryEnvelope_LowersToExportWhenFormatRequested(t *testing.T) {
+	env, err := buildConvenienceEnvelope("history", []string{
+		"--project", "myproject",
+		"--entity", "work",
+		"--scope", "current",
+		"--format", "markdown",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandExport {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.ExportPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.History == nil || payload.History.Entity != v1.HistoryEntityWork || payload.History.Scope != v1.HistoryScopeCurrent {
+		t.Fatalf("unexpected export history payload: %+v", payload.History)
+	}
+}
+
+func TestBuildStatusEnvelope_LowersToExportWhenFormatRequested(t *testing.T) {
+	env, err := buildConvenienceEnvelope("status", []string{
+		"--project", "myproject",
+		"--task-text", "inspect export readiness",
+		"--phase", "execute",
+		"--format", "json",
+	}, fixedNow)
+	if err != nil {
+		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
+	}
+	if env.Command != v1.CommandExport {
+		t.Fatalf("unexpected command: %s", env.Command)
+	}
+
+	var payload v1.ExportPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	if payload.Status == nil || payload.Status.TaskText != "inspect export readiness" {
+		t.Fatalf("unexpected export status payload: %+v", payload.Status)
+	}
+}
+
+func TestBuildReadSurfaceExportFlags_RejectForceWithoutOutFile(t *testing.T) {
+	_, err := buildConvenienceEnvelope("context", []string{
+		"--task-text", "Add sync checks",
+		"--phase", "execute",
+		"--format", "markdown",
+		"--force",
+	}, fixedNow)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--force requires --out-file") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestBuildWorkEnvelope_LoadsTasksFile(t *testing.T) {
 	tasksPath := filepath.Join(t.TempDir(), "tasks.json")
 	if err := os.WriteFile(tasksPath, []byte(`[
@@ -1366,6 +1479,109 @@ func TestRunConvenienceWithDeps_DefaultsProjectIDFromEnv(t *testing.T) {
 	}
 }
 
+func TestRunConvenienceWithDeps_ExportFlagsWriteRawStdout(t *testing.T) {
+	svc := &convenienceFakeService{
+		exportResult: v1.ExportResult{
+			Format:  v1.ExportFormatMarkdown,
+			Content: "# export artifact",
+			Document: &v1.ExportDocument{
+				Kind: v1.ExportDocumentKindContext,
+			},
+		},
+	}
+	out := &bytes.Buffer{}
+
+	code := runConvenienceWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		"context",
+		[]string{"--project", "myproject", "--request-id", "req-12345678", "--task-text", "Add health checks", "--phase", "execute", "--format", "markdown"},
+		out,
+		fixedNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			return svc, func() {}, nil
+		},
+		cli.RunWithLogger,
+	)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if got := out.String(); got != "# export artifact" {
+		t.Fatalf("unexpected stdout: %q", got)
+	}
+	if len(svc.exportCalls) != 1 {
+		t.Fatalf("expected one export call, got %d", len(svc.exportCalls))
+	}
+	if len(svc.getContextCalls) != 0 {
+		t.Fatalf("expected no direct context calls, got %d", len(svc.getContextCalls))
+	}
+}
+
+func TestRunConvenienceWithDeps_ExportFlagsWriteOutFileAndRequireForce(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "artifact.md")
+	if err := os.WriteFile(target, []byte("old artifact"), 0o644); err != nil {
+		t.Fatalf("seed artifact: %v", err)
+	}
+
+	svc := &convenienceFakeService{
+		exportResult: v1.ExportResult{
+			Format:  v1.ExportFormatMarkdown,
+			Content: "# fresh artifact",
+			Document: &v1.ExportDocument{
+				Kind: v1.ExportDocumentKindStatus,
+			},
+		},
+	}
+	out := &bytes.Buffer{}
+
+	stderr := captureStderr(t, func() {
+		code := runConvenienceWithDeps(
+			context.Background(),
+			logging.NewRecorder(),
+			"status",
+			[]string{"--project", "myproject", "--format", "markdown", "--out-file", target},
+			out,
+			fixedNow,
+			func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+				return svc, func() {}, nil
+			},
+			cli.RunWithLogger,
+		)
+		if code != 1 {
+			t.Fatalf("expected exit code 1 without force, got %d", code)
+		}
+	})
+	if !strings.Contains(stderr, "--force") {
+		t.Fatalf("expected overwrite warning, got %q", stderr)
+	}
+	if got := strings.TrimSpace(readFile(t, target)); got != "old artifact" {
+		t.Fatalf("expected artifact to remain unchanged, got %q", got)
+	}
+
+	out.Reset()
+	code := runConvenienceWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		"status",
+		[]string{"--project", "myproject", "--format", "markdown", "--out-file", target, "--force"},
+		out,
+		fixedNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			return svc, func() {}, nil
+		},
+		cli.RunWithLogger,
+	)
+	if code != 0 {
+		t.Fatalf("expected exit code 0 with force, got %d", code)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("expected no stdout when writing file, got %q", out.String())
+	}
+	if got := strings.TrimSpace(readFile(t, target)); got != "# fresh artifact" {
+		t.Fatalf("unexpected written artifact: %q", got)
+	}
+}
+
 func TestRunConvenienceWithDeps_HistoryHelpShowsWorkFilters(t *testing.T) {
 	output := captureStderr(t, func() {
 		code := runConvenienceWithDeps(
@@ -1383,7 +1599,7 @@ func TestRunConvenienceWithDeps_HistoryHelpShowsWorkFilters(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]") {
+	if !strings.Contains(output, "acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]") {
 		t.Fatalf("unexpected help output: %q", output)
 	}
 	for _, required := range []string{"-entity string", "-scope string", "-kind string"} {
@@ -1410,7 +1626,7 @@ func TestRunConvenienceWithDeps_StatusHelpUsesCanonicalUsage(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Usage:\n  acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]") {
+	if !strings.Contains(output, "Usage:\n  acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]") {
 		t.Fatalf("unexpected help output: %q", output)
 	}
 	if strings.Contains(output, "Usage:\n  acm doctor") {
@@ -1453,8 +1669,20 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(output)
 }
 
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(blob)
+}
+
 type convenienceFakeService struct {
 	getContextCalls []v1.ContextPayload
+	exportCalls     []v1.ExportPayload
+	exportResult    v1.ExportResult
+	exportErr       *core.APIError
 }
 
 func (f *convenienceFakeService) Context(_ context.Context, payload v1.ContextPayload) (v1.ContextResult, *core.APIError) {
@@ -1464,6 +1692,23 @@ func (f *convenienceFakeService) Context(_ context.Context, payload v1.ContextPa
 
 func (f *convenienceFakeService) Fetch(_ context.Context, _ v1.FetchPayload) (v1.FetchResult, *core.APIError) {
 	return v1.FetchResult{}, nil
+}
+
+func (f *convenienceFakeService) Export(_ context.Context, payload v1.ExportPayload) (v1.ExportResult, *core.APIError) {
+	f.exportCalls = append(f.exportCalls, payload)
+	if f.exportErr != nil {
+		return v1.ExportResult{}, f.exportErr
+	}
+	if f.exportResult == (v1.ExportResult{}) {
+		return v1.ExportResult{
+			Format:  v1.ExportFormatMarkdown,
+			Content: "# export",
+			Document: &v1.ExportDocument{
+				Kind: v1.ExportDocumentKindFetchBundle,
+			},
+		}, nil
+	}
+	return f.exportResult, nil
 }
 
 func (f *convenienceFakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {

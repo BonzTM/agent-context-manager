@@ -119,6 +119,92 @@ func validateFetchPayload(p *FetchPayload, fields map[string]json.RawMessage) er
 	return nil
 }
 
+func validateExportPayload(p *ExportPayload, fields map[string]json.RawMessage) error {
+	if err := validateProjectID(p.ProjectID); err != nil {
+		return err
+	}
+	switch p.Format {
+	case ExportFormatJSON, ExportFormatMarkdown:
+	default:
+		return fmt.Errorf("format must be json|markdown")
+	}
+
+	selectorCount := 0
+	if p.Context != nil {
+		selectorCount++
+		selectorFields, err := rawObjectFields(fields, "context")
+		if err != nil {
+			return err
+		}
+		if err := validateContextPayload(&ContextPayload{
+			ProjectID:         p.ProjectID,
+			TaskText:          p.Context.TaskText,
+			Phase:             p.Context.Phase,
+			TagsFile:          p.Context.TagsFile,
+			InitialScopePaths: p.Context.InitialScopePaths,
+		}); err != nil {
+			return fmt.Errorf("context %w", err)
+		}
+		if err := validateOptionalArrayField(selectorFields, "initial_scope_paths", len(p.Context.InitialScopePaths)); err != nil {
+			return fmt.Errorf("context %w", err)
+		}
+	}
+	if p.Fetch != nil {
+		selectorCount++
+		selectorFields, err := rawObjectFields(fields, "fetch")
+		if err != nil {
+			return err
+		}
+		if err := validateFetchPayload(&FetchPayload{
+			ProjectID:        p.ProjectID,
+			Keys:             p.Fetch.Keys,
+			ReceiptID:        p.Fetch.ReceiptID,
+			ExpectedVersions: p.Fetch.ExpectedVersions,
+		}, selectorFields); err != nil {
+			return fmt.Errorf("fetch %w", err)
+		}
+	}
+	if p.History != nil {
+		selectorCount++
+		if _, err := rawObjectFields(fields, "history"); err != nil {
+			return err
+		}
+		if err := validateHistorySearchPayload(&HistorySearchPayload{
+			ProjectID: p.ProjectID,
+			Entity:    p.History.Entity,
+			Query:     p.History.Query,
+			Scope:     p.History.Scope,
+			Kind:      p.History.Kind,
+			Limit:     p.History.Limit,
+			Unbounded: p.History.Unbounded,
+		}); err != nil {
+			return fmt.Errorf("history %w", err)
+		}
+	}
+	if p.Status != nil {
+		selectorCount++
+		if _, err := rawObjectFields(fields, "status"); err != nil {
+			return err
+		}
+		if err := validateStatusPayload(&StatusPayload{
+			ProjectID:     p.ProjectID,
+			ProjectRoot:   p.Status.ProjectRoot,
+			RulesFile:     p.Status.RulesFile,
+			TagsFile:      p.Status.TagsFile,
+			TestsFile:     p.Status.TestsFile,
+			WorkflowsFile: p.Status.WorkflowsFile,
+			TaskText:      p.Status.TaskText,
+			Phase:         p.Status.Phase,
+		}); err != nil {
+			return fmt.Errorf("status %w", err)
+		}
+	}
+	if selectorCount != 1 {
+		return fmt.Errorf("exactly one source selector is required")
+	}
+	return nil
+}
+
 func validateMemoryCommandPayload(p *MemoryCommandPayload) error {
 	if err := validateProjectID(p.ProjectID); err != nil {
 		return err
@@ -713,6 +799,21 @@ func validateOptionalFilePath(fieldName, filePath string) error {
 		return fmt.Errorf("%s too long", fieldName)
 	}
 	return nil
+}
+
+func rawObjectFields(fields map[string]json.RawMessage, fieldName string) (map[string]json.RawMessage, error) {
+	raw, ok := fields[fieldName]
+	if !ok {
+		return nil, nil
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, fmt.Errorf("%s must be an object", fieldName)
+	}
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &nested); err != nil {
+		return nil, fmt.Errorf("%s must be an object", fieldName)
+	}
+	return nested, nil
 }
 
 func validatePlanKeyFormat(planKey, field string) error {

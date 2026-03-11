@@ -9,6 +9,7 @@ import (
 type Service interface {
 	Context(context.Context, v1.ContextPayload) (v1.ContextResult, *APIError)
 	Fetch(context.Context, v1.FetchPayload) (v1.FetchResult, *APIError)
+	Export(context.Context, v1.ExportPayload) (v1.ExportResult, *APIError)
 	Memory(context.Context, v1.MemoryCommandPayload) (v1.MemoryResult, *APIError)
 	Review(context.Context, v1.ReviewPayload) (v1.ReviewResult, *APIError)
 	Work(context.Context, v1.WorkPayload) (v1.WorkResult, *APIError)

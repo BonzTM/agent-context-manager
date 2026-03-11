@@ -16,25 +16,26 @@ For project-scoped commands, `project_id` may be omitted when runtime defaults a
 
 ## MCP Contract
 
-The MCP adapter exposes twelve public contract tools. CLI convenience syntax maps onto the same operations:
+The MCP adapter exposes thirteen public contract tools. CLI convenience syntax maps onto the same operations when a convenience route exists:
 
 Agent-facing:
 
 1. `context`
 2. `fetch`
-3. `memory`
-4. `done`
-5. `review`
-6. `work`
-7. `history`
+3. `export`
+4. `memory`
+5. `done`
+6. `review`
+7. `work`
+8. `history`
 
 Maintenance:
 
-8. `sync`
-9. `health`
-10. `status`
-11. `verify`
-12. `init`
+9. `sync`
+10. `health`
+11. `status`
+12. `verify`
+13. `init`
 
 Tool input/output shapes are referenced from CLI payload/result defs to guarantee parity.
 
@@ -43,6 +44,7 @@ The MCP flow centers on durable state and governed closure, not ranked retrieval
 - `context` returns a receipt with scoped rules, memories, current plans, and any explicitly known initial scope paths.
 - Each rule entry now includes `rule_id`, a deterministic stable identifier derived from the existing rule `key` semantics (no additional input required).
 - `fetch` resolves receipt/plan-scoped artifacts by key, or derives the plan fetch key from `receipt_id` when keys are omitted.
+- `export` is the backend-only rendering surface for stable JSON or Markdown output. It is available through `acm run` / MCP, not as a standalone convenience subcommand.
 - `review` remains work-backed and defaults to `review:cross-llm` with `complete` status when callers omit manual fields; it can also execute a workflow-defined `run` command before recording the final review task status.
 - `work` creates/updates structured plans with tasks (max 256 per request). Supports `receipt_id` without `plan_key` (derives `plan_key` as `plan:<receipt_id>`). `mode` controls merge vs replace semantics.
 - `history` lists or searches compact work, memory, receipt, and run history and returns targeted `fetch_keys` for selective follow-up fetches. `entity` defaults to `all`; `scope` and `kind` are only valid when `entity=work`.

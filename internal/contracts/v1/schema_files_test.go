@@ -203,6 +203,136 @@ func TestSharedAndResultSchemasExposeSupersededStatusesAndStatusWarnings(t *test
 	}
 }
 
+func TestCommandSchema_ExportPayloadIncludesSelectorAndFormatGuards(t *testing.T) {
+	raw := readSchemaFixture(t, "cli.command.schema.json")
+
+	var doc struct {
+		Defs map[string]map[string]any `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal cli command schema: %v", err)
+	}
+
+	exportFormat, ok := doc.Defs["exportFormat"]
+	if !ok {
+		t.Fatal("missing exportFormat schema")
+	}
+	formatEnum := stringSliceFromAny(exportFormat["enum"])
+	if !reflect.DeepEqual(formatEnum, []string{"json", "markdown"}) {
+		t.Fatalf("unexpected exportFormat enum: %v", formatEnum)
+	}
+
+	exportPayload, ok := doc.Defs["exportPayload"]
+	if !ok {
+		t.Fatal("missing exportPayload schema")
+	}
+	required := stringSliceFromAny(exportPayload["required"])
+	if !reflect.DeepEqual(required, []string{"format"}) {
+		t.Fatalf("unexpected exportPayload required fields: %v", required)
+	}
+	properties, ok := exportPayload["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("exportPayload.properties missing or invalid")
+	}
+	for _, selector := range []string{"context", "fetch", "history", "status"} {
+		if _, ok := properties[selector]; !ok {
+			t.Fatalf("exportPayload missing %s selector", selector)
+		}
+	}
+	formatProperty, ok := properties["format"].(map[string]any)
+	if !ok {
+		t.Fatal("exportPayload.format missing or invalid")
+	}
+	if got := formatProperty["$ref"]; got != "#/$defs/exportFormat" {
+		t.Fatalf("unexpected exportPayload.format ref: %v", got)
+	}
+
+	oneOf, ok := exportPayload["oneOf"].([]any)
+	if !ok || len(oneOf) != 4 {
+		t.Fatal("exportPayload.oneOf missing or invalid")
+	}
+	requiredFields := make([]string, 0, len(oneOf))
+	for _, rawOption := range oneOf {
+		option, ok := rawOption.(map[string]any)
+		if !ok {
+			continue
+		}
+		requiredList := stringSliceFromAny(option["required"])
+		if len(requiredList) == 1 {
+			requiredFields = append(requiredFields, requiredList[0])
+		}
+	}
+	if !reflect.DeepEqual(requiredFields, []string{"context", "fetch", "history", "status"}) {
+		t.Fatal("exportPayload missing exactly-one selector guard")
+	}
+}
+
+func TestResultSchema_ExportDefinitionsMatchRuntimeEnums(t *testing.T) {
+	raw := readSchemaFixture(t, "cli.result.schema.json")
+
+	var doc struct {
+		Defs map[string]map[string]any `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal cli result schema: %v", err)
+	}
+
+	exportDocumentKind, ok := doc.Defs["exportDocumentKind"]
+	if !ok {
+		t.Fatal("missing exportDocumentKind schema")
+	}
+	if got, want := stringSliceFromAny(exportDocumentKind["enum"]), []string{
+		string(ExportDocumentKindContext),
+		string(ExportDocumentKindMemory),
+		string(ExportDocumentKindPlan),
+		string(ExportDocumentKindReceipt),
+		string(ExportDocumentKindTask),
+		string(ExportDocumentKindRun),
+		string(ExportDocumentKindFetchBundle),
+		string(ExportDocumentKindHistory),
+		string(ExportDocumentKindStatus),
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected exportDocumentKind enum: got %v want %v", got, want)
+	}
+
+	exportBundleItemKind, ok := doc.Defs["exportBundleItemKind"]
+	if !ok {
+		t.Fatal("missing exportBundleItemKind schema")
+	}
+	if got, want := stringSliceFromAny(exportBundleItemKind["enum"]), []string{
+		string(ExportBundleItemKindMemory),
+		string(ExportBundleItemKindPlan),
+		string(ExportBundleItemKindReceipt),
+		string(ExportBundleItemKindTask),
+		string(ExportBundleItemKindRun),
+		string(ExportBundleItemKindPointer),
+		string(ExportBundleItemKindRule),
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected exportBundleItemKind enum: got %v want %v", got, want)
+	}
+
+	exportResult, ok := doc.Defs["exportResult"]
+	if !ok {
+		t.Fatal("missing exportResult schema")
+	}
+	properties, ok := exportResult["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("exportResult.properties missing or invalid")
+	}
+	for _, property := range []string{"format", "document", "content"} {
+		if _, ok := properties[property]; !ok {
+			t.Fatalf("exportResult missing %s property", property)
+		}
+	}
+	documentProperty, ok := properties["document"].(map[string]any)
+	if !ok {
+		t.Fatal("exportResult.document missing or invalid")
+	}
+	if got := documentProperty["$ref"]; got != "#/$defs/exportDocument" {
+		t.Fatalf("unexpected exportResult.document ref: %v", got)
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -210,6 +340,17 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func stringSliceFromAny(raw any) []string {
+	items, _ := raw.([]any)
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		if value, ok := item.(string); ok {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 func readSchemaFixture(t *testing.T, name string) []byte {
