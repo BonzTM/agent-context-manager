@@ -8,14 +8,28 @@ import sys
 from collections import defaultdict
 
 
-ROOT_KIND = "feature"
+ROOT_KINDS = {"feature", "maintenance", "governance"}
 STREAM_KIND = "feature_stream"
 STAGE_TASKS = {
     "stage:spec-outline": "spec_outline",
     "stage:refined-spec": "refined_spec",
     "stage:implementation-plan": "implementation_plan",
 }
-LEAF_TASK_EXEMPT_KEYS = {"verify:tests", "review:cross-llm"}
+STAGE_CHILD_PREFIXES = {
+    "stage:spec-outline": ("spec:",),
+    "stage:refined-spec": ("refine:",),
+    "stage:implementation-plan": ("impl:", "tdd:"),
+}
+LEAF_TASK_EXEMPT_KEYS = {"verify:tests"}
+CATCH_ALL_LEAF_SUMMARIES = {
+    "cleanup",
+    "misc",
+    "misc cleanup",
+    "polish",
+    "remaining",
+    "remaining work",
+    "wire the rest",
+}
 
 
 def trimmed(value):
@@ -33,9 +47,18 @@ def normalized_list(value):
     return output
 
 
+def normalized_summary(value):
+    return " ".join(trimmed(value).lower().split())
+
+
+def is_gate_task(task_key):
+    value = trimmed(task_key)
+    return value in LEAF_TASK_EXEMPT_KEYS or value.startswith("review:")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Validate agent-context-manager's repo-local ACM feature plan convention."
+        description="Validate agent-context-manager's repo-local ACM staged plan convention."
     )
     parser.add_argument(
         "--project",
@@ -171,20 +194,124 @@ def validate_leaf_acceptance(plan, tasks_by_key, children_by_parent, errors):
             continue
         if task_key in children_by_parent:
             continue
-        if task_key in LEAF_TASK_EXEMPT_KEYS:
+        if is_gate_task(task_key):
             continue
         found_leaf = True
-        if not normalized_list(task.get("acceptance_criteria")):
+        acceptance_criteria = normalized_list(task.get("acceptance_criteria"))
+        if len(acceptance_criteria) < 2:
             errors.append(
-                f"{plan['__plan_key']}: leaf task {task_key} must include acceptance_criteria"
+                f"{plan['__plan_key']}: leaf task {task_key} must include at least 2 acceptance_criteria"
+            )
+        references = normalized_list(task.get("references"))
+        if not references:
+            errors.append(f"{plan['__plan_key']}: leaf task {task_key} must include references")
+        if len(references) > 3:
+            errors.append(
+                f"{plan['__plan_key']}: leaf task {task_key} must reference at most 3 repo paths"
+            )
+        if normalized_summary(task.get("summary")) in CATCH_ALL_LEAF_SUMMARIES:
+            errors.append(
+                f"{plan['__plan_key']}: leaf task {task_key} summary is too vague for atomic execution"
             )
     if not found_leaf:
         errors.append(f"{plan['__plan_key']}: expected at least one non-gate leaf task")
 
 
-def validate_root_feature_plan(plan, errors):
+def validate_no_non_stage_parents(plan, children_by_parent, errors):
+    for parent_task_key in children_by_parent:
+        if parent_task_key in STAGE_TASKS:
+            continue
+        if is_gate_task(parent_task_key):
+            errors.append(
+                f"{plan['__plan_key']}: gate task {parent_task_key} must not own child tasks"
+            )
+            continue
+        errors.append(
+            f"{plan['__plan_key']}: task {parent_task_key} must be a direct leaf under one stage task, not a parent task"
+        )
+
+
+def validate_root_stage_hierarchy(plan, tasks_by_key, children_by_parent, errors):
+    for task_key, stage_field in STAGE_TASKS.items():
+        stage_task = tasks_by_key.get(task_key)
+        if not stage_task:
+            errors.append(f"{plan['__plan_key']}: missing top-level stage task {task_key}")
+            continue
+        if trimmed(stage_task.get("parent_task_key")):
+            errors.append(
+                f"{plan['__plan_key']}: stage task {task_key} must not set parent_task_key"
+            )
+        stage_children = children_by_parent.get(task_key, [])
+        if not stage_children:
+            errors.append(
+                f"{plan['__plan_key']}: stage task {task_key} must own at least one child task"
+            )
+            continue
+        allowed_prefixes = STAGE_CHILD_PREFIXES[task_key]
+        for child_task_key in stage_children:
+            if is_gate_task(child_task_key):
+                errors.append(
+                    f"{plan['__plan_key']}: gate task {child_task_key} must stay top-level, not under {task_key}"
+                )
+                continue
+            child_task = tasks_by_key[child_task_key]
+            if trimmed(child_task.get("parent_task_key")) != task_key:
+                errors.append(
+                    f"{plan['__plan_key']}: task {child_task_key} must be a direct child of {task_key}"
+                )
+            if not any(child_task_key.startswith(prefix) for prefix in allowed_prefixes):
+                errors.append(
+                    f"{plan['__plan_key']}: task {child_task_key} is under {task_key} but must use one of the prefixes {', '.join(allowed_prefixes)}"
+                )
+
+    for task_key, task in tasks_by_key.items():
+        if task_key in STAGE_TASKS:
+            continue
+        parent_task_key = trimmed(task.get("parent_task_key"))
+        if is_gate_task(task_key):
+            if parent_task_key:
+                errors.append(
+                    f"{plan['__plan_key']}: gate task {task_key} must not set parent_task_key"
+                )
+            continue
+        if parent_task_key not in STAGE_TASKS:
+            errors.append(
+                f"{plan['__plan_key']}: task {task_key} must be a direct child of one stage task"
+            )
+
+
+def is_thin_plan_exempt(plan):
     if trimmed(plan.get("parent_plan_key")):
-        errors.append(f"{plan['__plan_key']}: root feature plans must not set parent_plan_key")
+        return False
+    stages = plan.get("stages")
+    if isinstance(stages, dict) and stages:
+        return False
+
+    tasks_by_key, children_by_parent = index_tasks(plan, [])
+    if not tasks_by_key:
+        return False
+    if any(task_key in STAGE_TASKS for task_key in tasks_by_key):
+        return False
+    if children_by_parent:
+        return False
+
+    non_gate_task_keys = [
+        task_key for task_key in tasks_by_key if not is_gate_task(task_key)
+    ]
+    if len(non_gate_task_keys) != 1:
+        return False
+
+    task = tasks_by_key[non_gate_task_keys[0]]
+    if trimmed(task.get("parent_task_key")):
+        return False
+    if normalized_list(task.get("depends_on")):
+        return False
+    return True
+
+
+def validate_root_staged_plan(plan, errors):
+    if trimmed(plan.get("parent_plan_key")):
+        errors.append(f"{plan['__plan_key']}: root staged plans must not set parent_plan_key")
 
     require_non_empty_string(plan, "title", errors)
     require_non_empty_string(plan, "objective", errors)
@@ -196,7 +323,7 @@ def validate_root_feature_plan(plan, errors):
     stages = plan.get("stages")
     if not isinstance(stages, dict):
         stages = {}
-        errors.append(f"{plan['__plan_key']}: stages must be present for feature plans")
+        errors.append(f"{plan['__plan_key']}: stages must be present for staged root plans")
     for stage_field in STAGE_TASKS.values():
         if not trimmed(stages.get(stage_field)):
             errors.append(f"{plan['__plan_key']}: stages.{stage_field} must be set")
@@ -206,28 +333,21 @@ def validate_root_feature_plan(plan, errors):
         return
 
     if "verify:tests" not in tasks_by_key:
-        errors.append(f"{plan['__plan_key']}: feature plans must include a verify:tests task")
+        errors.append(f"{plan['__plan_key']}: staged root plans must include a verify:tests task")
 
     for task_key, stage_field in STAGE_TASKS.items():
         stage_task = tasks_by_key.get(task_key)
         if not stage_task:
-            errors.append(f"{plan['__plan_key']}: missing top-level stage task {task_key}")
             continue
-        if trimmed(stage_task.get("parent_task_key")):
-            errors.append(
-                f"{plan['__plan_key']}: stage task {task_key} must not set parent_task_key"
-            )
         plan_stage_status = trimmed(stages.get(stage_field))
         task_status = trimmed(stage_task.get("status"))
         if plan_stage_status and task_status and plan_stage_status != task_status:
             errors.append(
                 f"{plan['__plan_key']}: stage task {task_key} status {task_status} must match stages.{stage_field}={plan_stage_status}"
             )
-        if not children_by_parent.get(task_key):
-            errors.append(
-                f"{plan['__plan_key']}: stage task {task_key} must own at least one child task"
-            )
 
+    validate_no_non_stage_parents(plan, children_by_parent, errors)
+    validate_root_stage_hierarchy(plan, tasks_by_key, children_by_parent, errors)
     validate_leaf_acceptance(plan, tasks_by_key, children_by_parent, errors)
 
 
@@ -249,26 +369,33 @@ def validate_feature_stream_plan(plan, errors):
             f"{plan['__plan_key']}: feature_stream plans must include a verify:tests task"
         )
 
+    validate_no_non_stage_parents(plan, children_by_parent, errors)
     validate_leaf_acceptance(plan, tasks_by_key, children_by_parent, errors)
 
 
-def validate_feature_hierarchy(chain):
+def validate_staged_plan_hierarchy(chain):
     errors = []
     root_plan = chain[0]
     root_kind = trimmed(root_plan.get("kind"))
-    if root_kind != ROOT_KIND:
+    if root_kind not in ROOT_KINDS:
         errors.append(
-            f"{root_plan['__plan_key']}: root plan in a feature hierarchy must use kind={ROOT_KIND}"
+            f"{root_plan['__plan_key']}: root plan must use kind=feature|maintenance|governance"
         )
         return errors
 
-    validate_root_feature_plan(root_plan, errors)
+    validate_root_staged_plan(root_plan, errors)
+
+    if root_kind != "feature" and len(chain) > 1:
+        errors.append(
+            f"{root_plan['__plan_key']}: maintenance/governance staged plans must stay in one root plan with atomic leaf tasks"
+        )
+        return errors
 
     for descendant in chain[1:]:
         descendant_kind = trimmed(descendant.get("kind"))
         if descendant_kind != STREAM_KIND:
             errors.append(
-                f"{descendant['__plan_key']}: child plans under a feature root must use kind={STREAM_KIND}"
+                f"{descendant['__plan_key']}: child plans under a staged feature root must use kind={STREAM_KIND}"
             )
             continue
         validate_feature_stream_plan(descendant, errors)
@@ -304,22 +431,27 @@ def main():
 
     current_kind = trimmed(current_plan.get("kind"))
     root_kind = trimmed(chain[0].get("kind"))
-    managed_hierarchy = root_kind == ROOT_KIND or current_kind == STREAM_KIND
-    if not managed_hierarchy:
+    if is_thin_plan_exempt(current_plan):
         print(
-            f'acm-feature-plan-validate: skip - active plan {plan_key} uses kind "{current_kind or "unspecified"}", not the repo-local feature plan schema'
+            f"acm-feature-plan-validate: skip - active plan {plan_key} matches the thin-plan exemption"
         )
         return 0
 
-    errors = validate_feature_hierarchy(chain)
+    managed_hierarchy = root_kind in ROOT_KINDS or current_kind == STREAM_KIND
+    if not managed_hierarchy:
+        return fail(
+            f'active plan {plan_key} uses kind "{current_kind or "unspecified"}" but does not match the thin-plan exemption; governed multi-step work must use kind=feature|maintenance|governance'
+        )
+
+    errors = validate_staged_plan_hierarchy(chain)
     if errors:
-        print("acm-feature-plan-validate: feature plan contract failed:", file=sys.stderr)
+        print("acm-feature-plan-validate: staged plan contract failed:", file=sys.stderr)
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
 
     chain_text = " -> ".join(plan["__plan_key"] for plan in chain)
-    print(f"acm-feature-plan-validate: ok - validated feature plan hierarchy {chain_text}")
+    print(f"acm-feature-plan-validate: ok - validated staged plan hierarchy {chain_text}")
     return 0
 
 

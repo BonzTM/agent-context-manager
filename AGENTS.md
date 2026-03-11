@@ -61,6 +61,11 @@ When changing rules, tags, tests, workflows, onboarding, or tool-surface behavio
 - If verification fails, fix it or report it clearly. Do not claim success.
 - If a planned task or review gate becomes obsolete, mark it `superseded` instead of leaving it open or `blocked`.
 - `acm health` and `acm status` warnings about stale plans, plan-status drift, or plans left open only for administrative closeout are bookkeeping regressions. Clean them up before `done` when they are part of your task.
+- Governed multi-step work in this repo uses the staged plan contract in `docs/feature-plans.md`, not thin ad hoc task lists.
+- Governed root plans must always carry `spec_outline`, `refined_spec`, and `implementation_plan`; do not start implementation with only a vague root objective.
+- The root plan owner acts as the orchestrator for multi-file or multi-step work: keep the whole-plan spec, scope, verification, review, and closeout there; keep leaf tasks narrow enough for low-context execution.
+- When the runtime supports sub-agents, prefer delegating bounded leaf tasks so the orchestrator keeps the full-plan context. When it does not, execute the same leaf tasks sequentially and return to the root plan between them.
+- Keep leaf tasks so tight that an assignee can succeed from the listed `references`, `acceptance_criteria`, and `depends_on` edges without inventing missing scope.
 - Planned behavior-changing Go work under `cmd/**` or `internal/**` should add a `tdd:red` task before implementation, or a `tdd:exemption` task with a concrete justification.
 - Repo-local verify treats non-test Go changes under `cmd/**` or `internal/**` as behavior changes unless that exemption is present.
 
@@ -68,6 +73,6 @@ When changing rules, tags, tests, workflows, onboarding, or tool-surface behavio
 
 - Architecture, package map, command checklist, test patterns, troubleshooting: [docs/maintainer-reference.md](docs/maintainer-reference.md)
 - Detailed change routing: [docs/maintainer-map.md](docs/maintainer-map.md)
-- Feature-plan contract: [docs/feature-plans.md](docs/feature-plans.md)
+- Staged planning contract: [docs/feature-plans.md](docs/feature-plans.md)
 - Product and adopter setup: [docs/getting-started.md](docs/getting-started.md)
 - Schema and MCP contract overview: [spec/v1/README.md](spec/v1/README.md)

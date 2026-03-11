@@ -182,7 +182,19 @@ Thirteen tools exposed:
 - **Advanced backend-only** (1): `export`
 - **Maintenance** (4): `sync`, `health`, `status`, `init`
 
-`review` is intentionally thin — it records one review task through the existing `work` path and can execute a workflow-defined `run` block when requested.
+`verify` and `review` are intentionally different:
+
+- `verify` runs deterministic repo-defined executable checks from `.acm/acm-tests.yaml` and updates `verify:tests`.
+- `review` satisfies one named workflow gate from `.acm/acm-workflows.yaml`; in run mode it executes that gate's `run` block and records review attempts for one review task such as `review:cross-llm`.
+
+Use the commands for different questions:
+
+| Question | Command |
+|---|---|
+| "Which repo-defined checks apply to this task and current diff?" | `verify` |
+| "Has this one named workflow signoff gate been satisfied?" | `review` |
+
+Typical governed closeout sequence: `work` -> `verify` -> `review --run` when required -> `done`.
 
 ## CLI Reference
 
@@ -217,6 +229,14 @@ For ad hoc CLI rendering, `context`, `fetch`, `history`, and `status` also accep
 Most list and text flags support inline values and `--*-file` alternatives (`-` for stdin). JSON list/object inputs also support `--*-json` for one-shot agent calls without temporary files.
 
 `review` is intentionally thin — it lowers to a single `work.tasks[]` merge update.
+
+| Surface | `verify` | `review` |
+|---|---|---|
+| Source of truth | `.acm/acm-tests.yaml` | `.acm/acm-workflows.yaml` |
+| Execution fan-out | zero or more selected checks | exactly one named gate |
+| Recorded task | `verify:tests` | one review task such as `review:cross-llm` |
+| Primary use | deterministic executable checks | workflow signoff or secondary reviewer gate |
+| Wrong use | not a substitute for reviewer signoff | not a substitute for bulk repo checks |
 
 **Defaults** (when flags are omitted): `key=review:cross-llm`, `summary="Cross-LLM review"`, `status=complete`.
 
@@ -343,11 +363,11 @@ When verify context is available, ACM also injects generic metadata for repo-loc
 
 That metadata is policy-neutral. Repos can use it for targeted test selection, plan-aware guards, or other local workflow checks without making those policies part of ACM's product defaults.
 
-### Repo-Local Feature Plan Conventions
+### Repo-Local Staged Plan Conventions
 
 ACM's built-in `work` schema already supports richer planning detail through `plan.stages`, `parent_task_key`, `depends_on`, and `acceptance_criteria`. Repos can layer a stricter feature-planning contract on top of those fields without changing ACM itself.
 
-This repo does that for net-new feature work: root plans use `kind=feature`, track `spec_outline` / `refined_spec` / `implementation_plan`, group work under top-level `stage:*` tasks, and treat leaf tasks with explicit `acceptance_criteria` as the atomic units of execution. Terminal plan auto-close also reconciles the plan-stage fields from those `stage:*` task statuses so completed feature plans do not linger with stale stage metadata. `acm verify` enforces the contract through `scripts/acm-feature-plan-validate.py`. See [docs/feature-plans.md](docs/feature-plans.md).
+This repo does that for governed multi-step work: root plans use `kind=feature`, `kind=maintenance`, or `kind=governance`, track `spec_outline` / `refined_spec` / `implementation_plan`, group work under top-level `stage:*` tasks, and treat leaf tasks with exact `references` plus explicit `acceptance_criteria` as the atomic units of execution. Terminal plan auto-close also reconciles the plan-stage fields from those `stage:*` task statuses so completed staged plans do not linger with stale stage metadata. `acm verify` enforces the contract through `scripts/acm-feature-plan-validate.py`. That stricter staged-plan schema is repo policy, not an ACM product default. See [docs/feature-plans.md](docs/feature-plans.md).
 
 ### Workflows (`.acm/acm-workflows.yaml`)
 

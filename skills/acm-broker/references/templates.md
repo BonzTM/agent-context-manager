@@ -12,11 +12,15 @@ For Codex-first repo setup, the installed skill also ships `codex/README.md` and
 4. Run `fetch` only for indexed artifacts you actually need to hydrate, either by explicit keys or by `receipt_id` shorthand, which derives the plan fetch key.
 5. Execute the task.
 6. Run `work` with `receipt_id` (no `plan_key` required) to publish updates. Use `tasks` and include `verify:tests` for executable verification tracking; add other task keys when `.acm/acm-workflows.yaml` requires them. When governed file scope expands after `context`, append those repo-relative files to `plan.discovered_paths`.
-7. Run `review` when you only need to record a single review-gate outcome instead of assembling a broader `work` payload.
-8. Run `verify` before `done` when code changes.
+7. Run `verify` before `done` when code, config, contract, onboarding, or behavior changes need deterministic repo checks.
+8. Run `review` when you need one named workflow-gate outcome instead of assembling a broader `work` payload.
 9. Run `done` with changed files for file-backed work when you know them, or omit / leave `files_changed` empty to let ACM derive the real task delta from the receipt baseline.
 10. Run `memory` when the result should persist.
 11. When resuming or auditing prior work, use direct CLI `acm history`, setting `--entity work` when you need work-specific `--scope` or `--kind` filters, then `acm fetch` the returned `fetch_keys`.
+
+Command boundary:
+- `verify` selects zero or more deterministic repo-defined checks from `.acm/acm-tests.yaml`.
+- `review` records or runs exactly one named workflow gate from `.acm/acm-workflows.yaml`.
 
 Maintenance note:
 - When rules, tags, tests, workflows, onboarding, or tool-surface behavior change, run `acm sync --mode working_tree --insert-new-candidates` and then `acm health --include-details` before `done`.

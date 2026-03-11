@@ -15,6 +15,7 @@ Steps:
 
 Constraints:
 - Use `verify` before `done` for code changes.
+- Use `verify` for deterministic repo-defined checks, not for one-off review signoff notes.
 - Do not invent `files_changed` paths or receipt context.
 - When receipt baseline detection is unavailable and changed-path selectors matter, pass files explicitly instead of assuming ACM can infer them.
 - If selection is unexpectedly empty, inspect the repo’s `.acm/acm-tests.yaml` selectors before forcing completion.

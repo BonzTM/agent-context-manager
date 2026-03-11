@@ -3,6 +3,7 @@
 # Save this as .acm/acm-workflows.yaml (preferred) or acm-workflows.yaml in the project root.
 # Use it to declare which work tasks must be complete before done should be considered complete.
 # Init seeds a thin `required_tasks: []` skeleton by default; gates like `review:cross-llm` are opt-in examples.
+# `review` is for named workflow gates; keep deterministic executable checks in `.acm/acm-tests.yaml`.
 # Add `run` blocks only when you want `review --run` / `run=true` to execute a repo-local script or command.
 
 version: acm.workflows.v1

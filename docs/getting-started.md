@@ -274,20 +274,32 @@ acm work --receipt-id <receipt-id> --mode merge \
 
 When governed file work expands beyond the receipt's initial scope, record the later-discovered files through `plan.discovered_paths` in `work` before expecting `review` to pass, and before relying on those paths for memory evidence. `done` also accepts path-like entries from `plan.in_scope`, but `discovered_paths` remains the right way to declare later-found concrete files.
 
-#### Optional richer feature plans
+#### Optional richer staged plans
 
-ACM's built-in `work` schema already includes `plan.stages`, `parent_task_key`, `depends_on`, and `acceptance_criteria`. A repo can use those fields to define a stricter feature-plan contract for net-new feature work without changing ACM itself.
+ACM's built-in `work` schema already includes `plan.stages`, `parent_task_key`, `depends_on`, and `acceptance_criteria`. A repo can use those fields to define a stricter staged-plan contract for multi-step work without changing ACM itself.
 
 Typical pattern:
 
-- use a root plan with `kind=feature` plus explicit scope metadata
+- use a root plan with an explicit kind plus explicit scope metadata
 - mirror `plan.stages.spec_outline` / `refined_spec` / `implementation_plan` with top-level `stage:*` tasks
+- keep one orchestrator on the root plan and treat leaf tasks as the atomic execution units
 - when a plan reaches a terminal status, ACM reconciles those stage fields from the matching `stage:*` task statuses during auto-close
-- treat leaf tasks as the atomic tasks and require `acceptance_criteria` on those leaves
+- require `acceptance_criteria` and exact `references` on atomic leaf tasks
 - use child plans with `kind=feature_stream` and `parent_plan_key` for parallel execution streams
 - run a repo-local validator from `verify`; `ACM_PLAN_KEY` and `ACM_RECEIPT_ID` are injected into verify commands automatically
 
-This repo uses that pattern in [feature-plans.md](feature-plans.md) and enforces it with `scripts/acm-feature-plan-validate.py`.
+This repo uses that pattern in [feature-plans.md](feature-plans.md) and enforces it with `scripts/acm-feature-plan-validate.py`, but that stricter staged-plan contract remains repo policy, not an ACM product default.
+
+### verify versus review
+
+`verify` and `review` are complementary, not interchangeable:
+
+| Need | Use |
+|---|---|
+| Deterministic repo-defined executable checks selected from `.acm/acm-tests.yaml` | `verify` |
+| One named workflow signoff gate from `.acm/acm-workflows.yaml` | `review` |
+
+Typical governed closeout is `work` -> `verify` -> `review --run` when required -> `done`.
 
 ### review
 
@@ -300,6 +312,8 @@ acm review \
 ```
 
 `review` is intentionally thin — it lowers to a single `work.tasks[]` merge update.
+
+Use `review` for one named workflow signoff gate. Do not use it as a substitute for deterministic repo checks or bulk test execution.
 
 - **Run mode**: acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists a review-attempt record, and updates the work-task snapshot. When fingerprint dedupe is enabled, ACM only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. `done` requires a passing runnable review for the current fingerprint when dedupe is enabled. The scoped fingerprint covers effective scope: receipt `initial_scope_paths`, work-declared `discovered_paths`, and ACM-managed governance files that completion reporting already allows outside project file scope.
 - **Defaults**: `key=review:cross-llm`, `summary="Cross-LLM review"`.
@@ -353,6 +367,8 @@ acm verify --receipt-id <receipt-id> --phase review \
   --file-changed src/signup.go \
   --file-changed src/signup_test.go
 ```
+
+Use `verify` for deterministic repo-defined checks from `.acm/acm-tests.yaml`. If you need one named workflow signoff gate instead, use `review`.
 
 ### done
 

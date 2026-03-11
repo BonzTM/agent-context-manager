@@ -16,7 +16,7 @@ tests:
       exit_code: 0
 
   - id: acm-feature-plan-help
-    summary: Ensure the repo-local ACM feature-plan validator exposes help
+    summary: Ensure the repo-local ACM staged-plan validator exposes help
     command:
       argv: ["python3", "scripts/acm-feature-plan-validate.py", "--help"]
     select:
@@ -26,7 +26,7 @@ tests:
       exit_code: 0
 
   - id: acm-feature-plan-validate
-    summary: Validate the repo-local ACM feature plan schema for active feature work
+    summary: Validate the repo-local ACM staged-plan schema for governed work
     command:
       argv: ["python3", "scripts/acm-feature-plan-validate.py"]
     select:

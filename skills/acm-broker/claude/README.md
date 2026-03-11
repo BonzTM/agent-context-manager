@@ -13,9 +13,9 @@ The intended default story is the modular core loop: `context`, `work`, `verify`
   - use `plan.discovered_paths` when governed work expands beyond the receipt's initial scope and later `review` or `done` must validate those files.
   - if the repo defines a richer feature-plan contract, this is where `plan.stages`, top-level `stage:*` tasks, task hierarchy, and leaf `acceptance_criteria` should be recorded.
 - `/acm-review <receipt_id-or-plan_key> [review-json]`
-  - records a single review gate through the thin `review` surface, defaulting to `review:cross-llm`; use `{"run":true}` when the repo workflow defines a runnable review gate.
+  - records one workflow review gate through the thin `review` surface, defaulting to `review:cross-llm`; use `{"run":true}` when the repo workflow defines a runnable review gate.
 - `/acm-verify <receipt_id-or-plan_key> [comma-separated files] [phase]`
-  - runs repo-defined executable verification and updates `verify:tests` when work context is available. Omit the file segment only when the receipt baseline or repo selectors make explicit files unnecessary.
+  - runs deterministic repo-defined executable verification from `.acm/acm-tests.yaml` and updates `verify:tests` when work context is available. Omit the file segment only when the receipt baseline or repo selectors make explicit files unnecessary.
 - `/acm-done <receipt_id-or-plan_key> [comma-separated files] -- <outcome summary>`
   - runs completion reporting after verification is satisfied and applies effective-scope plus configured completion-gate semantics. Omit the file segment to rely on the baseline-derived delta; if that detected delta is empty, the closeout is effectively no-file.
 - `/acm-memory {"receipt_id":"...","category":"gotcha","subject":"...","content":"...","evidence_paths":["path/to/file.go"],"evidence_keys":["project:path#anchor"]}`
@@ -55,6 +55,8 @@ For repo-local verification scaffolding, pair `init` with `--apply-template veri
 - Scope mode defaults to advisory `warn` when `scope_mode` is omitted.
 - `/acm-done` can rely on the receipt baseline delta when explicit files are inconvenient. If that detected delta is empty, the closeout is effectively no-file.
 - Runnable review gates can carry repo-local script arguments in `.acm/acm-workflows.yaml` `run.argv`, which is where model and reasoning choices should live.
+- Use `verify` for deterministic repo checks and `review` for one named workflow signoff gate; they are complementary, not interchangeable.
+- The practical sequencing rule is `work` -> `verify` -> `review --run` when a gate exists -> `done`.
 - Some repos enforce richer feature-plan schemas through verify-time scripts that inspect `ACM_PLAN_KEY` / `ACM_RECEIPT_ID`; keep that structure in `work`, not in free-form prose.
 - Optional logger controls:
   - `ACM_LOG_LEVEL=debug|info|warn|error`

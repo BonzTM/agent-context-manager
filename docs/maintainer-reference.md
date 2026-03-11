@@ -81,6 +81,20 @@ The MCP adapter auto-generates tool definitions from the command catalog. There 
 
 Run `go test ./...` for the normal local suite. Run `go test ./internal/integration/...` separately with `ACM_PG_DSN` set when Postgres parity matters.
 
+## Verify Versus Review
+
+- `verify` is for deterministic repo-defined executable checks from `.acm/acm-tests.yaml`. It selects zero or more checks for the current receipt, plan, phase, tags, and changed files, then updates `verify:tests`.
+- `review` is for one workflow gate from `.acm/acm-workflows.yaml`. In run mode it executes that gate's `run` block, fingerprints the scoped change set, records attempts, and updates one review task such as `review:cross-llm`.
+- If you are choosing between them, ask: "Am I running deterministic repo checks?" Use `verify`. "Am I satisfying a named workflow signoff gate?" Use `review`.
+
+## Planning And Orchestration
+
+- Governed multi-step work in this repo uses the staged plan contract in [feature-plans.md](feature-plans.md).
+- Governed root plans must include the three planning stages: `spec_outline`, `refined_spec`, and `implementation_plan`.
+- The root plan owner is the orchestrator. That owner keeps the whole-plan objective, spec outline, refined spec, scope declarations, dependencies, verification state, review state, and closeout state coherent.
+- Leaf tasks should be explicit enough for low-context execution: exact file references, bounded outputs, and explicit verification expectations.
+- When the runtime supports sub-agents, delegate bounded leaf tasks to them so the orchestrator retains the root-plan context. When it does not, emulate the same pattern by executing one leaf task at a time and returning to the root plan after each step.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
