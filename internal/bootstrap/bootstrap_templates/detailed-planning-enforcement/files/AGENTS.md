@@ -1,6 +1,7 @@
 # AGENTS.md
 
 Operating contract for a repo that uses `acm` and wants enforced detailed feature planning.
+Keep this file as the fast path, then move heavier architecture, checklist, or troubleshooting material into linked repo-local maintainer docs as the project grows.
 
 ## Source Of Truth
 

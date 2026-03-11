@@ -1,7 +1,7 @@
 # AGENTS.md
 
-Default operating contract for a repo that uses `acm`.
-Start here, then customize once the project develops stronger local conventions.
+Starter operating contract for a repo that uses `acm`.
+Keep this file as the fast path, then move heavier architecture, checklist, or troubleshooting material into linked repo-local maintainer docs as the project grows.
 
 ## Source Of Truth
 

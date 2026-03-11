@@ -3,6 +3,8 @@
 This guide walks you through setting up acm in a project from scratch. Steps 1-4 are human setup. Steps 5+ show the agent-facing operations and how to wire them into your tools.
 acm is still unreleased, and the public contract is being simplified around the smaller core surface described here rather than preserving every older alias or workflow shape.
 
+This guide is for adopting ACM in another repository. If you are maintaining ACM itself, use [AGENTS.md](../AGENTS.md), [docs/maintainer-map.md](maintainer-map.md), and [docs/maintainer-reference.md](maintainer-reference.md) for the repo-specific maintainer workflow instead of treating this file as the maintainer contract.
+
 ## Prerequisites
 
 - Go 1.26+ installed if you plan to use `go install` or build from source

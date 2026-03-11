@@ -131,25 +131,11 @@ acm sync --mode working_tree
 
 ### 4. Set up agent integration
 
-Wire agents to acm via slash commands, skill packs, or MCP tools — see [Getting Started](docs/getting-started.md) for details.
+Wire agents to acm via slash commands, skill packs, or MCP tools — see [Getting Started](docs/getting-started.md) for adopter setup details.
 
-Once connected, most agents only need the core loop:
+Once connected, most adopters mainly use `context`, `work`, `verify`, `done`, and `memory`, with `fetch`, `review`, and `history` as supporting surfaces. You can test any operation manually via CLI (e.g., `acm context --task-text "fix the login bug" --phase execute`). See the [CLI Reference](#cli-reference) below.
 
-1. `context` — retrieves hard rules, active plans, relevant memory, any explicitly known initial scope paths, and a task baseline for later verify/done delta detection
-2. `work` — records or updates durable task state
-3. `verify` — runs repo-defined executable checks when code or behavior changed
-4. `done` — closes the task, validates effective scope, and records completion history
-5. `memory` — saves durable facts for future cross-agent reuse
-
-When you change rules, tags, tests, workflows, onboarding, or tool-surface behavior, run `acm sync --mode working_tree --insert-new-candidates` and `acm health --include-details` before `done`.
-
-Supporting surfaces stay available when you need them:
-
-- `fetch` — hydrate full plan, task, memory, or explicit pointer content from returned keys
-- `review` — record or run explicit review gates
-- `history` — rediscover archived plans, receipts, runs, and memories
-
-You can test any operation manually via CLI (e.g., `acm context --task-text "fix the login bug" --phase execute`). See the [CLI Reference](#cli-reference) below.
+If you are maintaining ACM itself rather than adopting it in another repo, use [AGENTS.md](AGENTS.md), [docs/maintainer-map.md](docs/maintainer-map.md), and [docs/maintainer-reference.md](docs/maintainer-reference.md) for the repo's maintainer workflow. This README stays product-facing.
 
 ## Agent Integration
 
