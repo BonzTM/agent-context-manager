@@ -41,6 +41,6 @@ completion:
           - "--model"
           - "gpt-5.3-codex"
           - "--reasoning-effort"
-          - "xhigh"
+          - "high"
         cwd: .
         timeout_sec: 1800
