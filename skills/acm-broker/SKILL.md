@@ -62,6 +62,7 @@ For Codex-first repo setup, see `codex/README.md` and `codex/AGENTS.example.md` 
 - Never skip `context` before execution.
 - Treat the `context` rules block (or rule pointers) as mandatory requirements.
 - Do not invent or silently widen governed file scope. Record discovered paths through `work` when they matter to `review` or `done`.
+- If a planned step or review gate becomes obsolete, mark it `superseded` instead of leaving it open or `blocked`.
 - `memory` requires evidence. Use exact receipt rule keys or indexed pointer keys whose repo-relative paths fall inside effective scope, or use the CLI `--evidence-path` shorthand to derive those keys from governed repo-relative files.
 - Treat advisory scope as `warn` by default unless an explicit `scope_mode` override is required.
 - `review` is a thin convenience that lowers to one `work.tasks[]` update. Defaults: `key=review:cross-llm`, `summary="Cross-LLM review"`, `status=complete`.
@@ -72,6 +73,7 @@ For Codex-first repo setup, see `codex/README.md` and `codex/AGENTS.example.md` 
 - Some repos use `verify` to enforce richer feature-plan schemas built on `kind=feature`, stage tasks, task hierarchy, and leaf-task acceptance criteria. Follow the repo-local contract when it exists.
 - For code changes, run `verify` before `done` unless the repo rules explicitly allow otherwise.
 - For `done`, `scope_mode=strict` blocks on incomplete required completion tasks. When changed files are supplied and no workflow gates are configured, ACM falls back to `verify:tests`; `scope_mode=warn` surfaces warnings.
+- `health` and `status` warn on stale work plans, terminal-task plan status drift, and administrative-closeout-only plans.
 - No-file `done` calls are valid for legitimate planning, research, or review-only closures.
 - If the receipt is too narrow or the task materially changed, refine and re-run `context` instead of guessing.
 - Preserve structured JSON output for all broker interactions.

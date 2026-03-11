@@ -415,10 +415,10 @@ func validateWorkPayload(p *WorkPayload) error {
 
 func validateWorkItemStatusValue(status WorkItemStatus, field string) error {
 	switch status {
-	case WorkItemStatusPending, WorkItemStatusInProgress, WorkItemStatusComplete, WorkItemStatusBlocked:
+	case WorkItemStatusPending, WorkItemStatusInProgress, WorkItemStatusComplete, WorkItemStatusBlocked, WorkItemStatusSuperseded:
 		return nil
 	default:
-		return fmt.Errorf("%s must be pending|in_progress|complete|blocked", field)
+		return fmt.Errorf("%s must be pending|in_progress|complete|blocked|superseded", field)
 	}
 }
 

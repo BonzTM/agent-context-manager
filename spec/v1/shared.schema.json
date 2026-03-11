@@ -138,7 +138,8 @@
         "pending",
         "in_progress",
         "complete",
-        "blocked"
+        "blocked",
+        "superseded"
       ]
     },
     "workItem": {

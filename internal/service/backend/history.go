@@ -332,7 +332,7 @@ func historyScopeFromPlanStatus(status string) v1.HistoryScope {
 	switch normalizePlanStatus(status) {
 	case core.PlanStatusBlocked:
 		return v1.HistoryScopeDeferred
-	case core.PlanStatusComplete, core.PlanStatusCompleted:
+	case core.PlanStatusComplete, core.PlanStatusCompleted, core.PlanStatusSuperseded:
 		return v1.HistoryScopeCompleted
 	default:
 		return v1.HistoryScopeCurrent

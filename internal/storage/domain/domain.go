@@ -199,6 +199,7 @@ func NormalizeWorkPlanTasks(tasks []core.WorkItem) []core.WorkItem {
 	priority := map[string]int{
 		core.WorkItemStatusComplete:   0,
 		core.WorkItemStatusCompleted:  0,
+		core.WorkItemStatusSuperseded: 0,
 		core.WorkItemStatusPending:    1,
 		core.WorkItemStatusInProgress: 2,
 		core.WorkItemStatusBlocked:    3,
@@ -823,6 +824,7 @@ func DerivePlanStatus(items []core.WorkItem) string {
 	hasInProgress := false
 	hasBlocked := false
 	hasCompleted := false
+	hasSuperseded := false
 
 	for _, item := range items {
 		switch NormalizeWorkItemStatus(item.Status) {
@@ -832,6 +834,8 @@ func DerivePlanStatus(items []core.WorkItem) string {
 			hasInProgress = true
 		case core.WorkItemStatusComplete:
 			hasCompleted = true
+		case core.WorkItemStatusSuperseded:
+			hasSuperseded = true
 		default:
 			hasPending = true
 		}
@@ -846,6 +850,8 @@ func DerivePlanStatus(items []core.WorkItem) string {
 		return core.PlanStatusPending
 	case hasCompleted:
 		return core.PlanStatusComplete
+	case hasSuperseded:
+		return core.PlanStatusSuperseded
 	default:
 		return core.PlanStatusPending
 	}
@@ -859,6 +865,8 @@ func NormalizeWorkItemStatus(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case core.WorkItemStatusComplete, core.WorkItemStatusCompleted:
 		return core.WorkItemStatusComplete
+	case core.WorkItemStatusSuperseded:
+		return core.WorkItemStatusSuperseded
 	case core.WorkItemStatusInProgress:
 		return core.WorkItemStatusInProgress
 	case core.WorkItemStatusBlocked:

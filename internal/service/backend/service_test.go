@@ -92,6 +92,7 @@ type fakeRepository struct {
 	saveResult         core.RunReceiptIDs
 	saveError          error
 	receiptUpsertError error
+	storedWorkPlans    map[string]core.WorkPlan
 }
 
 func (f *fakeRepository) FetchCandidatePointers(_ context.Context, input core.CandidatePointerQuery) ([]core.CandidatePointer, error) {
@@ -315,29 +316,15 @@ func (f *fakeRepository) UpsertWorkPlan(_ context.Context, input core.WorkPlanUp
 		return core.WorkPlanUpsertResult{}, f.workPlanUpsertErrors[idx]
 	}
 	if idx < len(f.workPlanUpsertResult) {
+		f.storeWorkPlan(f.workPlanUpsertResult[idx].Plan)
 		return f.workPlanUpsertResult[idx], nil
 	}
 
-	plan := core.WorkPlan{
-		ProjectID:     input.ProjectID,
-		PlanKey:       input.PlanKey,
-		ReceiptID:     input.ReceiptID,
-		Title:         input.Title,
-		Objective:     input.Objective,
-		Kind:          input.Kind,
-		ParentPlanKey: input.ParentPlanKey,
-		Status:        input.Status,
-		Stages:        input.Stages,
-		InScope:       append([]string(nil), input.InScope...),
-		OutOfScope:    append([]string(nil), input.OutOfScope...),
-		Constraints:   append([]string(nil), input.Constraints...),
-		References:    append([]string(nil), input.References...),
-		ExternalRefs:  append([]string(nil), input.ExternalRefs...),
-		Tasks:         append([]core.WorkItem(nil), input.Tasks...),
-	}
+	plan := f.buildStoredWorkPlan(input)
 	if strings.TrimSpace(plan.Status) == "" {
 		plan.Status = core.PlanStatusPending
 	}
+	f.storeWorkPlan(plan)
 	return core.WorkPlanUpsertResult{
 		Plan:    plan,
 		Updated: len(input.Tasks),
@@ -351,6 +338,9 @@ func (f *fakeRepository) LookupWorkPlan(_ context.Context, input core.WorkPlanLo
 		return core.WorkPlan{}, f.workPlanLookupErrors[idx]
 	}
 	if idx >= len(f.workPlanLookupResult) {
+		if plan, ok := f.lookupStoredWorkPlan(strings.TrimSpace(input.ProjectID), strings.TrimSpace(input.PlanKey)); ok {
+			return plan, nil
+		}
 		return core.WorkPlan{}, core.ErrWorkPlanNotFound
 	}
 	return f.workPlanLookupResult[idx], nil
@@ -363,9 +353,189 @@ func (f *fakeRepository) ListWorkPlans(_ context.Context, input core.WorkPlanLis
 		return nil, f.workPlanListErrors[idx]
 	}
 	if idx >= len(f.workPlanListResults) {
-		return nil, nil
+		return f.listStoredWorkPlans(strings.TrimSpace(input.ProjectID), strings.TrimSpace(input.Scope)), nil
 	}
 	return append([]core.WorkPlanSummary(nil), f.workPlanListResults[idx]...), nil
+}
+
+func (f *fakeRepository) buildStoredWorkPlan(input core.WorkPlanUpsertInput) core.WorkPlan {
+	plan, found := f.lookupStoredWorkPlan(strings.TrimSpace(input.ProjectID), strings.TrimSpace(input.PlanKey))
+	if !found || input.Mode == core.WorkPlanModeReplace {
+		plan = core.WorkPlan{
+			ProjectID: strings.TrimSpace(input.ProjectID),
+			PlanKey:   strings.TrimSpace(input.PlanKey),
+		}
+	}
+
+	plan.ProjectID = strings.TrimSpace(input.ProjectID)
+	plan.PlanKey = strings.TrimSpace(input.PlanKey)
+	if receiptID := strings.TrimSpace(input.ReceiptID); receiptID != "" || !found || input.Mode == core.WorkPlanModeReplace {
+		plan.ReceiptID = receiptID
+	}
+	if title := strings.TrimSpace(input.Title); title != "" || input.Mode == core.WorkPlanModeReplace {
+		plan.Title = title
+	}
+	if objective := strings.TrimSpace(input.Objective); objective != "" || input.Mode == core.WorkPlanModeReplace {
+		plan.Objective = objective
+	}
+	if kind := strings.TrimSpace(input.Kind); kind != "" || input.Mode == core.WorkPlanModeReplace {
+		plan.Kind = kind
+	}
+	if parentPlanKey := strings.TrimSpace(input.ParentPlanKey); parentPlanKey != "" || input.Mode == core.WorkPlanModeReplace {
+		plan.ParentPlanKey = parentPlanKey
+	}
+	if status := strings.TrimSpace(input.Status); status != "" || input.Mode == core.WorkPlanModeReplace {
+		plan.Status = status
+	}
+	if input.Mode == core.WorkPlanModeReplace || strings.TrimSpace(input.Stages.SpecOutline) != "" || strings.TrimSpace(input.Stages.RefinedSpec) != "" || strings.TrimSpace(input.Stages.ImplementationPlan) != "" {
+		plan.Stages = mergeFakeWorkPlanStages(plan.Stages, input.Stages, input.Mode)
+	}
+	if input.Mode == core.WorkPlanModeReplace || len(input.InScope) > 0 {
+		plan.InScope = append([]string(nil), input.InScope...)
+	}
+	if input.Mode == core.WorkPlanModeReplace || len(input.OutOfScope) > 0 {
+		plan.OutOfScope = append([]string(nil), input.OutOfScope...)
+	}
+	if input.Mode == core.WorkPlanModeReplace || len(input.DiscoveredPaths) > 0 {
+		plan.DiscoveredPaths = append([]string(nil), input.DiscoveredPaths...)
+	}
+	if input.Mode == core.WorkPlanModeReplace || len(input.Constraints) > 0 {
+		plan.Constraints = append([]string(nil), input.Constraints...)
+	}
+	if input.Mode == core.WorkPlanModeReplace || len(input.References) > 0 {
+		plan.References = append([]string(nil), input.References...)
+	}
+	if input.Mode == core.WorkPlanModeReplace || len(input.ExternalRefs) > 0 {
+		plan.ExternalRefs = append([]string(nil), input.ExternalRefs...)
+	}
+	if input.Mode == core.WorkPlanModeReplace {
+		plan.Tasks = append([]core.WorkItem(nil), input.Tasks...)
+	} else if len(input.Tasks) > 0 {
+		plan.Tasks = mergeFakeWorkPlanTasks(plan.Tasks, input.Tasks)
+	}
+	return plan
+}
+
+func (f *fakeRepository) storeWorkPlan(plan core.WorkPlan) {
+	projectID := strings.TrimSpace(plan.ProjectID)
+	planKey := strings.TrimSpace(plan.PlanKey)
+	if projectID == "" || planKey == "" {
+		return
+	}
+	if f.storedWorkPlans == nil {
+		f.storedWorkPlans = make(map[string]core.WorkPlan)
+	}
+	f.storedWorkPlans[fakeWorkPlanStorageKey(projectID, planKey)] = plan
+}
+
+func (f *fakeRepository) lookupStoredWorkPlan(projectID, planKey string) (core.WorkPlan, bool) {
+	if f == nil || f.storedWorkPlans == nil || projectID == "" || planKey == "" {
+		return core.WorkPlan{}, false
+	}
+	plan, ok := f.storedWorkPlans[fakeWorkPlanStorageKey(projectID, planKey)]
+	return plan, ok
+}
+
+func (f *fakeRepository) listStoredWorkPlans(projectID, scope string) []core.WorkPlanSummary {
+	if f == nil || len(f.storedWorkPlans) == 0 || projectID == "" {
+		return nil
+	}
+
+	out := make([]core.WorkPlanSummary, 0, len(f.storedWorkPlans))
+	for _, plan := range f.storedWorkPlans {
+		if strings.TrimSpace(plan.ProjectID) != projectID {
+			continue
+		}
+		status := normalizePlanStatus(plan.Status)
+		switch strings.TrimSpace(scope) {
+		case string(v1.HistoryScopeCompleted):
+			if !isTerminalPlanStatus(status) {
+				continue
+			}
+		case string(v1.HistoryScopeCurrent), "":
+			if isTerminalPlanStatus(status) {
+				continue
+			}
+		}
+
+		tasks := normalizeWorkItems(plan.Tasks)
+		activeTaskKeys := make([]string, 0, len(tasks))
+		summary := core.WorkPlanSummary{
+			ReceiptID:     strings.TrimSpace(plan.ReceiptID),
+			Title:         strings.TrimSpace(plan.Title),
+			Objective:     strings.TrimSpace(plan.Objective),
+			PlanKey:       strings.TrimSpace(plan.PlanKey),
+			Summary:       strings.TrimSpace(plan.Title),
+			Status:        status,
+			Kind:          strings.TrimSpace(plan.Kind),
+			ParentPlanKey: strings.TrimSpace(plan.ParentPlanKey),
+		}
+		for _, task := range tasks {
+			switch normalizeWorkItemStatus(task.Status) {
+			case core.WorkItemStatusPending:
+				summary.TaskCountPending++
+				activeTaskKeys = append(activeTaskKeys, task.ItemKey)
+			case core.WorkItemStatusInProgress:
+				summary.TaskCountInProgress++
+				activeTaskKeys = append(activeTaskKeys, task.ItemKey)
+			case core.WorkItemStatusBlocked:
+				summary.TaskCountBlocked++
+				activeTaskKeys = append(activeTaskKeys, task.ItemKey)
+			case core.WorkItemStatusComplete:
+				summary.TaskCountComplete++
+			}
+		}
+		summary.TaskCountTotal = len(tasks)
+		summary.ActiveTaskKeys = activeTaskKeys
+		out = append(out, summary)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].PlanKey < out[j].PlanKey
+	})
+	return out
+}
+
+func fakeWorkPlanStorageKey(projectID, planKey string) string {
+	return projectID + "\x00" + planKey
+}
+
+func mergeFakeWorkPlanStages(current, incoming core.WorkPlanStages, mode core.WorkPlanMode) core.WorkPlanStages {
+	if mode == core.WorkPlanModeReplace {
+		return incoming
+	}
+	next := current
+	if value := strings.TrimSpace(incoming.SpecOutline); value != "" {
+		next.SpecOutline = value
+	}
+	if value := strings.TrimSpace(incoming.RefinedSpec); value != "" {
+		next.RefinedSpec = value
+	}
+	if value := strings.TrimSpace(incoming.ImplementationPlan); value != "" {
+		next.ImplementationPlan = value
+	}
+	return next
+}
+
+func mergeFakeWorkPlanTasks(current, incoming []core.WorkItem) []core.WorkItem {
+	byKey := make(map[string]core.WorkItem, len(current)+len(incoming))
+	for _, item := range normalizeWorkItems(current) {
+		byKey[item.ItemKey] = item
+	}
+	for _, item := range normalizeWorkItems(incoming) {
+		byKey[item.ItemKey] = item
+	}
+
+	keys := make([]string, 0, len(byKey))
+	for key := range byKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	merged := make([]core.WorkItem, 0, len(keys))
+	for _, key := range keys {
+		merged = append(merged, byKey[key])
+	}
+	return merged
 }
 
 func (f *fakeRepository) ListReceiptHistory(_ context.Context, input core.ReceiptHistoryListQuery) ([]core.ReceiptHistorySummary, error) {
@@ -3103,11 +3273,14 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 	}
 
 	wantOrder := []string{
+		"administrative_closeout_plans",
 		"duplicate_labels",
 		"empty_descriptions",
 		"orphan_relations",
 		"pending_quarantines",
 		"stale_pointers",
+		"stale_work_plans",
+		"terminal_plan_status_drift",
 		"unindexed_files",
 		"unknown_tags",
 		"weak_memories",
@@ -3122,8 +3295,15 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 	if !reflect.DeepEqual(gotOrder, wantOrder) {
 		t.Fatalf("unexpected check order: got %v want %v", gotOrder, wantOrder)
 	}
-	if len(result.Checks[0].Samples) == 0 {
-		t.Fatalf("expected include_details default to include samples")
+	var duplicateLabels *v1.HealthCheckItem
+	for i := range result.Checks {
+		if result.Checks[i].Name == "duplicate_labels" {
+			duplicateLabels = &result.Checks[i]
+			break
+		}
+	}
+	if duplicateLabels == nil || len(duplicateLabels.Samples) == 0 {
+		t.Fatalf("expected include_details default to include samples for non-empty checks, got %+v", result.Checks)
 	}
 	if len(repo.candidateCalls) != 1 || !repo.candidateCalls[0].Unbounded {
 		t.Fatalf("expected unbounded candidate health query, got %+v", repo.candidateCalls)
@@ -3243,6 +3423,91 @@ func TestStatus_PreviewsContextAndLoadedSources(t *testing.T) {
 	}
 	if len(repo.candidateCalls) != 0 {
 		t.Fatalf("did not expect indexed candidate queries for status preview, got %d", len(repo.candidateCalls))
+	}
+}
+
+func TestStatus_WarnsAboutStaleAndAdministrativePlans(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	files := map[string]string{
+		".acm/acm-rules.yaml":     "version: acm.rules.v1\nrules:\n  - summary: Keep tests green\n",
+		".acm/acm-tags.yaml":      "version: acm.tags.v1\ncanonical_tags:\n  backend:\n    - svc\n",
+		".acm/acm-tests.yaml":     "version: acm.tests.v1\ndefaults:\n  cwd: .\n  timeout_sec: 120\ntests: []\n",
+		".acm/acm-workflows.yaml": "version: acm.workflows.v1\ncompletion:\n  required_tasks: []\n",
+	}
+	for rel, contents := range files {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	now := time.Now().UTC()
+	repo := &fakeRepository{
+		workPlanListResults: [][]core.WorkPlanSummary{{
+			{
+				PlanKey:   "plan:receipt.stale",
+				Status:    core.PlanStatusInProgress,
+				ReceiptID: "receipt.stale",
+				UpdatedAt: now.Add(-8 * 24 * time.Hour),
+			},
+			{
+				PlanKey:   "plan:receipt.closeout",
+				Status:    core.PlanStatusInProgress,
+				ReceiptID: "receipt.closeout",
+				UpdatedAt: now,
+			},
+		}},
+		workPlanLookupResult: []core.WorkPlan{
+			{
+				ProjectID: "project.alpha",
+				PlanKey:   "plan:receipt.stale",
+				ReceiptID: "receipt.stale",
+				Status:    core.PlanStatusInProgress,
+				Tasks: []core.WorkItem{
+					{ItemKey: "verify:tests", Status: core.WorkItemStatusComplete},
+				},
+			},
+			{
+				ProjectID: "project.alpha",
+				PlanKey:   "plan:receipt.closeout",
+				ReceiptID: "receipt.closeout",
+				Status:    core.PlanStatusInProgress,
+				Tasks: []core.WorkItem{
+					{ItemKey: "strict-close", Summary: "Administrative closeout", Status: core.WorkItemStatusPending},
+				},
+			},
+		},
+	}
+	svc, err := NewWithRuntimeStatus(repo, root, RuntimeStatusSnapshot{
+		Backend:                "sqlite",
+		SQLitePath:             filepath.Join(root, ".acm", "context.db"),
+		UsesImplicitSQLitePath: true,
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Status(context.Background(), v1.StatusPayload{ProjectID: "project.alpha"})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Summary.WarningCount != 3 {
+		t.Fatalf("unexpected warning count: got %d want 3", result.Summary.WarningCount)
+	}
+	warningCodes := make([]string, 0, len(result.Warnings))
+	for _, item := range result.Warnings {
+		warningCodes = append(warningCodes, item.Code)
+	}
+	for _, code := range []string{"stale_work_plan", "terminal_plan_status_drift", "administrative_closeout_plan"} {
+		if !containsString(warningCodes, code) {
+			t.Fatalf("expected warning code %q in %+v", code, result.Warnings)
+		}
 	}
 }
 
@@ -6200,8 +6465,8 @@ func TestWork_PersistsCompletedWorkItemsAndDerivesPlanStatus(t *testing.T) {
 	if len(repo.fetchLookupCalls) != 0 {
 		t.Fatalf("did not expect fetch lookup calls, got %d", len(repo.fetchLookupCalls))
 	}
-	if len(repo.workPlanUpsertCalls) != 1 {
-		t.Fatalf("expected one work plan upsert call, got %d", len(repo.workPlanUpsertCalls))
+	if len(repo.workPlanUpsertCalls) != 2 {
+		t.Fatalf("expected two work plan upsert calls after auto-close, got %d", len(repo.workPlanUpsertCalls))
 	}
 	if len(repo.workUpsertCalls) != 1 {
 		t.Fatalf("expected one mirrored work upsert call, got %d", len(repo.workUpsertCalls))
@@ -6221,6 +6486,9 @@ func TestWork_PersistsCompletedWorkItemsAndDerivesPlanStatus(t *testing.T) {
 	mirrorCall := repo.workUpsertCalls[0]
 	if !reflect.DeepEqual(mirrorCall.Items, wantItems) {
 		t.Fatalf("unexpected mirrored work items: got %+v want %+v", mirrorCall.Items, wantItems)
+	}
+	if call := repo.workPlanUpsertCalls[1]; call.Status != core.PlanStatusComplete || len(call.Tasks) != 0 {
+		t.Fatalf("expected terminal status sync upsert, got %+v", call)
 	}
 }
 
@@ -6530,9 +6798,11 @@ func TestDerivePlanStatusFromWorkItems_Deterministic(t *testing.T) {
 	}{
 		{name: "empty defaults pending", items: nil, want: core.PlanStatusPending},
 		{name: "all completed", items: []core.WorkItem{{Status: core.WorkItemStatusCompleted}, {Status: core.WorkItemStatusCompleted}}, want: core.PlanStatusComplete},
+		{name: "all superseded", items: []core.WorkItem{{Status: core.WorkItemStatusSuperseded}, {Status: core.WorkItemStatusSuperseded}}, want: core.PlanStatusSuperseded},
 		{name: "pending dominates completed", items: []core.WorkItem{{Status: core.WorkItemStatusCompleted}, {Status: core.WorkItemStatusPending}}, want: core.PlanStatusPending},
 		{name: "in progress dominates pending", items: []core.WorkItem{{Status: core.WorkItemStatusPending}, {Status: core.WorkItemStatusInProgress}}, want: core.PlanStatusInProgress},
 		{name: "blocked dominates all", items: []core.WorkItem{{Status: core.WorkItemStatusCompleted}, {Status: core.WorkItemStatusBlocked}, {Status: core.WorkItemStatusInProgress}}, want: core.PlanStatusBlocked},
+		{name: "complete beats superseded when mixed", items: []core.WorkItem{{Status: core.WorkItemStatusSuperseded}, {Status: core.WorkItemStatusComplete}}, want: core.PlanStatusComplete},
 		{name: "unknown treated as pending", items: []core.WorkItem{{Status: "unknown"}}, want: core.PlanStatusPending},
 	}
 
@@ -7041,8 +7311,8 @@ func TestReview_RunExecutesWorkflowCommandAndRecordsCompleteTask(t *testing.T) {
 	if len(repo.reviewAttemptCalls) != 1 || repo.reviewAttemptCalls[0].Status != "passed" {
 		t.Fatalf("expected one saved passing review attempt, got %+v", repo.reviewAttemptCalls)
 	}
-	if len(repo.workPlanUpsertCalls) != 1 || len(repo.workPlanUpsertCalls[0].Tasks) != 1 {
-		t.Fatalf("expected one work plan upsert with one task, got %+v", repo.workPlanUpsertCalls)
+	if len(repo.workPlanUpsertCalls) != 2 || len(repo.workPlanUpsertCalls[0].Tasks) != 1 {
+		t.Fatalf("expected review task upsert plus terminal status sync, got %+v", repo.workPlanUpsertCalls)
 	}
 	task := repo.workPlanUpsertCalls[0].Tasks[0]
 	if task.ItemKey != v1.DefaultReviewTaskKey || task.Status != string(v1.WorkItemStatusComplete) {
@@ -7053,6 +7323,9 @@ func TestReview_RunExecutesWorkflowCommandAndRecordsCompleteTask(t *testing.T) {
 	}
 	if !strings.Contains(task.Outcome, "PASS:") {
 		t.Fatalf("unexpected review outcome: %q", task.Outcome)
+	}
+	if repo.workPlanUpsertCalls[1].Status != core.PlanStatusComplete {
+		t.Fatalf("expected terminal status sync upsert, got %+v", repo.workPlanUpsertCalls[1])
 	}
 }
 
@@ -7460,11 +7733,14 @@ func TestReview_RunSkipsDuplicateFingerprintWithoutExecutingRunner(t *testing.T)
 	if len(repo.reviewAttemptCalls) != 0 {
 		t.Fatalf("expected no new review attempt save, got %+v", repo.reviewAttemptCalls)
 	}
-	if len(repo.workPlanUpsertCalls) != 1 || len(repo.workPlanUpsertCalls[0].Tasks) != 1 {
-		t.Fatalf("expected one work plan upsert with one task, got %+v", repo.workPlanUpsertCalls)
+	if len(repo.workPlanUpsertCalls) != 2 || len(repo.workPlanUpsertCalls[0].Tasks) != 1 {
+		t.Fatalf("expected review task upsert plus terminal status sync, got %+v", repo.workPlanUpsertCalls)
 	}
 	if got := repo.workPlanUpsertCalls[0].Tasks[0].Summary; got != "Cross-LLM review" {
 		t.Fatalf("unexpected duplicate review summary: %q", got)
+	}
+	if repo.workPlanUpsertCalls[1].Status != core.PlanStatusComplete {
+		t.Fatalf("expected terminal status sync upsert, got %+v", repo.workPlanUpsertCalls[1])
 	}
 }
 

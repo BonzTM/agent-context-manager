@@ -667,7 +667,7 @@ func buildDoneCommandEnvelope(subcommand, usage, example string, command v1.Comm
 func buildReviewEnvelope(args []string, now func() time.Time) (v1.CommandEnvelope, error) {
 	fs := newCommandFlagSet(
 		"review",
-		"acm review [--project <id>] [--receipt-id <id>|--plan-key <key>] [--run] [--key <task-key>] [--summary <text>] [--status <pending|in_progress|complete|blocked>] [--outcome <text>|--outcome-file <path>] [--blocked-reason <text>] [--evidence <text>]... [--evidence-file <path>|--evidence-json <json>] [--tags-file <path>]",
+		"acm review [--project <id>] [--receipt-id <id>|--plan-key <key>] [--run] [--key <task-key>] [--summary <text>] [--status <pending|in_progress|complete|blocked|superseded>] [--outcome <text>|--outcome-file <path>] [--blocked-reason <text>] [--evidence <text>]... [--evidence-file <path>|--evidence-json <json>] [--tags-file <path>]",
 		"acm review --receipt-id req-12345678 --run",
 	)
 	projectID, requestID := addProjectAndRequestFlags(fs)
@@ -676,7 +676,7 @@ func buildReviewEnvelope(args []string, now func() time.Time) (v1.CommandEnvelop
 	run := fs.Bool("run", false, "execute the workflow-configured review command before recording the review task")
 	key := fs.String("key", "", "review task key")
 	summary := fs.String("summary", "", "review task summary")
-	status := fs.String("status", "", "review task status: pending|in_progress|complete|blocked")
+	status := fs.String("status", "", "review task status: pending|in_progress|complete|blocked|superseded")
 	outcome := fs.String("outcome", "", "review outcome summary")
 	outcomeFile := fs.String("outcome-file", "", "file containing review outcome ('-' for stdin)")
 	blockedReason := fs.String("blocked-reason", "", "why the review gate is blocked")

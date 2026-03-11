@@ -26,6 +26,7 @@ When the task changes rules, tags, tests, workflows, onboarding, or tool-surface
 - Use native repo search and file reads normally; ACM supplies durable state, rules, review history, and governed closeout.
 - If governed file scope expands beyond the initial receipt, declare the later-discovered files through `work.plan.discovered_paths` before relying on `review` or `done`.
 - If you need to resume archived work, use `acm history` and then `acm fetch` the returned `fetch_keys`.
+- If a planned task or review gate becomes obsolete, mark it `superseded` instead of leaving it open or `blocked`.
 
 ## Working rules
 

@@ -120,6 +120,7 @@ const (
 	WorkItemStatusInProgress WorkItemStatus = "in_progress"
 	WorkItemStatusComplete   WorkItemStatus = "complete"
 	WorkItemStatusBlocked    WorkItemStatus = "blocked"
+	WorkItemStatusSuperseded WorkItemStatus = "superseded"
 )
 
 type WorkPlanMode string
@@ -446,6 +447,7 @@ type HealthResult struct {
 type StatusSummary struct {
 	Ready        bool `json:"ready"`
 	MissingCount int  `json:"missing_count"`
+	WarningCount int  `json:"warning_count,omitempty"`
 }
 
 type StatusProject struct {
@@ -502,6 +504,7 @@ type StatusResult struct {
 	Integrations []StatusIntegration   `json:"integrations"`
 	Context      *StatusContextPreview `json:"context,omitempty"`
 	Missing      []StatusMissingItem   `json:"missing,omitempty"`
+	Warnings     []StatusMissingItem   `json:"warnings,omitempty"`
 }
 
 type VerifyStatus string

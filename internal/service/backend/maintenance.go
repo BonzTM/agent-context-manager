@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	bootstrapkit "github.com/bonztm/agent-context-manager/internal/bootstrap"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
@@ -62,7 +63,11 @@ func (s *Service) healthCheck(ctx context.Context, payload v1.HealthPayload) (v1
 	if apiErr != nil {
 		return v1.HealthCheckResult{}, healthCheckInternalError("inventory_health", fmt.Errorf("%s", apiErr.Message))
 	}
-	checks := buildHealthChecks(candidates, memories, inventory.UnindexedPaths, includeDetails, maxFindings)
+	planDiagnostics, apiErr := s.collectPlanDiagnostics(ctx, strings.TrimSpace(payload.ProjectID), time.Now().UTC())
+	if apiErr != nil {
+		return v1.HealthCheckResult{}, apiErr
+	}
+	checks := buildHealthChecks(candidates, memories, inventory.UnindexedPaths, planDiagnostics, includeDetails, maxFindings)
 
 	totalFindings := 0
 	for _, check := range checks {
@@ -169,13 +174,16 @@ func effectiveMaxFindingsPerCheck(maxFindings *int) int {
 	return *maxFindings
 }
 
-func buildHealthChecks(candidates []core.CandidatePointer, memories []core.ActiveMemory, unindexedPaths []string, includeDetails bool, maxFindings int) []v1.HealthCheckItem {
+func buildHealthChecks(candidates []core.CandidatePointer, memories []core.ActiveMemory, unindexedPaths []string, plans planDiagnostics, includeDetails bool, maxFindings int) []v1.HealthCheckItem {
 	checks := []v1.HealthCheckItem{
+		healthCheckItem("administrative_closeout_plans", "warn", plans.administrativeCloseout, includeDetails, maxFindings),
 		healthCheckItem("duplicate_labels", "warn", duplicateLabelFindings(candidates), includeDetails, maxFindings),
 		healthCheckItem("empty_descriptions", "warn", emptyDescriptionFindings(candidates), includeDetails, maxFindings),
 		healthCheckItem("orphan_relations", "info", []string{}, includeDetails, maxFindings),
 		healthCheckItem("pending_quarantines", "info", []string{}, includeDetails, maxFindings),
+		healthCheckItem("stale_work_plans", "warn", plans.stale, includeDetails, maxFindings),
 		healthCheckItem("stale_pointers", "warn", stalePointerFindings(candidates), includeDetails, maxFindings),
+		healthCheckItem("terminal_plan_status_drift", "warn", plans.terminalStatusDrift, includeDetails, maxFindings),
 		healthCheckItem("unindexed_files", "warn", normalizeValues(unindexedPaths), includeDetails, maxFindings),
 		healthCheckItem("unknown_tags", "warn", unknownTagFindings(candidates, memories), includeDetails, maxFindings),
 		healthCheckItem("weak_memories", "warn", weakMemoryFindings(memories), includeDetails, maxFindings),

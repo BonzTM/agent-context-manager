@@ -310,7 +310,7 @@ acm review \
   --outcome "Cross-checked the fix with a second model and found no new blockers."
 ```
 
-Manual fields (`--status`, `--outcome`, `--blocked-reason`, `--evidence`) are only for non-run mode and do not satisfy runnable review gates that define `run`. Keep raw reviewer commands in repo-local scripts referenced by `.acm/acm-workflows.yaml`.
+Manual fields (`--status`, `--outcome`, `--blocked-reason`, `--evidence`) are only for non-run mode and do not satisfy runnable review gates that define `run`. Use `--status superseded` when a review step is no longer relevant and should close cleanly instead of being left open. Keep raw reviewer commands in repo-local scripts referenced by `.acm/acm-workflows.yaml`.
 
 ### acm history discovery
 
@@ -339,7 +339,7 @@ Use `status` when you need one command to explain the current ACM setup before d
 acm status --task-text "what would context load for this task?" --phase execute
 ```
 
-It reports the active project and backend, which repo-local rules/tags/tests/workflows files were discovered and loaded, which init-managed integrations are installed, and any missing setup.
+It reports the active project and backend, which repo-local rules/tags/tests/workflows files were discovered and loaded, which init-managed integrations are installed, any missing setup, and warnings for stale plans or plan-status drift.
 
 ### verify
 

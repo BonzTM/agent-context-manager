@@ -58,3 +58,15 @@ func TestMergeIncomingWorkPlanTasksPreservesExistingMetadata(t *testing.T) {
 		t.Fatalf("expected evidence to update, got %+v", task.Evidence)
 	}
 }
+
+func TestDerivePlanStatusAndNormalizeWorkItemStatus_HandleSuperseded(t *testing.T) {
+	if got := NormalizeWorkItemStatus(core.WorkItemStatusSuperseded); got != core.WorkItemStatusSuperseded {
+		t.Fatalf("expected superseded status to survive normalization, got %q", got)
+	}
+	if got := DerivePlanStatus([]core.WorkItem{{Status: core.WorkItemStatusSuperseded}}); got != core.PlanStatusSuperseded {
+		t.Fatalf("expected superseded-only work to derive superseded plan status, got %q", got)
+	}
+	if got := DerivePlanStatus([]core.WorkItem{{Status: core.WorkItemStatusSuperseded}, {Status: core.WorkItemStatusComplete}}); got != core.PlanStatusComplete {
+		t.Fatalf("expected complete to dominate mixed terminal statuses, got %q", got)
+	}
+}

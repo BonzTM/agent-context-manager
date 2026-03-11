@@ -717,6 +717,203 @@ DROP TABLE acm_work_plans_legacy_completed;
 PRAGMA foreign_keys = ON;
 `,
 	},
+	{
+		Name: "0014_acm_superseded_status.sql",
+		SQL: `
+PRAGMA foreign_keys = OFF;
+
+ALTER TABLE acm_work_items RENAME TO acm_work_items_legacy_superseded;
+
+CREATE TABLE acm_work_items (
+	work_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id TEXT NOT NULL,
+	receipt_id TEXT NOT NULL,
+	item_key TEXT NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'blocked', 'complete', 'superseded')),
+	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	UNIQUE (project_id, receipt_id, item_key),
+	FOREIGN KEY (receipt_id) REFERENCES acm_receipts (receipt_id) ON DELETE CASCADE
+);
+
+INSERT INTO acm_work_items (
+	work_item_id,
+	project_id,
+	receipt_id,
+	item_key,
+	status,
+	created_at,
+	updated_at
+)
+SELECT
+	work_item_id,
+	project_id,
+	receipt_id,
+	item_key,
+	status,
+	created_at,
+	updated_at
+FROM acm_work_items_legacy_superseded;
+
+DROP TABLE acm_work_items_legacy_superseded;
+
+CREATE INDEX IF NOT EXISTS idx_acm_work_items_project_receipt
+	ON acm_work_items (project_id, receipt_id, item_key);
+CREATE INDEX IF NOT EXISTS idx_acm_work_items_project_receipt_status
+	ON acm_work_items (project_id, receipt_id, status, item_key);
+CREATE INDEX IF NOT EXISTS idx_acm_work_items_project_receipt_updated
+	ON acm_work_items (project_id, receipt_id, updated_at DESC);
+
+ALTER TABLE acm_work_plans RENAME TO acm_work_plans_legacy_superseded;
+ALTER TABLE acm_work_plan_tasks RENAME TO acm_work_plan_tasks_legacy_superseded;
+
+CREATE TABLE acm_work_plans (
+	plan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id TEXT NOT NULL,
+	plan_key TEXT NOT NULL,
+	receipt_id TEXT NULL,
+	title TEXT NOT NULL DEFAULT '',
+	objective TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'blocked', 'complete', 'superseded')),
+	stage_spec_outline TEXT NOT NULL DEFAULT 'pending' CHECK (stage_spec_outline IN ('pending', 'in_progress', 'blocked', 'complete', 'superseded')),
+	stage_refined_spec TEXT NOT NULL DEFAULT 'pending' CHECK (stage_refined_spec IN ('pending', 'in_progress', 'blocked', 'complete', 'superseded')),
+	stage_implementation_plan TEXT NOT NULL DEFAULT 'pending' CHECK (stage_implementation_plan IN ('pending', 'in_progress', 'blocked', 'complete', 'superseded')),
+	in_scope_json TEXT NOT NULL DEFAULT '[]',
+	out_of_scope_json TEXT NOT NULL DEFAULT '[]',
+	constraints_json TEXT NOT NULL DEFAULT '[]',
+	references_json TEXT NOT NULL DEFAULT '[]',
+	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	kind TEXT NOT NULL DEFAULT '',
+	parent_plan_key TEXT NOT NULL DEFAULT '',
+	external_refs_json TEXT NOT NULL DEFAULT '[]',
+	discovered_paths_json TEXT NOT NULL DEFAULT '[]',
+	UNIQUE (project_id, plan_key)
+);
+
+INSERT INTO acm_work_plans (
+	plan_id,
+	project_id,
+	plan_key,
+	receipt_id,
+	title,
+	objective,
+	status,
+	stage_spec_outline,
+	stage_refined_spec,
+	stage_implementation_plan,
+	in_scope_json,
+	out_of_scope_json,
+	constraints_json,
+	references_json,
+	created_at,
+	updated_at,
+	kind,
+	parent_plan_key,
+	external_refs_json,
+	discovered_paths_json
+)
+SELECT
+	plan_id,
+	project_id,
+	plan_key,
+	receipt_id,
+	title,
+	objective,
+	status,
+	stage_spec_outline,
+	stage_refined_spec,
+	stage_implementation_plan,
+	in_scope_json,
+	out_of_scope_json,
+	constraints_json,
+	references_json,
+	created_at,
+	updated_at,
+	kind,
+	parent_plan_key,
+	external_refs_json,
+	discovered_paths_json
+FROM acm_work_plans_legacy_superseded;
+
+CREATE INDEX IF NOT EXISTS idx_acm_work_plans_project_status_updated
+	ON acm_work_plans (project_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_work_plans_project_receipt_updated
+	ON acm_work_plans (project_id, receipt_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_work_plans_project_parent_updated
+	ON acm_work_plans (project_id, parent_plan_key, updated_at DESC);
+
+CREATE TABLE acm_work_plan_tasks (
+	task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id TEXT NOT NULL,
+	plan_key TEXT NOT NULL,
+	task_key TEXT NOT NULL,
+	summary TEXT NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'blocked', 'complete', 'superseded')),
+	depends_on_json TEXT NOT NULL DEFAULT '[]',
+	acceptance_criteria_json TEXT NOT NULL DEFAULT '[]',
+	references_json TEXT NOT NULL DEFAULT '[]',
+	blocked_reason TEXT NOT NULL DEFAULT '',
+	outcome TEXT NOT NULL DEFAULT '',
+	evidence_json TEXT NOT NULL DEFAULT '[]',
+	created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	parent_task_key TEXT NOT NULL DEFAULT '',
+	external_refs_json TEXT NOT NULL DEFAULT '[]',
+	UNIQUE (project_id, plan_key, task_key),
+	FOREIGN KEY (project_id, plan_key) REFERENCES acm_work_plans (project_id, plan_key) ON DELETE CASCADE
+);
+
+INSERT INTO acm_work_plan_tasks (
+	task_id,
+	project_id,
+	plan_key,
+	task_key,
+	summary,
+	status,
+	depends_on_json,
+	acceptance_criteria_json,
+	references_json,
+	blocked_reason,
+	outcome,
+	evidence_json,
+	created_at,
+	updated_at,
+	parent_task_key,
+	external_refs_json
+)
+SELECT
+	task_id,
+	project_id,
+	plan_key,
+	task_key,
+	summary,
+	status,
+	depends_on_json,
+	acceptance_criteria_json,
+	references_json,
+	blocked_reason,
+	outcome,
+	evidence_json,
+	created_at,
+	updated_at,
+	parent_task_key,
+	external_refs_json
+FROM acm_work_plan_tasks_legacy_superseded;
+
+CREATE INDEX IF NOT EXISTS idx_acm_work_plan_tasks_project_plan_status
+	ON acm_work_plan_tasks (project_id, plan_key, status, task_key);
+CREATE INDEX IF NOT EXISTS idx_acm_work_plan_tasks_project_plan_updated
+	ON acm_work_plan_tasks (project_id, plan_key, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_acm_work_plan_tasks_project_plan_parent
+	ON acm_work_plan_tasks (project_id, plan_key, parent_task_key, task_key);
+
+DROP TABLE acm_work_plan_tasks_legacy_superseded;
+DROP TABLE acm_work_plans_legacy_superseded;
+
+PRAGMA foreign_keys = ON;
+`,
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {

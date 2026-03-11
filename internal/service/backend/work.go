@@ -117,6 +117,12 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 		}
 	}
 
+	if updatedPlan, changed, apiErr := s.syncTerminalWorkPlanStatus(ctx, projectID, receiptID, upsertResult.Plan, upsertResult.Plan.Tasks); apiErr != nil {
+		return v1.WorkResult{}, apiErr
+	} else if changed {
+		upsertResult.Plan = updatedPlan
+	}
+
 	planStatus := normalizePlanStatus(upsertResult.Plan.Status)
 	if planStatus == core.PlanStatusPending {
 		planStatus = derivePlanStatusFromWorkItems(normalizeWorkItems(upsertResult.Plan.Tasks))
@@ -383,6 +389,7 @@ func normalizeWorkItems(items []core.WorkItem) []core.WorkItem {
 
 	priority := map[string]int{
 		core.WorkItemStatusComplete:   0,
+		core.WorkItemStatusSuperseded: 0,
 		core.WorkItemStatusPending:    1,
 		core.WorkItemStatusInProgress: 2,
 		core.WorkItemStatusBlocked:    3,
@@ -441,6 +448,8 @@ func normalizeWorkItemStatus(raw string) string {
 		return core.WorkItemStatusInProgress
 	case core.WorkItemStatusComplete, core.WorkItemStatusCompleted:
 		return core.WorkItemStatusComplete
+	case core.WorkItemStatusSuperseded:
+		return core.WorkItemStatusSuperseded
 	default:
 		return core.WorkItemStatusPending
 	}
@@ -454,6 +463,8 @@ func normalizePlanStatus(raw string) string {
 		return core.PlanStatusInProgress
 	case core.PlanStatusComplete, core.PlanStatusCompleted:
 		return core.PlanStatusComplete
+	case core.PlanStatusSuperseded:
+		return core.PlanStatusSuperseded
 	default:
 		return core.PlanStatusPending
 	}
@@ -468,6 +479,7 @@ func derivePlanStatusFromWorkItems(items []core.WorkItem) string {
 	hasInProgress := false
 	hasBlocked := false
 	hasComplete := false
+	hasSuperseded := false
 
 	for _, item := range items {
 		switch normalizeWorkItemStatus(item.Status) {
@@ -477,6 +489,8 @@ func derivePlanStatusFromWorkItems(items []core.WorkItem) string {
 			hasInProgress = true
 		case core.WorkItemStatusComplete:
 			hasComplete = true
+		case core.WorkItemStatusSuperseded:
+			hasSuperseded = true
 		default:
 			hasPending = true
 		}
@@ -491,8 +505,28 @@ func derivePlanStatusFromWorkItems(items []core.WorkItem) string {
 		return core.PlanStatusPending
 	case hasComplete:
 		return core.PlanStatusComplete
+	case hasSuperseded:
+		return core.PlanStatusSuperseded
 	default:
 		return core.PlanStatusPending
+	}
+}
+
+func isTerminalWorkItemStatus(raw string) bool {
+	switch normalizeWorkItemStatus(raw) {
+	case core.WorkItemStatusComplete, core.WorkItemStatusSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalPlanStatus(raw string) bool {
+	switch normalizePlanStatus(raw) {
+	case core.PlanStatusComplete, core.PlanStatusSuperseded:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -65,6 +65,13 @@ func (s *Service) Done(ctx context.Context, payload v1.DonePayload) (v1.DoneResu
 	if err != nil {
 		return v1.DoneResult{}, reportCompletionInternalError("list_work_items", err)
 	}
+	if plan != nil {
+		if updatedPlan, _, apiErr := s.syncTerminalWorkPlanStatus(ctx, payload.ProjectID, receiptID, *plan, workItems); apiErr != nil {
+			return v1.DoneResult{}, apiErr
+		} else {
+			plan = &updatedPlan
+		}
+	}
 
 	workflowRequirements, workflowSource, err := s.loadWorkflowCompletionRequirements(s.defaultProjectRoot(), "", payload.TagsFile)
 	if err != nil {

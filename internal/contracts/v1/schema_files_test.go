@@ -128,6 +128,90 @@ func TestCommandSchema_MemoryAndDoneRequireReceiptOrPlanSelection(t *testing.T) 
 	assertReceiptOrPlanSelection("donePayload")
 }
 
+func TestSharedAndResultSchemasExposeSupersededStatusesAndStatusWarnings(t *testing.T) {
+	sharedRaw := readSchemaFixture(t, "shared.schema.json")
+	var sharedDoc struct {
+		Defs struct {
+			WorkItemStatus struct {
+				Enum []string `json:"enum"`
+			} `json:"workItemStatus"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(sharedRaw, &sharedDoc); err != nil {
+		t.Fatalf("unmarshal shared schema: %v", err)
+	}
+	if !reflect.DeepEqual(sharedDoc.Defs.WorkItemStatus.Enum, []string{"pending", "in_progress", "complete", "blocked", "superseded"}) {
+		t.Fatalf("unexpected work item status enum: %v", sharedDoc.Defs.WorkItemStatus.Enum)
+	}
+
+	resultRaw := readSchemaFixture(t, "cli.result.schema.json")
+	var resultDoc struct {
+		Defs map[string]map[string]any `json:"$defs"`
+	}
+	if err := json.Unmarshal(resultRaw, &resultDoc); err != nil {
+		t.Fatalf("unmarshal cli result schema: %v", err)
+	}
+
+	statusSummary, ok := resultDoc.Defs["statusSummary"]
+	if !ok {
+		t.Fatal("missing statusSummary schema")
+	}
+	properties, ok := statusSummary["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("statusSummary.properties missing or invalid")
+	}
+	if _, ok := properties["warning_count"]; !ok {
+		t.Fatal("statusSummary missing warning_count property")
+	}
+
+	statusResult, ok := resultDoc.Defs["statusResult"]
+	if !ok {
+		t.Fatal("missing statusResult schema")
+	}
+	resultProperties, ok := statusResult["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("statusResult.properties missing or invalid")
+	}
+	if _, ok := resultProperties["warnings"]; !ok {
+		t.Fatal("statusResult missing warnings property")
+	}
+
+	for _, defName := range []string{"reviewResult", "workResult"} {
+		def, ok := resultDoc.Defs[defName]
+		if !ok {
+			t.Fatalf("missing %s schema", defName)
+		}
+		properties, ok := def["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s.properties missing or invalid", defName)
+		}
+		planStatus, ok := properties["plan_status"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s.plan_status missing or invalid", defName)
+		}
+		enumValues, ok := planStatus["enum"].([]any)
+		if !ok {
+			t.Fatalf("%s.plan_status enum missing or invalid", defName)
+		}
+		values := make([]string, 0, len(enumValues))
+		for _, value := range enumValues {
+			values = append(values, value.(string))
+		}
+		if !containsString(values, "superseded") {
+			t.Fatalf("%s.plan_status enum missing superseded: %v", defName, values)
+		}
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func readSchemaFixture(t *testing.T, name string) []byte {
 	t.Helper()
 

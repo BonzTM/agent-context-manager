@@ -811,7 +811,7 @@ WHERE p.project_id = $1
 	case workPlanListScopeDeferred:
 		query.WriteString("  AND p.status = 'blocked'\n")
 	case workPlanListScopeCompleted:
-		query.WriteString("  AND p.status = 'complete'\n")
+		query.WriteString("  AND p.status IN ('complete', 'superseded')\n")
 	}
 
 	if trimmedKind := strings.TrimSpace(input.Kind); trimmedKind != "" {
@@ -1331,7 +1331,7 @@ SELECT
 FROM acm_work_plan_tasks
 WHERE project_id = $1
 	AND plan_key = ANY($2)
-	AND status <> 'complete'
+	AND status NOT IN ('complete', 'superseded')
 ORDER BY
 	plan_key ASC,
 	CASE status

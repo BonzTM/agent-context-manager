@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	bootstrapkit "github.com/bonztm/agent-context-manager/internal/bootstrap"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
@@ -97,10 +98,17 @@ func (s *Service) Status(ctx context.Context, payload v1.StatusPayload) (v1.Stat
 		}
 	}
 
+	warnings, apiErr := s.statusPlanWarnings(ctx, strings.TrimSpace(payload.ProjectID))
+	if apiErr != nil {
+		return v1.StatusResult{}, apiErr
+	}
+	result.Warnings = warnings
+
 	result.Missing = dedupeStatusMissing(result.Missing)
 	result.Summary = v1.StatusSummary{
 		Ready:        len(result.Missing) == 0,
 		MissingCount: len(result.Missing),
+		WarningCount: len(result.Warnings),
 	}
 	return result, nil
 }
@@ -419,4 +427,32 @@ func dedupeStatusMissing(items []v1.StatusMissingItem) []v1.StatusMissingItem {
 		out = append(out, item)
 	}
 	return out
+}
+
+func (s *Service) statusPlanWarnings(ctx context.Context, projectID string) ([]v1.StatusMissingItem, *core.APIError) {
+	diagnostics, apiErr := s.collectPlanDiagnostics(ctx, projectID, time.Now().UTC())
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	warnings := make([]v1.StatusMissingItem, 0, len(diagnostics.stale)+len(diagnostics.terminalStatusDrift)+len(diagnostics.administrativeCloseout))
+	for _, finding := range diagnostics.stale {
+		warnings = append(warnings, v1.StatusMissingItem{
+			Code:    "stale_work_plan",
+			Message: finding,
+		})
+	}
+	for _, finding := range diagnostics.terminalStatusDrift {
+		warnings = append(warnings, v1.StatusMissingItem{
+			Code:    "terminal_plan_status_drift",
+			Message: finding,
+		})
+	}
+	for _, finding := range diagnostics.administrativeCloseout {
+		warnings = append(warnings, v1.StatusMissingItem{
+			Code:    "administrative_closeout_plan",
+			Message: finding,
+		})
+	}
+	return dedupeStatusMissing(warnings), nil
 }

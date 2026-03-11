@@ -265,4 +265,33 @@ WHERE project_id = ? AND plan_key = ? AND task_key = ?
 	if taskStatus != "complete" {
 		t.Fatalf("unexpected migrated work plan task status: got %q want %q", taskStatus, "complete")
 	}
+
+	if _, err := repo.db.ExecContext(ctx, `
+INSERT INTO acm_work_items (
+	project_id,
+	receipt_id,
+	item_key,
+	status,
+	created_at,
+	updated_at
+) VALUES (?, ?, ?, 'superseded', unixepoch(), unixepoch())
+`, "project.alpha", "receipt.complete", "verify:diff-review"); err != nil {
+		t.Fatalf("expected superseded work item status to be accepted after migration: %v", err)
+	}
+
+	if _, err := repo.db.ExecContext(ctx, `
+UPDATE acm_work_plans
+SET status = 'superseded', stage_implementation_plan = 'superseded'
+WHERE project_id = ? AND plan_key = ?
+`, "project.alpha", "plan:receipt.complete"); err != nil {
+		t.Fatalf("expected superseded work plan status to be accepted after migration: %v", err)
+	}
+
+	if _, err := repo.db.ExecContext(ctx, `
+UPDATE acm_work_plan_tasks
+SET status = 'superseded'
+WHERE project_id = ? AND plan_key = ? AND task_key = ?
+`, "project.alpha", "plan:receipt.complete", "verify:tests"); err != nil {
+		t.Fatalf("expected superseded work plan task status to be accepted after migration: %v", err)
+	}
 }

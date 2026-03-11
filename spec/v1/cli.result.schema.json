@@ -245,7 +245,8 @@
             "pending",
             "in_progress",
             "complete",
-            "blocked"
+            "blocked",
+            "superseded"
           ]
         },
         "updated": {
@@ -777,6 +778,10 @@
         "missing_count": {
           "type": "integer",
           "minimum": 0
+        },
+        "warning_count": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -1030,6 +1035,13 @@
             "$ref": "#/$defs/statusMissingItem"
           },
           "maxItems": 64
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/statusMissingItem"
+          },
+          "maxItems": 64
         }
       }
     },
@@ -1147,7 +1159,8 @@
             "pending",
             "in_progress",
             "complete",
-            "blocked"
+            "blocked",
+            "superseded"
           ]
         },
         "updated": {

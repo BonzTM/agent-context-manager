@@ -142,7 +142,7 @@ Rules live in `.acm/acm-rules.yaml` and reach agents through receipts. Summary f
 - Includes planning, verification, or handoff
 - Needs durable state that survives compaction
 
-For code changes, include `verify:tests`. Use `review --run` for runnable workflow gates.
+For code changes, include `verify:tests`. Use `review --run` for runnable workflow gates. If a planned task or review gate becomes obsolete, mark it `superseded` instead of leaving it open or `blocked`.
 
 ## Feature Plans
 
@@ -171,6 +171,8 @@ When changing governance, onboarding, or tool-surface behavior:
 4. Update docs and skill-pack assets in the same change.
 
 Keep these files coherent: `.acm/*.yaml`, `README.md`, `docs/getting-started.md`, `docs/examples/*`, `skills/acm-broker/**`.
+
+`acm health` and `acm status` both warn on stale open plans, terminal-task plan status drift, and plans left open only for administrative closeout. Treat those warnings as bookkeeping regressions and clean them up before `done` when they are part of your task.
 
 ## Troubleshooting
 
