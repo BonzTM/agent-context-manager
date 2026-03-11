@@ -22,4 +22,5 @@ Direct CLI (`acm sync`, `acm health`, `acm history`, `acm status`) has no slash-
 - Use project id `agent-context-manager`.
 - If the receipt is stale or too narrow, re-run `/acm-context` with a better task description.
 - If governed scope expands, declare new files through `/acm-work` before `/acm-review` or `/acm-done`.
+- If `acm` or `go` is missing, follow the bootstrap block in `AGENTS.md` § Fast Path before proceeding.
 - Use installed `acm` and `acm-mcp` binaries, not `go run ./cmd/...`, for normal workflow.
