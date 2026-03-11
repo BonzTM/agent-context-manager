@@ -6,3 +6,4 @@
 .acm/context.db
 .acm/context.db-shm
 .acm/context.db-wal
+.env

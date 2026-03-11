@@ -6,17 +6,11 @@ rules:
     enforcement: hard
     tags: [context, workflow]
 
-  - id: rule_track_multistep_work
-    summary: Use work for multi-step, multi-file, or handoff-prone tasks.
-    content: Create or update a plan and tasks when work spans more than one material step. Include verify:tests for code, contract, onboarding, or behavior changes.
-    enforcement: hard
-    tags: [work, planning]
-
   - id: rule_plan_before_code
-    summary: Plan multi-step implementation work before writing code.
-    content: For tasks with more than one implementation step, create ACM work with explicit steps and acceptance criteria before writing implementation code. Single-file, single-purpose fixes are exempt.
+    summary: Plan and track multi-step work before writing code.
+    content: For tasks spanning more than one step or file, create ACM work with explicit steps and acceptance criteria before implementation. Include verify:tests for code, contract, onboarding, or behavior changes. Single-file, single-purpose fixes are exempt.
     enforcement: hard
-    tags: [planning, workflow]
+    tags: [planning, work]
 
   - id: rule_contract_schema_lockstep
     summary: Keep v1 contracts and schema files in lockstep.
@@ -40,7 +34,7 @@ rules:
     summary: Init must produce a usable first-run state.
     content: From a clean repo, init should make context usable and health meaningful without manual recovery. Do not index ACM-managed runtime files or SQLite sidecars.
     enforcement: hard
-    tags: [init, health, onboarding]
+    tags: [init, health]
 
   - id: rule_docs_and_examples_sync
     summary: Keep docs, examples, and skill-pack assets aligned with real behavior.
@@ -56,27 +50,21 @@ rules:
 
   - id: rule_workflow_gates_sync
     summary: Keep workflow gate definitions aligned with completion behavior.
-    content: Changes to done completion-gate semantics, runnable review gates, or staged workflow onboarding must update .acm/acm-workflows.yaml, repo-local scripts, docs, examples, and skill-pack assets together.
+    content: Changes to done completion-gate semantics, runnable review gates, or staged workflow onboarding must update .acm/acm-workflows.yaml, repo-local scripts, docs, examples, and skill-pack assets together. When a workflow gate defines a run block, satisfy it with acm review --run rather than copying the underlying reviewer command into maintainer prose.
     enforcement: hard
-    tags: [workflow, completion]
-
-  - id: rule_use_runnable_review_gate
-    summary: Use review --run for configured review gates.
-    content: When .acm/acm-workflows.yaml requires a review task such as review:cross-llm and that task defines a run block, satisfy it with acm review --run rather than copying the underlying reviewer command into AGENTS, rules, or skill prose.
-    enforcement: hard
-    tags: [review, workflow]
+    tags: [workflow, completion, review]
 
   - id: rule_idempotent_maintenance
     summary: Maintenance commands should remain deterministic and idempotent.
     content: Sync, init, and health fixer changes should preserve deterministic ordering, repeatable counters, and stable path filtering. Add tests for regression-sensitive path sets and summaries.
     enforcement: soft
-    tags: [sync, health, reliability]
+    tags: [sync, health]
 
   - id: rule_verify_before_completion
     summary: Verify executable changes before done.
     content: For code, config, contract, onboarding, or behavior changes, ensure .acm/acm-tests.yaml coverage is appropriate, run verify with receipt or plan context, then done.
     enforcement: hard
-    tags: [verify, testing, completion]
+    tags: [verify, completion]
 
   - id: rule_capture_durable_decisions
     summary: Persist stable architectural decisions as memory.
