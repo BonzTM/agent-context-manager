@@ -38,9 +38,9 @@ const (
 )
 
 var (
-	verifyTestIDPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-	verifyEnvKeyPattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
-	runtimeCommandEnvKeys   = []string{
+	verifyTestIDPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	verifyEnvKeyPattern   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	runtimeCommandEnvKeys = []string{
 		"ACM_PG_DSN",
 		"ACM_PROJECT_ID",
 		"ACM_PROJECT_ROOT",
@@ -683,7 +683,7 @@ func verifyCommandEnvironment(selection verifySelectionContext) map[string]strin
 }
 
 func runVerifyCommand(ctx context.Context, projectRoot string, def verifyTestDefinition, extraEnv map[string]string) verifyCommandRun {
-	return runConfiguredCommand(ctx, projectRoot, def.Argv, def.CWD, def.TimeoutSec, def.Env, extraEnv)
+	return runConfiguredCommand(ctx, projectRoot, def.Argv, def.CWD, def.TimeoutSec, nil, def.Env, extraEnv)
 }
 
 func classifyVerifyCommandRun(run verifyCommandRun, expectedExitCode int) v1.VerifyTestStatus {
@@ -1015,14 +1015,35 @@ func runtimeCommandEnv(projectRoot string) map[string]string {
 	return values
 }
 
-func runConfiguredCommand(ctx context.Context, projectRoot string, argv []string, cwd string, timeoutSec int, env map[string]string, extraEnv map[string]string) verifyCommandRun {
+func resolveConfiguredCommandArgv(projectRoot, cwd string, argv []string) []string {
+	out := append([]string(nil), argv...)
+	if len(out) == 0 {
+		return out
+	}
+	commandPath := strings.TrimSpace(out[0])
+	if commandPath == "" {
+		return out
+	}
+	if filepath.IsAbs(commandPath) || strings.Contains(commandPath, "/") || strings.Contains(commandPath, string(filepath.Separator)) {
+		baseDir := filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(cwd)))
+		if filepath.IsAbs(commandPath) {
+			out[0] = filepath.Clean(commandPath)
+		} else {
+			out[0] = filepath.Clean(filepath.Join(baseDir, filepath.FromSlash(commandPath)))
+		}
+	}
+	return out
+}
+
+func runConfiguredCommand(ctx context.Context, projectRoot string, argv []string, cwd string, timeoutSec int, runtimeEnv map[string]string, env map[string]string, extraEnv map[string]string) verifyCommandRun {
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
 	startedAt := time.Now().UTC()
-	command := exec.CommandContext(timeoutCtx, argv[0], argv[1:]...)
+	resolvedArgv := resolveConfiguredCommandArgv(projectRoot, cwd, argv)
+	command := exec.CommandContext(timeoutCtx, resolvedArgv[0], resolvedArgv[1:]...)
 	command.Dir = filepath.Clean(filepath.Join(projectRoot, filepath.FromSlash(cwd)))
-	commandEnv := mergeCommandEnv(runtimeCommandEnv(projectRoot), env)
+	commandEnv := mergeCommandEnv(runtimeEnv, env)
 	commandEnv = mergeCommandEnv(commandEnv, extraEnv)
 	command.Env = append(os.Environ(), verifyEnvPairs(commandEnv)...)
 

@@ -295,6 +295,37 @@
               ]
             }
           }
+        },
+        {
+          "if": {
+            "required": [
+              "blocked_reason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "blocked"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "blocked"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "blocked_reason"
+            ]
+          }
         }
       ]
     },

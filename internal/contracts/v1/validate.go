@@ -224,12 +224,18 @@ func validateReviewPayload(p *ReviewPayload, fields map[string]json.RawMessage) 
 		if trimmed == "" || len(trimmed) > 600 {
 			return fmt.Errorf("blocked_reason must be 1..600 chars when provided")
 		}
+		if p.Status != "" && p.Status != WorkItemStatusBlocked {
+			return fmt.Errorf("blocked_reason requires status=blocked when status is provided")
+		}
 	}
 	if p.Outcome != "" {
 		trimmed := strings.TrimSpace(p.Outcome)
 		if trimmed == "" || len(trimmed) > 1600 {
 			return fmt.Errorf("outcome must be 1..1600 chars when provided")
 		}
+	}
+	if p.Status == WorkItemStatusBlocked && strings.TrimSpace(p.BlockedReason) == "" {
+		return fmt.Errorf("blocked_reason is required when status=blocked")
 	}
 	if err := validateOptionalArrayField(fields, "evidence", len(p.Evidence)); err != nil {
 		return err

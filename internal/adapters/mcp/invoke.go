@@ -72,9 +72,9 @@ func InvokeWithLogger(ctx context.Context, svc core.Service, tool string, input 
 		effectiveProjectID = defaults.ProjectID
 	}
 
-	payload, err := decodeValidatedToolPayload(command, json.RawMessage(input), defaults)
-	if err != nil {
-		return mcpToolInputError(ctx, logger, tool, effectiveProjectID, err)
+	payload, apiErr := decodeValidatedToolPayload(command, json.RawMessage(input), defaults)
+	if apiErr != nil {
+		return mcpToolInputError(ctx, logger, tool, effectiveProjectID, apiErr)
 	}
 
 	normalizedProjectID := commands.ProjectIDFromPayload(payload)
@@ -94,14 +94,14 @@ func InvokeWithLogger(ctx context.Context, svc core.Service, tool string, input 
 	return result, nil
 }
 
-func decodeValidatedToolPayload(command v1.Command, raw json.RawMessage, defaults v1.ValidationDefaults) (any, error) {
+func decodeValidatedToolPayload(command v1.Command, raw json.RawMessage, defaults v1.ValidationDefaults) (any, *core.APIError) {
 	blob, err := v1.BuildEnvelopeForCommand(command, "mcp.invoke", raw)
 	if err != nil {
-		return nil, err
+		return nil, core.NewError("INVALID_JSON", err.Error(), nil)
 	}
 	_, payload, valErr := v1.DecodeAndValidateCommandWithDefaults(blob, defaults)
 	if valErr != nil {
-		return nil, fmt.Errorf("%s: %s", valErr.Code, valErr.Message)
+		return nil, core.NewError(valErr.Code, valErr.Message, nil)
 	}
 	return payload, nil
 }
@@ -129,8 +129,7 @@ func projectIDFromRawToolInput(input []byte) string {
 	return strings.TrimSpace(projectID)
 }
 
-func mcpToolInputError(ctx context.Context, logger logging.Logger, tool, projectID string, err error) (any, *core.APIError) {
-	apiErr := core.NewError("INVALID_TOOL_INPUT", err.Error(), nil)
+func mcpToolInputError(ctx context.Context, logger logging.Logger, tool, projectID string, apiErr *core.APIError) (any, *core.APIError) {
 	fields := []any{"ok", false, "tool", tool, "error_code", apiErr.Code}
 	if projectID != "" {
 		fields = append(fields, "project_id", projectID)

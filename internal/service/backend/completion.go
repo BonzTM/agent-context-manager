@@ -177,8 +177,9 @@ func (s *Service) evaluateDefinitionOfDoneIssues(ctx context.Context, projectID,
 		}
 	}
 
+	var currentPlan *core.WorkPlan
 	for _, definition := range requiredDefinitions {
-		if definition.Run == nil || !definition.RerunRequiresNewFingerprint {
+		if definition.Run == nil {
 			continue
 		}
 		status, ok := statusByKey[definition.Key]
@@ -190,14 +191,24 @@ func (s *Service) evaluateDefinitionOfDoneIssues(ctx context.Context, projectID,
 			return nil, apiErr
 		}
 		if len(attempts) == 0 {
-			issues = append(issues, staleReviewCompletionWorkItemIssue(definition.Key))
+			issues = append(issues, missingReviewExecutionIssue(definition.Key))
 			continue
 		}
-		plan, planErr := s.loadEffectiveWorkPlan(ctx, projectID, receiptID, planKey)
-		if planErr != nil {
-			return nil, planErr
+		if !definition.RerunRequiresNewFingerprint {
+			attempt, ok := latestReviewAttempt(attempts)
+			if !ok || !attempt.Passed {
+				issues = append(issues, missingReviewExecutionIssue(definition.Key))
+			}
+			continue
 		}
-		fingerprint, apiErr := computeReviewFingerprint(s.defaultProjectRoot(), projectID, receiptID, definition.Key, workflowSourcePath, *definition.Run, scope, plan)
+		if currentPlan == nil {
+			plan, planErr := s.loadEffectiveWorkPlan(ctx, projectID, receiptID, planKey)
+			if planErr != nil {
+				return nil, planErr
+			}
+			currentPlan = plan
+		}
+		fingerprint, apiErr := computeReviewFingerprint(s.defaultProjectRoot(), projectID, receiptID, definition.Key, workflowSourcePath, *definition.Run, scope, currentPlan)
 		if apiErr != nil {
 			return nil, apiErr
 		}
@@ -229,6 +240,10 @@ func incompleteCompletionWorkItemIssue(requiredKey, status string) string {
 
 func staleReviewCompletionWorkItemIssue(requiredKey string) string {
 	return fmt.Sprintf("required workflow review is stale for the current scoped fingerprint: %s", requiredKey)
+}
+
+func missingReviewExecutionIssue(requiredKey string) string {
+	return fmt.Sprintf("required workflow review has no passing execution: %s", requiredKey)
 }
 
 func reportCompletionInternalError(operation string, err error) *core.APIError {

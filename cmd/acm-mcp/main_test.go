@@ -54,7 +54,7 @@ func TestInvokeWithDeps_SuccessWritesResultEnvelope(t *testing.T) {
 	}
 }
 
-func TestInvokeWithDeps_ServiceFailureWritesResultEnvelope(t *testing.T) {
+func TestInvokeWithDeps_ServiceFailureWritesStructuredError(t *testing.T) {
 	var out bytes.Buffer
 	code := invokeWithDeps(
 		context.Background(),
@@ -71,18 +71,116 @@ func TestInvokeWithDeps_ServiceFailureWritesResultEnvelope(t *testing.T) {
 		t.Fatalf("unexpected exit code: got %d want 1", code)
 	}
 
-	var env v1.ResultEnvelope
+	var env invokeWrapperEnvelope
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("unmarshal envelope: %v", err)
 	}
 	if env.OK {
 		t.Fatal("expected ok=false")
 	}
+	if env.Tool != "context" {
+		t.Fatalf("unexpected tool: %q", env.Tool)
+	}
 	if env.Error == nil || env.Error.Code != "NOT_IMPLEMENTED" {
 		t.Fatalf("unexpected error payload: %+v", env.Error)
 	}
-	if env.Command != v1.CommandContext {
-		t.Fatalf("unexpected command: %q", env.Command)
+}
+
+func TestInvokeWithDeps_ReadFailureWritesStructuredError(t *testing.T) {
+	missingPath := filepath.Join(t.TempDir(), "missing.json")
+	var out bytes.Buffer
+	code := invokeWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		[]string{"--tool", "context", "--in", missingPath},
+		strings.NewReader(`{}`),
+		&out,
+		fixedMCPNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			t.Fatal("service factory should not be called")
+			return nil, nil, nil
+		},
+	)
+	if code != 1 {
+		t.Fatalf("unexpected exit code: got %d want 1", code)
+	}
+
+	var env invokeWrapperEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if env.OK {
+		t.Fatal("expected ok=false")
+	}
+	if env.Tool != "context" {
+		t.Fatalf("unexpected tool: %q", env.Tool)
+	}
+	if env.Error == nil || env.Error.Code != "READ_FAILED" {
+		t.Fatalf("unexpected error payload: %+v", env.Error)
+	}
+}
+
+func TestInvokeWithDeps_ServiceInitFailureWritesStructuredError(t *testing.T) {
+	var out bytes.Buffer
+	code := invokeWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		[]string{"--tool", "context"},
+		strings.NewReader(`{"project_id":"my-cool-app","task_text":"fix drift","phase":"execute"}`),
+		&out,
+		fixedMCPNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			return nil, func() {}, errors.New("boot failed")
+		},
+	)
+	if code != 1 {
+		t.Fatalf("unexpected exit code: got %d want 1", code)
+	}
+
+	var env invokeWrapperEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if env.OK {
+		t.Fatal("expected ok=false")
+	}
+	if env.Tool != "context" {
+		t.Fatalf("unexpected tool: %q", env.Tool)
+	}
+	if env.Error == nil || env.Error.Code != "SERVICE_INIT_FAILED" {
+		t.Fatalf("unexpected error payload: %+v", env.Error)
+	}
+}
+
+func TestInvokeWithDeps_InvalidToolInputWritesStructuredError(t *testing.T) {
+	var out bytes.Buffer
+	code := invokeWithDeps(
+		context.Background(),
+		logging.NewRecorder(),
+		[]string{"--tool", "context"},
+		strings.NewReader(`{`),
+		&out,
+		fixedMCPNow,
+		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
+			return mcpMainFakeService{}, func() {}, nil
+		},
+	)
+	if code != 1 {
+		t.Fatalf("unexpected exit code: got %d want 1", code)
+	}
+
+	var env invokeWrapperEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if env.OK {
+		t.Fatal("expected ok=false")
+	}
+	if env.Tool != "context" {
+		t.Fatalf("unexpected tool: %q", env.Tool)
+	}
+	if env.Error == nil || env.Error.Code != "INVALID_JSON" {
+		t.Fatalf("unexpected error payload: %+v", env.Error)
 	}
 }
 

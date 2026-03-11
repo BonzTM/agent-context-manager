@@ -65,7 +65,11 @@ func NormalizeReviewPayload(p ReviewPayload) ReviewPayload {
 		normalized.Key = DefaultReviewTaskKey
 	}
 	if normalized.Status == "" {
-		normalized.Status = WorkItemStatusComplete
+		if normalized.BlockedReason != "" {
+			normalized.Status = WorkItemStatusBlocked
+		} else {
+			normalized.Status = WorkItemStatusComplete
+		}
 	}
 	if normalized.Summary == "" {
 		normalized.Summary = defaultReviewSummaryForKey(normalized.Key)

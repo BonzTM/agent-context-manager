@@ -198,7 +198,7 @@
     {
       "name": "review",
       "title": "Record Review Gate",
-      "description": "Record or execute a single review task gate such as review:cross-llm through the work tracker.",
+      "description": "Record or execute a single review task gate such as review:cross-llm through the work tracker; runnable gates require run=true for completion.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reviewPayload"

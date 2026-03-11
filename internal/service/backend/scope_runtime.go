@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,6 +18,13 @@ func (s *Service) captureWorkingTreeBaseline(ctx context.Context, projectRoot st
 	records, err := s.collectWorkingTreeSyncPaths(ctx, projectRoot)
 	if err == nil {
 		return syncPathRecordsToBaseline(records), nil
+	}
+	if projectRootContainsGitDir(projectRoot) {
+		details := map[string]any{
+			"project_root": strings.TrimSpace(projectRoot),
+			"git_error":    err.Error(),
+		}
+		return nil, core.NewError("INTERNAL_ERROR", "failed to capture working-tree baseline", details)
 	}
 
 	paths, walkErr := s.captureWorkingTreeBaselineFromWalk(ctx, projectRoot)
@@ -32,6 +40,15 @@ func (s *Service) captureWorkingTreeBaseline(ctx context.Context, projectRoot st
 		details["walk_error"] = walkErr.Error()
 	}
 	return nil, core.NewError("INTERNAL_ERROR", "failed to capture working-tree baseline", details)
+}
+
+func projectRootContainsGitDir(projectRoot string) bool {
+	root := strings.TrimSpace(projectRoot)
+	if root == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(root, ".git"))
+	return err == nil && info.IsDir()
 }
 
 func syncPathRecordsToBaseline(records []syncPathRecord) []core.SyncPath {
@@ -193,6 +210,23 @@ func effectiveScopePaths(scope core.ReceiptScope, plan *core.WorkPlan) []string 
 	}
 	paths = append(paths, completionScopeManagedPaths()...)
 	return normalizeCompletionPaths(paths)
+}
+
+func pathWithinScope(candidate string, scopePaths []string) bool {
+	normalizedCandidate := normalizeCompletionPath(candidate)
+	if normalizedCandidate == "" {
+		return false
+	}
+	for _, rawScopePath := range scopePaths {
+		scopePath := normalizeCompletionPath(rawScopePath)
+		if scopePath == "" {
+			continue
+		}
+		if normalizedCandidate == scopePath || strings.HasPrefix(normalizedCandidate, scopePath+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveReceiptPlanSelection(projectID, receiptID, planKey string) (string, string, *core.APIError) {
@@ -399,14 +433,11 @@ func mergeCompletionViolations(groups ...[]v1.CompletionViolation) []v1.Completi
 }
 
 func outOfScopeViolations(filesChanged, allowedPaths []string) []v1.CompletionViolation {
-	allowed := make(map[string]struct{}, len(allowedPaths))
-	for _, filePath := range normalizeCompletionPaths(allowedPaths) {
-		allowed[filePath] = struct{}{}
-	}
+	normalizedAllowedPaths := normalizeCompletionPaths(allowedPaths)
 
 	violations := make([]v1.CompletionViolation, 0)
 	for _, filePath := range normalizeCompletionPaths(filesChanged) {
-		if _, ok := allowed[filePath]; ok {
+		if pathWithinScope(filePath, normalizedAllowedPaths) {
 			continue
 		}
 		violations = append(violations, v1.CompletionViolation{

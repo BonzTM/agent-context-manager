@@ -114,12 +114,12 @@ var commandCatalog = []CommandSpec{
 		CommandReview,
 		"review",
 		"acm review [--project <id>] [--receipt-id <id>|--plan-key <key>] [--run] [--key <task-key>] [--summary <text>] [--status <pending|in_progress|complete|blocked>] [--outcome <text>|--outcome-file <path>] [--blocked-reason <text>] [--evidence <text>]... [--evidence-file <path>|--evidence-json <json>] [--tags-file <path>]",
-		"Record or execute a single review gate such as `review:cross-llm` through the work tracker.",
+		"Record or execute a single review gate such as `review:cross-llm` through the work tracker, using `--run` to satisfy runnable gates.",
 		CommandGroupWorkflow,
 		"reviewPayload",
 		"reviewResult",
 		"Record Review Gate",
-		"Record or execute a single review task gate such as review:cross-llm through the work tracker.",
+		"Record or execute a single review task gate such as review:cross-llm through the work tracker; runnable gates require run=true for completion.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayloadWithFields(raw, defaults,
 				func(p *ReviewPayload, defaults ValidationDefaults) {

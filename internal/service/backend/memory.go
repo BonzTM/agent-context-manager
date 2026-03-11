@@ -114,10 +114,7 @@ func (s *Service) validateProposedMemoryScope(ctx context.Context, projectID str
 		exactPointerScope[key] = struct{}{}
 	}
 
-	pathScope := make(map[string]struct{})
-	for _, filePath := range effectiveScopePaths(scope, plan) {
-		pathScope[filePath] = struct{}{}
-	}
+	pathScope := effectiveScopePaths(scope, plan)
 
 	errorsList := make([]string, 0, 2)
 	warnings := make([]string, 0, 1)
@@ -144,7 +141,7 @@ func (s *Service) validateProposedMemoryScope(ctx context.Context, projectID str
 	}, nil
 }
 
-func (s *Service) pointerKeysOutsideEffectiveScope(ctx context.Context, projectID string, pointerKeys []string, exactPointerScope, pathScope map[string]struct{}) ([]string, *core.APIError) {
+func (s *Service) pointerKeysOutsideEffectiveScope(ctx context.Context, projectID string, pointerKeys []string, exactPointerScope map[string]struct{}, pathScope []string) ([]string, *core.APIError) {
 	if len(pointerKeys) == 0 {
 		return nil, nil
 	}
@@ -163,7 +160,7 @@ func (s *Service) pointerKeysOutsideEffectiveScope(ctx context.Context, projectI
 	return out, nil
 }
 
-func (s *Service) pointerKeyWithinEffectiveScope(ctx context.Context, projectID, pointerKey string, exactPointerScope, pathScope map[string]struct{}) (bool, *core.APIError) {
+func (s *Service) pointerKeyWithinEffectiveScope(ctx context.Context, projectID, pointerKey string, exactPointerScope map[string]struct{}, pathScope []string) (bool, *core.APIError) {
 	normalizedKey := strings.TrimSpace(pointerKey)
 	if normalizedKey == "" {
 		return false, nil
@@ -198,8 +195,7 @@ func (s *Service) pointerKeyWithinEffectiveScope(ctx context.Context, projectID,
 	if normalizedPath == "" {
 		return false, nil
 	}
-	_, ok := pathScope[normalizedPath]
-	return ok, nil
+	return pathWithinScope(normalizedPath, pathScope), nil
 }
 
 func normalizePointerScopePath(projectRoot, raw string) string {

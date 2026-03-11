@@ -551,9 +551,6 @@ func buildHistorySearchEnvelope(subcommand string, args []string, now func() tim
 		Query:     trimmedQuery,
 	}
 	if payload.Entity == v1.HistoryEntityWork {
-		if trimmedScope == "" {
-			trimmedScope = string(v1.HistoryScopeCurrent)
-		}
 		payload.Scope = v1.HistoryScope(trimmedScope)
 	}
 	if trimmedKind != "" {

@@ -101,7 +101,7 @@ func invokeWithDeps(ctx context.Context, logger logging.Logger, args []string, s
 	input, err := readInput(*in, stdin)
 	if err != nil {
 		logger.Error(ctx, logging.EventACMIORead, "stage", "read_input", "subcommand", "invoke", "ok", false, "path", *in, "error_code", "READ_FAILED")
-		writeEnvelope(stdout, envelopeForCommand(command, now(), false, nil, &v1.ErrorPayload{Code: "READ_FAILED", Message: err.Error()}))
+		writeInvokeWrapper(stdout, invokeWrapperError(*tool, now(), "READ_FAILED", err.Error()))
 		return 1
 	}
 	logger.Info(ctx, logging.EventACMIORead, "stage", "read_input", "subcommand", "invoke", "ok", true, "path", *in, "bytes", len(input))
@@ -109,7 +109,7 @@ func invokeWithDeps(ctx context.Context, logger logging.Logger, args []string, s
 	svc, closeService, err := newService(ctx, logger)
 	if err != nil {
 		logger.Error(ctx, logging.EventACMMCP, "stage", "service_init", "subcommand", "invoke", "ok", false, "error_code", "SERVICE_INIT_FAILED")
-		writeEnvelope(stdout, envelopeForCommand(command, now(), false, nil, &v1.ErrorPayload{Code: "SERVICE_INIT_FAILED", Message: err.Error()}))
+		writeInvokeWrapper(stdout, invokeWrapperError(*tool, now(), "SERVICE_INIT_FAILED", err.Error()))
 		return 1
 	}
 	defer closeService()
@@ -117,7 +117,7 @@ func invokeWithDeps(ctx context.Context, logger logging.Logger, args []string, s
 	result, apiErr := mcp.InvokeWithLogger(ctx, svc, *tool, input, logger)
 	if apiErr != nil {
 		logger.Error(ctx, logging.EventACMMCP, "stage", "invoke", "subcommand", "invoke", "ok", false, "tool", *tool, "error_code", apiErr.Code)
-		writeEnvelope(stdout, envelopeForCommand(command, now(), false, nil, apiErr.ToPayload()))
+		writeInvokeWrapper(stdout, invokeWrapperError(*tool, now(), apiErr.Code, apiErr.Message))
 		return 1
 	}
 	writeEnvelope(stdout, envelopeForCommand(command, now(), true, result, nil))

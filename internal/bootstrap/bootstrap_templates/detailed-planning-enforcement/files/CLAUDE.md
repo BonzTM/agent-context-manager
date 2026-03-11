@@ -30,7 +30,7 @@ If you need runtime or setup diagnostics, use direct CLI `acm status`.
 - If the receipt looks stale or too narrow, re-run `/acm-context` with a better task description instead of guessing.
 - If governed file work expands beyond the initial receipt scope, record the new files through `/acm-work` before expecting `/acm-review` or `/acm-done` to pass.
 - Do not claim success when `/acm-verify` failed or was skipped for code changes.
-- `/acm-review` stays thin. Use `{"run":true}` for runnable workflow gates and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode.
+- `/acm-review` stays thin. Use `{"run":true}` for runnable workflow gates because manual complete notes do not satisfy runnable gates, and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode.
 - If `/acm-review {"run":true}` reports repo changes but zero scoped review files, the receipt or declared discovered scope is too narrow. Re-run `/acm-context` or update `/acm-work` before retrying review.
 - For feature work under this repo contract, populate the required `kind=feature` or `kind=feature_stream` plan shape, `stages`, `stage:*` tasks, `parent_task_key`, and leaf `acceptance_criteria` before implementation. See `docs/feature-plans.md`.
 - Let `verify` enforce the feature-plan schema through `scripts/acm-feature-plan-validate.py`.

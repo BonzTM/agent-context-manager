@@ -535,6 +535,32 @@ func TestCodexCompanionExampleTreatsCodexAsPrimaryOperator(t *testing.T) {
 	}
 }
 
+func TestDetailedPlanningTemplateValidatorSkipsUnmaterializedReceiptPlans(t *testing.T) {
+	t.Parallel()
+
+	raw, err := initTemplateFS.ReadFile("bootstrap_templates/detailed-planning-enforcement/files/scripts/acm-feature-plan-validate.py")
+	if err != nil {
+		t.Fatalf("read embedded validator: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{"allow_unmaterialized=True", "has no materialized content in this receipt context"} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("embedded validator is missing snippet %q", snippet)
+		}
+	}
+}
+
+func TestDetailedPlanningTemplateDocsMentionUnmaterializedReceiptContexts(t *testing.T) {
+	t.Parallel()
+
+	raw, err := initTemplateFS.ReadFile("bootstrap_templates/detailed-planning-enforcement/files/docs/feature-plans.md")
+	if err != nil {
+		t.Fatalf("read embedded feature-plan docs: %v", err)
+	}
+	if !strings.Contains(string(raw), "receipt contexts that do not materialize a concrete plan") {
+		t.Fatalf("embedded feature-plan docs must mention unmaterialized receipt contexts")
+	}
+}
 func TestInitTemplateDocsListCodexPack(t *testing.T) {
 	t.Parallel()
 

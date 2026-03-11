@@ -143,7 +143,7 @@ capture_path="${ACM_TEST_CAPTURE:?}"
 printf '%s\n' "$@" >"${capture_path}"
 exit 0
 `)
-writeExecutable(t, filepath.Join(binDir, "acm"), `#!/usr/bin/env bash
+	writeExecutable(t, filepath.Join(binDir, "acm"), `#!/usr/bin/env bash
 set -euo pipefail
 cat <<'JSON'
 {"result":{"items":[{"content":"{\"initial_scope_paths\":[\"docs/in-scope.md\"]}"}]}}
@@ -409,6 +409,91 @@ exit 97
 	}
 	if !strings.Contains(promptText, "- changed_detected: 1") || !strings.Contains(promptText, "- scoped_changed: 1") {
 		t.Fatalf("expected injected scope counts in prompt, got %s", promptText)
+	}
+}
+
+func TestACMCrossReviewTreatsDirectoryScopeAsRecursive(t *testing.T) {
+	t.Parallel()
+
+	tempRoot := t.TempDir()
+	binDir := filepath.Join(tempRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+
+	capturePath := filepath.Join(tempRoot, "codex-args.txt")
+	promptPath := filepath.Join(tempRoot, "codex-prompt.txt")
+	writeExecutable(t, filepath.Join(binDir, "codex"), `#!/usr/bin/env bash
+set -euo pipefail
+capture_path="${ACM_TEST_CAPTURE:?}"
+prompt_path="${ACM_TEST_PROMPT:?}"
+printf '%s\n' "$@" >"${capture_path}"
+cat >"${prompt_path}"
+output_path=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output-last-message)
+      output_path="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '{"status":"pass","summary":"ok","findings":[]}\n' >"${output_path}"
+`)
+	writeExecutable(t, filepath.Join(binDir, "acm"), `#!/usr/bin/env bash
+echo "acm fetch fallback should not run when review env is injected" >&2
+exit 97
+`)
+
+	projectRoot := filepath.Join(tempRoot, "project-root")
+	if err := os.MkdirAll(filepath.Join(projectRoot, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "docs", "in-scope.md"), []byte("draft\n"), 0o644); err != nil {
+		t.Fatalf("write scoped file: %v", err)
+	}
+
+	runGit(t, projectRoot, "init")
+	runGit(t, projectRoot, "config", "user.email", "test@example.com")
+	runGit(t, projectRoot, "config", "user.name", "Test User")
+	runGit(t, projectRoot, "add", ".")
+	runGit(t, projectRoot, "commit", "-m", "initial state")
+
+	if err := os.WriteFile(filepath.Join(projectRoot, "docs", "in-scope.md"), []byte("updated draft\n"), 0o644); err != nil {
+		t.Fatalf("rewrite scoped file: %v", err)
+	}
+
+	cmd := exec.Command("bash", "scripts/acm-cross-review.sh")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"ACM_PROJECT_ID=agent-context-manager",
+		"ACM_RECEIPT_ID=receipt-test",
+		"ACM_PLAN_KEY=plan:receipt-test",
+		"ACM_PROJECT_ROOT="+projectRoot,
+		"ACM_REVIEW_CHANGED_PATHS_JSON=[\"docs/in-scope.md\"]",
+		"ACM_REVIEW_EFFECTIVE_SCOPE_PATHS_JSON=[\"docs\"]",
+		"ACM_TEST_CAPTURE="+capturePath,
+		"ACM_TEST_PROMPT="+promptPath,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run cross-review script with directory scope: %v\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "PASS: ok") || !strings.Contains(string(output), "scoped 1/1 changed files") {
+		t.Fatalf("unexpected script output: %s", string(output))
+	}
+
+	prompt, err := os.ReadFile(promptPath)
+	if err != nil {
+		t.Fatalf("read captured prompt: %v", err)
+	}
+	if !strings.Contains(string(prompt), "docs/in-scope.md") {
+		t.Fatalf("expected directory-scoped file in prompt, got %s", string(prompt))
 	}
 }
 

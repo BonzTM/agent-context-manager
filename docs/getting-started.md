@@ -298,7 +298,7 @@ acm review \
 
 `review` is intentionally thin — it lowers to a single `work.tasks[]` merge update.
 
-- **Run mode**: acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists a review-attempt record, and updates the work-task snapshot. Same-fingerprint reruns are skipped; `done` requires a fresh passing review when fingerprint dedupe is enabled. The scoped fingerprint covers effective scope: receipt `initial_scope_paths`, work-declared `discovered_paths`, and ACM-managed governance files that completion reporting already allows outside project file scope.
+- **Run mode**: acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists a review-attempt record, and updates the work-task snapshot. When fingerprint dedupe is enabled, ACM only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. `done` requires a passing runnable review for the current fingerprint when dedupe is enabled. The scoped fingerprint covers effective scope: receipt `initial_scope_paths`, work-declared `discovered_paths`, and ACM-managed governance files that completion reporting already allows outside project file scope.
 - **Defaults**: `key=review:cross-llm`, `summary="Cross-LLM review"`.
 - Use `--plan-key` instead of `--receipt-id` when resuming from a plan, or `--key` if your workflow uses a different task key.
 
@@ -310,7 +310,7 @@ acm review \
   --outcome "Cross-checked the fix with a second model and found no new blockers."
 ```
 
-Manual fields (`--status`, `--outcome`, `--blocked-reason`, `--evidence`) are only for non-run mode. Keep raw reviewer commands in repo-local scripts referenced by `.acm/acm-workflows.yaml`.
+Manual fields (`--status`, `--outcome`, `--blocked-reason`, `--evidence`) are only for non-run mode and do not satisfy runnable review gates that define `run`. Keep raw reviewer commands in repo-local scripts referenced by `.acm/acm-workflows.yaml`.
 
 ### acm history discovery
 
@@ -629,7 +629,7 @@ completion:
 
 Init seeds the thin `required_tasks: []` skeleton by default. Adding gates like `review:cross-llm` is an opt-in repo policy choice.
 
-When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM skips same-fingerprint reruns and only enforces retry limits when `max_attempts` is set. The scoped fingerprint covers effective scope (`initial_scope_paths` + `discovered_paths`) plus ACM-managed governance files that completion reporting already allows outside project file scope. Without `run`, agents can use manual `review` fields or a direct `work` update. Repo-local reviewer choices such as a Codex model or reasoning effort belong in the workflow `run.argv`.
+When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. The scoped fingerprint covers effective scope (`initial_scope_paths` + `discovered_paths`) plus ACM-managed governance files that completion reporting already allows outside project file scope. Without `run`, agents can use manual `review` fields or a direct `work` update, but those manual notes do not satisfy runnable gates. Repo-local reviewer choices such as a Codex model or reasoning effort belong in the workflow `run.argv`.
 If the working tree is dirty but the active effective scope captures zero of those changes into the runnable review set, the runner should fail fast and tell the agent to rerun `context` with a broader task or declare the missing files through `work`. Runnable review output should also surface the total repo-changed versus scoped-changed file counts for quick diagnosis.
 
 Keep richer plan-shape enforcement in `verify`, not `completion.required_tasks`, unless you truly need an additional final gate. Workflow selectors operate on phase, tags, paths, and pointers; they do not currently distinguish thin plans from `kind=feature` plans by themselves.

@@ -302,13 +302,32 @@ completion_managed_paths = {
     "acm-tests.yaml",
     "acm-workflows.yaml",
 }
+
+
+def normalize(path):
+    return path.strip().rstrip("/")
+
+
 with open(scope_path, "r", encoding="utf-8") as handle:
-    scope = {line.strip() for line in handle if line.strip()}
+    scope = [normalized for line in handle if (normalized := normalize(line))]
+
+
+def within_scope(path):
+    normalized_path = normalize(path)
+    if not normalized_path:
+        return False
+    if normalized_path in completion_managed_paths:
+        return True
+    for scope_entry in scope:
+        if normalized_path == scope_entry or normalized_path.startswith(scope_entry + "/"):
+            return True
+    return False
+
 
 with open(changed_path, "r", encoding="utf-8") as handle:
     for line in handle:
-        path = line.strip()
-        if path and (path in scope or path in completion_managed_paths):
+        path = normalize(line)
+        if within_scope(path):
             print(path)
 PY
   mv "${tmp_dir}/changed-files-scoped.txt" "${changed_files_path}"

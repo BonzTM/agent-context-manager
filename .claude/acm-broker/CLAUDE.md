@@ -20,7 +20,7 @@ Use this companion when running `acm-broker` workflow inside Claude Code.
 - Do not treat initial scope or fetched pointer paths as a substitute for native repo search.
 - Do treat `context` rules as mandatory.
 - Scope mode defaults to advisory `warn` when omitted.
-- `/acm-review` is a thin wrapper over one `work` task update; defaults are `review:cross-llm`, `Cross-LLM review`, and `complete`. Use `{"run":true}` for runnable workflow gates and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode.
+- `/acm-review` is a thin wrapper over one `work` task update; defaults are `review:cross-llm`, `Cross-LLM review`, and `complete`. Use `{"run":true}` for runnable workflow gates because manual complete notes do not satisfy runnable gates, and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode.
 - Runnable review uses effective scope. If the repo has changes but the runner reports zero scoped review files, rerun `/acm-context` or declare the missing files through `/acm-work` before retrying `/acm-review {"run":true}`.
 - `verify:tests` is the built-in executable verification gate; `verify:diff-review` is optional workflow metadata.
 - `.acm/acm-workflows.yaml` may require additional task keys before `done` should pass. No-file completion is valid when the task produced no file-backed changes.

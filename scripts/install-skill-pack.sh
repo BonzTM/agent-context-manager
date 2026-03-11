@@ -51,6 +51,47 @@ select_target() {
   fi
 }
 
+install_codex_skill() {
+  local codex_skills_dir="$1"
+  local codex_target="$2"
+  local stage_root stage_target backup_root backup_target
+
+  stage_root="$(mktemp -d "${codex_skills_dir}/.acm-broker.stage.XXXXXX")"
+  stage_target="${stage_root}/acm-broker"
+  backup_root=""
+  backup_target=""
+
+  cp -R "${skill_src}" "${stage_target}"
+
+  if [[ -e "${codex_target}" ]]; then
+    backup_root="$(mktemp -d "${codex_skills_dir}/.acm-broker.backup.XXXXXX")"
+    backup_target="${backup_root}/acm-broker"
+    if ! mv "${codex_target}" "${backup_target}"; then
+      rm -rf "${stage_root}" "${backup_root}"
+      echo "error: failed to preserve existing Codex skill at ${codex_target}" >&2
+      return 1
+    fi
+  fi
+
+  if mv "${stage_target}" "${codex_target}"; then
+    rmdir "${stage_root}" 2>/dev/null || rm -rf "${stage_root}"
+    if [[ -n "${backup_root}" ]]; then
+      rm -rf "${backup_root}"
+    fi
+    return 0
+  fi
+
+  echo "error: failed to install Codex skill at ${codex_target}" >&2
+  rm -rf "${stage_root}"
+  if [[ -n "${backup_target}" && ! -e "${codex_target}" ]]; then
+    mv "${backup_target}" "${codex_target}" || true
+  fi
+  if [[ -n "${backup_root}" ]]; then
+    rm -rf "${backup_root}"
+  fi
+  return 1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --codex)
@@ -107,8 +148,8 @@ else
   cleanup_tmp() { rm -rf "${tmp_dir}"; }
   trap cleanup_tmp EXIT
   git clone --depth 1 --filter=blob:none --sparse \
-    https://github.com/bonztm/agent-context-manager.git "${tmp_dir}/repo" 2>/dev/null
-  git -C "${tmp_dir}/repo" sparse-checkout set skills/acm-broker 2>/dev/null
+    https://github.com/bonztm/agent-context-manager.git "${tmp_dir}/repo"
+  git -C "${tmp_dir}/repo" sparse-checkout set skills/acm-broker
   skill_src="${tmp_dir}/repo/skills/acm-broker"
 fi
 if [[ ! -d "${skill_src}" ]]; then
@@ -120,8 +161,7 @@ if [[ "${install_codex}" == true ]]; then
   codex_skills_dir="${codex_home}/skills"
   codex_target="${codex_skills_dir}/acm-broker"
   mkdir -p "${codex_skills_dir}"
-  rm -rf "${codex_target}"
-  cp -R "${skill_src}" "${codex_target}"
+  install_codex_skill "${codex_skills_dir}" "${codex_target}"
   echo "Installed Codex skill: ${codex_target}"
   if [[ -d "${codex_target}/codex" ]]; then
     echo "Installed Codex companion docs: ${codex_target}/codex"

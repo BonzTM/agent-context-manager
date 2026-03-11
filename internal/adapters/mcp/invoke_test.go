@@ -169,7 +169,17 @@ func TestInvoke_RejectsUnknownInputFields(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Code != "INVALID_TOOL_INPUT" {
+	if err.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", err.Code)
+	}
+}
+
+func TestInvoke_RejectsInvalidJSON(t *testing.T) {
+	_, err := Invoke(context.Background(), fakeService{}, "context", []byte(`{`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Code != "INVALID_JSON" {
 		t.Fatalf("unexpected code: %s", err.Code)
 	}
 }
@@ -416,7 +426,7 @@ func TestInvokeWithLogger_LogsValidationFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Code != "INVALID_TOOL_INPUT" {
+	if err.Code != "INVALID_JSON" {
 		t.Fatalf("unexpected error code: %s", err.Code)
 	}
 
@@ -424,13 +434,13 @@ func TestInvokeWithLogger_LogsValidationFailure(t *testing.T) {
 	if len(entries) != 4 {
 		t.Fatalf("expected 4 log entries, got %d", len(entries))
 	}
-	if entries[1].Event != logging.EventMCPIngressValidate || entries[1].Fields["ok"] != false {
+	if entries[1].Event != logging.EventMCPIngressValidate || entries[1].Fields["ok"] != false || entries[1].Fields["error_code"] != "INVALID_JSON" {
 		t.Fatalf("unexpected validate failure entry: %+v", entries[1])
 	}
 	if entries[2].Event != logging.EventMCPFailure || entries[2].Fields["stage"] != "validate" {
 		t.Fatalf("unexpected failure entry: %+v", entries[2])
 	}
-	if entries[3].Event != logging.EventMCPResult || entries[3].Fields["ok"] != false {
+	if entries[3].Event != logging.EventMCPResult || entries[3].Fields["ok"] != false || entries[3].Fields["error_code"] != "INVALID_JSON" {
 		t.Fatalf("unexpected result entry: %+v", entries[3])
 	}
 }

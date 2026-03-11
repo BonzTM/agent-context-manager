@@ -3804,7 +3804,7 @@ func TestRunVerifyCommand_AppliesCommandEnv(t *testing.T) {
 	}
 }
 
-func TestRunVerifyCommand_LoadsDotEnvBackedACMRuntimeEnv(t *testing.T) {
+func TestRunVerifyCommand_DoesNotLoadDotEnvBackedACMRuntimeEnv(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ACM_PG_DSN=postgres://dotenv\n"), 0o644); err != nil {
 		t.Fatalf("write .env: %v", err)
@@ -3816,7 +3816,7 @@ func TestRunVerifyCommand_LoadsDotEnvBackedACMRuntimeEnv(t *testing.T) {
 		TimeoutSec: 5,
 		Env: map[string]string{
 			"GO_WANT_ACM_COMMAND_DOTENV_HELPER_PROCESS": "1",
-			"ACM_EXPECTED_PG_DSN":                       "postgres://dotenv",
+			"ACM_EXPECTED_PG_DSN":                       "__EXPECT_EMPTY__",
 			"ACM_EXPECTED_RECEIPT_ID":                   "receipt.abc123",
 			"ACM_EXPECTED_PLAN_KEY":                     "plan:receipt.abc123",
 		},
@@ -3925,7 +3925,15 @@ func TestRunACMCommandDotEnvHelperProcess(t *testing.T) {
 		if want == "" {
 			continue
 		}
-		if got := os.Getenv(key); got != want {
+		got := os.Getenv(key)
+		if want == "__EXPECT_EMPTY__" {
+			if got != "" {
+				fmt.Fprintf(os.Stderr, "expected %s to be unset, got %q\n", key, got)
+				os.Exit(3)
+			}
+			continue
+		}
+		if got != want {
 			fmt.Fprintf(os.Stderr, "unexpected %s: got %q want %q\n", key, got, want)
 			os.Exit(3)
 		}
@@ -7749,6 +7757,324 @@ func TestReportCompletionFlagsStaleReviewForManagedGovernanceFileCurrentFingerpr
 	}
 }
 
+func TestContext_DoesNotFallbackToFilesystemBaselineWhenGitUnavailableInsideGitRepo(t *testing.T) {
+	root := t.TempDir()
+	writeRepoFile(t, root, ".acm/acm-rules.yaml", "version: acm.rules.v1\nrules:\n  - id: rule_startup\n    summary: Startup rule\n    content: Keep the context receipt deterministic.\n    enforcement: hard\n")
+	writeRepoFile(t, root, "src/main.go", "package src\n\nfunc main() {}\n")
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	withWorkingDir(t, root)
+
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	svc.runGitCommand = func(_ context.Context, _ string, _ ...string) (string, error) {
+		return "", errors.New("git unavailable")
+	}
+
+	result, apiErr := svc.Context(context.Background(), v1.ContextPayload{
+		ProjectID: "project.alpha",
+		TaskText:  "fallback baseline blocked in git repo",
+		Phase:     v1.PhaseExecute,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Receipt == nil {
+		t.Fatal("expected receipt")
+	}
+	if result.Receipt.Meta.BaselineCaptured {
+		t.Fatal("expected baseline capture to stay unavailable when git metadata exists but git calls fail")
+	}
+	if len(repo.receiptUpsertCalls) != 1 {
+		t.Fatalf("expected one receipt scope upsert, got %d", len(repo.receiptUpsertCalls))
+	}
+	if repo.receiptUpsertCalls[0].BaselineCaptured {
+		t.Fatal("expected persisted baseline capture to remain false")
+	}
+	if len(repo.receiptUpsertCalls[0].BaselinePaths) != 0 {
+		t.Fatalf("expected no persisted baseline paths, got %+v", repo.receiptUpsertCalls[0].BaselinePaths)
+	}
+}
+
+func TestMemory_EffectiveScopeAcceptsDirectoryScopedEvidenceKeys(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:         "project.alpha",
+			ReceiptID:         "receipt.abc123",
+			PointerKeys:       []string{"project.alpha:.acm/acm-rules.yaml#rule.scope"},
+			InitialScopePaths: []string{"src"},
+		}},
+		pointerLookupResults: []core.CandidatePointer{
+			candidate("project.alpha:src/allowed.go#handler", "src/allowed.go", false, []string{"backend"}),
+		},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
+		ProjectID:   "project.alpha",
+		ReceiptID:   "receipt.abc123",
+		AutoPromote: boolPtr(true),
+		Memory: v1.MemoryPayload{
+			Category:            v1.MemoryCategoryDecision,
+			Subject:             "Directory scoped evidence",
+			Content:             "Evidence under a scoped directory should be accepted.",
+			Tags:                []string{"backend"},
+			Confidence:          4,
+			EvidencePointerKeys: []string{"project.alpha:src/allowed.go#handler"},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Status != "promoted" || !result.Validation.HardPassed {
+		t.Fatalf("expected promoted result, got %+v", result)
+	}
+	if len(repo.proposeCalls) != 1 {
+		t.Fatalf("expected persisted memory, got %+v", repo.proposeCalls)
+	}
+}
+
+func TestDone_StrictModeAcceptsDirectoryScopedChildFile(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:         "project.alpha",
+			ReceiptID:         "receipt.abc123",
+			InitialScopePaths: []string{"internal"},
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "verify:tests", Status: core.WorkItemStatusComplete},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Done(context.Background(), v1.DonePayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"internal/core/repository.go"},
+		Outcome:      "completed",
+		ScopeMode:    v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected strict-mode acceptance for directory-scoped child file: %+v", result)
+	}
+	if len(result.Violations) != 0 {
+		t.Fatalf("expected no scope violations, got %+v", result.Violations)
+	}
+}
+
+func TestDone_StrictModeBlocksCompletedRunnableReviewWithoutPassingExecution(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "internal"), 0o755); err != nil {
+		t.Fatalf("mkdir internal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "review.txt"), []byte("draft\n"), 0o644); err != nil {
+		t.Fatalf("write review file: %v", err)
+	}
+	workflowsYAML := "version: acm.workflows.v1\ncompletion:\n  required_tasks:\n    - key: review:cross-llm\n      select:\n        phases: [\"review\"]\n        changed_paths_any: [\"internal/**\"]\n      run:\n        argv: [\"scripts/acm-cross-review.sh\"]\n"
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-workflows.yaml"), []byte(workflowsYAML), 0o644); err != nil {
+		t.Fatalf("write workflows file: %v", err)
+	}
+
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:         "project.alpha",
+			ReceiptID:         "receipt.abc123",
+			Phase:             "review",
+			InitialScopePaths: []string{"internal/review.txt"},
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: v1.DefaultReviewTaskKey, Status: core.WorkItemStatusComplete, Outcome: "Manual note only"},
+		}},
+		reviewAttemptResults: [][]core.ReviewAttempt{nil},
+	}
+	svc, err := NewWithProjectRoot(repo, root)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Done(context.Background(), v1.DonePayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"internal/review.txt"},
+		Outcome:      "done",
+		ScopeMode:    v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Accepted {
+		t.Fatalf("expected strict completion to reject runnable review without a passing execution: %+v", result)
+	}
+	if len(result.DefinitionOfDoneIssues) != 1 || !strings.Contains(result.DefinitionOfDoneIssues[0], "no passing execution") {
+		t.Fatalf("unexpected definition_of_done_issues: %+v", result.DefinitionOfDoneIssues)
+	}
+}
+
+func TestReview_ManualCompleteRejectsRunnableWorkflowGate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	workflowsYAML := "version: acm.workflows.v1\ncompletion:\n  required_tasks:\n    - key: review:cross-llm\n      summary: Cross-LLM review\n      run:\n        argv: [\"scripts/acm-cross-review.sh\"]\n"
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-workflows.yaml"), []byte(workflowsYAML), 0o644); err != nil {
+		t.Fatalf("write workflows file: %v", err)
+	}
+
+	repo := &fakeRepository{}
+	svc, err := NewWithProjectRoot(repo, root)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, apiErr := svc.Review(context.Background(), v1.ReviewPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		Outcome:   "Manual review note",
+	})
+	if apiErr == nil {
+		t.Fatal("expected manual complete review to be rejected for runnable gate")
+	}
+	if apiErr.Code != "INVALID_INPUT" {
+		t.Fatalf("unexpected error code: %s", apiErr.Code)
+	}
+	if !strings.Contains(apiErr.Message, "run=true") {
+		t.Fatalf("unexpected error message: %+v", apiErr)
+	}
+}
+
+func TestReview_RunRerunsAfterFailedSameFingerprintAttempt(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
+		t.Fatalf("mkdir .acm: %v", err)
+	}
+	workflowsYAML := "version: acm.workflows.v1\ncompletion:\n  required_tasks:\n    - key: review:cross-llm\n      summary: Cross-LLM review\n      rerun_requires_new_fingerprint: true\n      run:\n        argv: [\"scripts/acm-cross-review.sh\"]\n        timeout_sec: 300\n"
+	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-workflows.yaml"), []byte(workflowsYAML), 0o644); err != nil {
+		t.Fatalf("write workflows file: %v", err)
+	}
+
+	scope := core.ReceiptScope{ProjectID: "project.alpha", ReceiptID: "receipt.abc123"}
+	fingerprint, apiErr := computeReviewFingerprint(root, "project.alpha", "receipt.abc123", v1.DefaultReviewTaskKey, ".acm/acm-workflows.yaml", workflowRunDefinition{
+		Argv:       []string{"scripts/acm-cross-review.sh"},
+		TimeoutSec: 300,
+	}, scope, nil)
+	if apiErr != nil {
+		t.Fatalf("compute fingerprint: %+v", apiErr)
+	}
+
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{scope},
+		reviewAttemptResults: [][]core.ReviewAttempt{{
+			{
+				AttemptID:   1,
+				ProjectID:   "project.alpha",
+				ReceiptID:   "receipt.abc123",
+				ReviewKey:   v1.DefaultReviewTaskKey,
+				Fingerprint: fingerprint,
+				Status:      "failed",
+				Passed:      false,
+				Outcome:     "Review gate failed",
+			},
+		}},
+	}
+	svc, err := NewWithProjectRoot(repo, root)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	runnerCalls := 0
+	svc.runReviewCommand = func(context.Context, string, workflowRunDefinition, map[string]string) verifyCommandRun {
+		runnerCalls++
+		exitCode := 0
+		now := time.Now().UTC()
+		return verifyCommandRun{
+			ExitCode:   &exitCode,
+			Stdout:     "PASS: Cross-LLM review passed after rerun.",
+			StartedAt:  now,
+			FinishedAt: now.Add(100 * time.Millisecond),
+		}
+	}
+
+	result, apiErr := svc.Review(context.Background(), v1.ReviewPayload{
+		ProjectID: "project.alpha",
+		ReceiptID: "receipt.abc123",
+		Run:       true,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Executed || result.ReviewStatus != v1.WorkItemStatusComplete {
+		t.Fatalf("expected failed duplicate fingerprint to rerun, got %+v", result)
+	}
+	if runnerCalls != 1 {
+		t.Fatalf("expected runner to execute once, got %d", runnerCalls)
+	}
+	if len(repo.reviewAttemptCalls) != 1 || repo.reviewAttemptCalls[0].Status != "passed" {
+		t.Fatalf("expected a new persisted passing attempt, got %+v", repo.reviewAttemptCalls)
+	}
+}
+
+func TestComputeReviewFingerprintChangesWhenScopedDirectoryChildChanges(t *testing.T) {
+	root := t.TempDir()
+	writeRepoFile(t, root, "scripts/acm-cross-review.sh", "#!/usr/bin/env bash\nexit 0\n")
+	writeRepoFile(t, root, "src/nested/review.txt", "before\n")
+
+	command := workflowRunDefinition{
+		Argv:       []string{"scripts/acm-cross-review.sh"},
+		TimeoutSec: 300,
+	}
+	scope := core.ReceiptScope{InitialScopePaths: []string{"src"}}
+	first, apiErr := computeReviewFingerprint(root, "project.alpha", "receipt.abc123", v1.DefaultReviewTaskKey, ".acm/acm-workflows.yaml", command, scope, nil)
+	if apiErr != nil {
+		t.Fatalf("compute first fingerprint: %+v", apiErr)
+	}
+	writeRepoFile(t, root, "src/nested/review.txt", "after\n")
+	second, apiErr := computeReviewFingerprint(root, "project.alpha", "receipt.abc123", v1.DefaultReviewTaskKey, ".acm/acm-workflows.yaml", command, scope, nil)
+	if apiErr != nil {
+		t.Fatalf("compute second fingerprint: %+v", apiErr)
+	}
+	if first == second {
+		t.Fatalf("expected scoped directory child changes to affect fingerprint, got %q", first)
+	}
+}
+
+func TestComputeReviewFingerprintChangesWhenWorkflowArgumentFileChanges(t *testing.T) {
+	root := t.TempDir()
+	writeRepoFile(t, root, "scripts/review_runner.py", "print('review')\n")
+	writeRepoFile(t, root, "configs/review.json", "{\"level\":1}\n")
+
+	command := workflowRunDefinition{
+		Argv:       []string{"python3", "scripts/review_runner.py", "configs/review.json"},
+		TimeoutSec: 300,
+	}
+	first, apiErr := computeReviewFingerprint(root, "project.alpha", "receipt.abc123", v1.DefaultReviewTaskKey, ".acm/acm-workflows.yaml", command, core.ReceiptScope{}, nil)
+	if apiErr != nil {
+		t.Fatalf("compute first fingerprint: %+v", apiErr)
+	}
+	writeRepoFile(t, root, "configs/review.json", "{\"level\":2}\n")
+	second, apiErr := computeReviewFingerprint(root, "project.alpha", "receipt.abc123", v1.DefaultReviewTaskKey, ".acm/acm-workflows.yaml", command, core.ReceiptScope{}, nil)
+	if apiErr != nil {
+		t.Fatalf("compute second fingerprint: %+v", apiErr)
+	}
+	if first == second {
+		t.Fatalf("expected workflow argument files to affect fingerprint, got %q", first)
+	}
+}
 func withWorkingDir(t *testing.T, dir string) {
 	t.Helper()
 

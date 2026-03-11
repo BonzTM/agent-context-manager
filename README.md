@@ -229,10 +229,10 @@ Most list and text flags support inline values and `--*-file` alternatives (`-` 
 
 **Defaults** (when flags are omitted): `key=review:cross-llm`, `summary="Cross-LLM review"`, `status=complete`.
 
-**Run mode** (`--run` or `run=true`): acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists an append-only review-attempt record, and updates the work-task snapshot. Runnable gates are terminal-gate by default — same-fingerprint reruns are skipped, `max_attempts` is optional, and `done` requires a fresh passing review when fingerprint dedupe is enabled. The scoped fingerprint covers effective scope: receipt `initial_scope_paths`, work-declared `discovered_paths`, and ACM-managed governance files that completion reporting already allows outside project file scope.
+**Run mode** (`--run` or `run=true`): acm loads the matching task from `.acm/acm-workflows.yaml`, executes its `run` block, persists an append-only review-attempt record, and updates the work-task snapshot. When fingerprint dedupe is enabled, ACM only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. `done` requires a passing runnable review for the current fingerprint when dedupe is enabled. The scoped fingerprint covers effective scope: receipt `initial_scope_paths`, work-declared `discovered_paths`, and ACM-managed governance files that completion reporting already allows outside project file scope.
 If the repo has uncommitted changes but the current effective scope captures none of them, the review runner should block and tell you to refresh `context` or declare the missing files through `work` rather than silently reviewing nothing.
 
-**Manual mode** (no `--run`): use `--status`, `--outcome`, `--blocked-reason`, and `--evidence` to record a review note directly. These fields are ignored in run mode.
+**Manual mode** (no `--run`): use `--status`, `--outcome`, `--blocked-reason`, and `--evidence` to record a review note directly. Manual notes do not satisfy runnable review gates that define `run`, and these fields are ignored in run mode.
 
 Keep raw reviewer commands in repo-local scripts and workflow definitions, not maintainer prose. If a repo-local reviewer script needs model-specific settings, pass them through the workflow `run.argv` list, for example `scripts/acm-cross-review.sh --model gpt-5.3-codex --reasoning-effort xhigh`.
 

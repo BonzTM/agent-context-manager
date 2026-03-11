@@ -411,7 +411,7 @@ func TestBuildReviewEnvelope_RunModeRejectsManualOutcomeFields(t *testing.T) {
 	}
 }
 
-func TestBuildHistorySearchEnvelope_ForWorkHistoryDefaultsToCurrentScope(t *testing.T) {
+func TestBuildHistorySearchEnvelope_ForWorkHistoryLeavesScopeUnsetByDefault(t *testing.T) {
 	env, err := buildConvenienceEnvelope("history", []string{
 		"--project", "myproject",
 		"--entity", "work",
@@ -429,7 +429,7 @@ func TestBuildHistorySearchEnvelope_ForWorkHistoryDefaultsToCurrentScope(t *test
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
-	if payload.ProjectID != "myproject" || payload.Entity != v1.HistoryEntityWork || payload.Scope != v1.HistoryScopeCurrent || payload.Limit != 7 || payload.Query != "" {
+	if payload.ProjectID != "myproject" || payload.Entity != v1.HistoryEntityWork || payload.Scope != "" || payload.Limit != 7 || payload.Query != "" {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
 	if payload.Unbounded == nil || !*payload.Unbounded {

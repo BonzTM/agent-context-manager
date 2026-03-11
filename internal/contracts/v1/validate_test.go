@@ -356,6 +356,71 @@ func TestDecodeAndValidateCommand_ReviewSuccess(t *testing.T) {
 	}
 }
 
+func TestDecodeAndValidateCommand_ReviewBlockedReasonNormalizesToBlocked(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"review",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"blocked_reason":"Waiting for the runnable review gate to finish."
+		}
+	}`
+	_, payload, errp := DecodeAndValidateCommand([]byte(json))
+	if errp != nil {
+		t.Fatalf("unexpected error: %+v", errp)
+	}
+	p, ok := payload.(ReviewPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", payload)
+	}
+	if normalized := NormalizeReviewPayload(p); normalized.Status != WorkItemStatusBlocked {
+		t.Fatalf("expected blocked status after normalization, got %+v", normalized)
+	}
+}
+
+func TestDecodeAndValidateCommand_ReviewRejectsConflictingBlockedReasonStatus(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"review",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"status":"complete",
+			"blocked_reason":"Still waiting"
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
+func TestDecodeAndValidateCommand_ReviewBlockedStatusRequiresBlockedReason(t *testing.T) {
+	json := `{
+		"version":"acm.v1",
+		"command":"review",
+		"request_id":"req-12345",
+		"payload":{
+			"project_id":"my-cool-app",
+			"receipt_id":"receipt-1234",
+			"status":"blocked"
+		}
+	}`
+	_, _, errp := DecodeAndValidateCommand([]byte(json))
+	if errp == nil {
+		t.Fatal("expected validation error")
+	}
+	if errp.Code != "INVALID_PAYLOAD" {
+		t.Fatalf("unexpected code: %s", errp.Code)
+	}
+}
+
 func TestDecodeAndValidateCommand_ReviewRequiresSelectionContext(t *testing.T) {
 	json := `{
 		"version":"acm.v1",

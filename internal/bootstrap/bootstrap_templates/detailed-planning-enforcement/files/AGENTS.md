@@ -45,7 +45,7 @@ Use `work` when any of the following are true:
 - the task includes explicit planning, verification, or handoff
 - you need durable task state that should survive compaction or session reset
 
-For code changes, include a `verify:tests` task. Add other task keys when they help resumption, coordination, or are required by `.acm/acm-workflows.yaml`. For single review-gate updates, `review` is the thinner convenience wrapper around `work`; use `review --run` for runnable workflow gates, and keep manual `status` / `outcome` / `evidence` fields for non-run mode.
+For code changes, include a `verify:tests` task. Add other task keys when they help resumption, coordination, or are required by `.acm/acm-workflows.yaml`. For single review-gate updates, `review` is the thinner convenience wrapper around `work`; use `review --run` for runnable workflow gates, and keep manual `status` / `outcome` / `blocked_reason` / `evidence` fields for non-run mode.
 
 ## Feature Plans
 

@@ -128,7 +128,7 @@ acm verify --project <project-id> --receipt-id <receipt-id> --phase review --fil
 
 That verify check executes `scripts/acm-feature-plan-validate.py` with the active receipt or plan context.
 
-For plans in this feature schema, it fails when required metadata, stage grouping, hierarchy links, `verify:tests`, or leaf-task acceptance criteria are missing. For non-feature plans, the script exits cleanly and the gate is not selected as a blocker.
+For plans in this feature schema, it fails when required metadata, stage grouping, hierarchy links, `verify:tests`, or leaf-task acceptance criteria are missing. For non-feature plans, or receipt contexts that do not materialize a concrete plan, the script exits cleanly and the gate is not selected as a blocker.
 
 ## Completion Gates
 

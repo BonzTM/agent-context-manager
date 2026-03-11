@@ -46,6 +46,21 @@ func (s *Service) Review(ctx context.Context, payload v1.ReviewPayload) (v1.Revi
 	passingRuns := countPassingReviewAttempts(attempts)
 
 	if !normalized.Run {
+		definitions, source, err := s.loadWorkflowCompletionRequirements(s.defaultProjectRoot(), "", normalized.TagsFile)
+		if err != nil {
+			return v1.ReviewResult{}, workflowDefinitionsAPIError(source.SourcePath, err)
+		}
+		if definition, ok := findWorkflowRequiredTaskDefinition(definitions, normalized.Key); ok && definition.Run != nil && normalized.Status == v1.WorkItemStatusComplete {
+			return v1.ReviewResult{}, core.NewError(
+				"INVALID_INPUT",
+				"runnable review gates require run=true to record a completed result",
+				map[string]any{
+					"review_key":           normalized.Key,
+					"workflow_source_path": source.SourcePath,
+				},
+			)
+		}
+
 		evidence := mergeReviewTaskEvidence(state.Task, normalized.Evidence, latestReviewAttemptRef(attempts))
 		workResult, apiErr := s.Work(ctx, v1.WorkPayload{
 			ProjectID: normalized.ProjectID,
@@ -245,7 +260,7 @@ executeReview:
 }
 
 func runWorkflowReviewCommand(ctx context.Context, projectRoot string, command workflowRunDefinition, extraEnv map[string]string) verifyCommandRun {
-	return runConfiguredCommand(ctx, projectRoot, command.Argv, command.CWD, command.TimeoutSec, command.Env, extraEnv)
+	return runConfiguredCommand(ctx, projectRoot, command.Argv, command.CWD, command.TimeoutSec, runtimeCommandEnv(projectRoot), command.Env, extraEnv)
 }
 
 func reviewCommandEnvironment(projectRoot, workflowSourcePath string, payload v1.ReviewPayload, state reviewPlanState, reviewSummary string, attempt, maxAttempts, passingRuns int, fingerprint string, effectiveScope, detectedFiles []string, reliableDetection bool) map[string]string {
@@ -402,6 +417,12 @@ func (s *Service) listReviewAttempts(ctx context.Context, projectID, receiptID, 
 	return attempts, nil
 }
 
+type reviewFingerprintEntry struct {
+	Path string
+	Kind string
+	Hash string
+}
+
 func computeReviewFingerprint(projectRoot, projectID, receiptID, reviewKey, workflowSourcePath string, command workflowRunDefinition, scope core.ReceiptScope, plan *core.WorkPlan) (string, *core.APIError) {
 	hasher := sha256.New()
 	writeFingerprintPart(hasher, "acm.review.fingerprint.v2")
@@ -424,85 +445,189 @@ func computeReviewFingerprint(projectRoot, projectID, receiptID, reviewKey, work
 		writeFingerprintPart(hasher, key)
 		writeFingerprintPart(hasher, command.Env[key])
 	}
-	if runnerHash, ok, apiErr := workflowRunnerFingerprint(projectRoot, command); apiErr != nil {
+	runnerHashes, apiErr := workflowRunnerFingerprints(projectRoot, command)
+	if apiErr != nil {
 		return "", apiErr
-	} else if ok {
+	}
+	for _, runnerHash := range runnerHashes {
 		writeFingerprintPart(hasher, runnerHash)
 	}
 
-	paths := effectiveScopePaths(scope, plan)
-	sort.Strings(paths)
-	for _, relativePath := range paths {
-		writeFingerprintPart(hasher, relativePath)
-		absolutePath := filepath.Join(projectRoot, filepath.FromSlash(relativePath))
-		info, err := os.Stat(absolutePath)
-		switch {
-		case errors.Is(err, os.ErrNotExist):
-			writeFingerprintPart(hasher, "missing")
-			continue
-		case err != nil:
-			return "", core.NewError("INTERNAL_ERROR", "failed to stat scoped review file", map[string]any{
-				"path":  relativePath,
-				"error": err.Error(),
-			})
-		case info.IsDir():
-			writeFingerprintPart(hasher, "dir")
-			continue
+	entries, apiErr := collectReviewFingerprintEntries(projectRoot, effectiveScopePaths(scope, plan))
+	if apiErr != nil {
+		return "", apiErr
+	}
+	for _, entry := range entries {
+		writeFingerprintPart(hasher, entry.Path)
+		writeFingerprintPart(hasher, entry.Kind)
+		if entry.Hash != "" {
+			writeFingerprintPart(hasher, entry.Hash)
 		}
-		blob, err := os.ReadFile(absolutePath)
-		if err != nil {
-			return "", core.NewError("INTERNAL_ERROR", "failed to read scoped review file", map[string]any{
-				"path":  relativePath,
-				"error": err.Error(),
-			})
-		}
-		sum := sha256.Sum256(blob)
-		writeFingerprintPart(hasher, hex.EncodeToString(sum[:]))
 	}
 
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-func workflowRunnerFingerprint(projectRoot string, command workflowRunDefinition) (string, bool, *core.APIError) {
+func workflowRunnerFingerprints(projectRoot string, command workflowRunDefinition) ([]string, *core.APIError) {
 	if len(command.Argv) == 0 {
-		return "", false, nil
-	}
-	runner := strings.TrimSpace(command.Argv[0])
-	if runner == "" {
-		return "", false, nil
-	}
-	if !strings.Contains(runner, "/") && !strings.Contains(runner, string(filepath.Separator)) && command.CWD == "" {
-		return "", false, nil
+		return nil, nil
 	}
 	baseDir := strings.TrimSpace(projectRoot)
 	if cwd := strings.TrimSpace(command.CWD); cwd != "" {
 		baseDir = filepath.Join(baseDir, filepath.FromSlash(cwd))
 	}
-	resolved := runner
+
+	seen := map[string]struct{}{}
+	hashes := make([]string, 0, len(command.Argv))
+	for _, rawArg := range command.Argv {
+		resolved, ok := resolveWorkflowArgumentFile(baseDir, rawArg)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[resolved]; exists {
+			continue
+		}
+		seen[resolved] = struct{}{}
+		blob, err := os.ReadFile(resolved)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		case err != nil:
+			return nil, core.NewError("INTERNAL_ERROR", "failed to read workflow runner file", map[string]any{
+				"path":  rawArg,
+				"error": err.Error(),
+			})
+		}
+		sum := sha256.Sum256(blob)
+		hashes = append(hashes, hex.EncodeToString(sum[:]))
+	}
+	sort.Strings(hashes)
+	return hashes, nil
+}
+
+func resolveWorkflowArgumentFile(baseDir, raw string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", false
+	}
+	if !strings.Contains(value, "/") && !strings.Contains(value, string(filepath.Separator)) && !filepath.IsAbs(value) {
+		return "", false
+	}
+
+	resolved := value
 	if !filepath.IsAbs(resolved) {
 		resolved = filepath.Join(baseDir, filepath.FromSlash(resolved))
 	}
 	info, err := os.Stat(resolved)
 	switch {
-	case errors.Is(err, os.ErrNotExist):
-		return "", false, nil
 	case err != nil:
-		return "", false, core.NewError("INTERNAL_ERROR", "failed to stat workflow runner file", map[string]any{
-			"path":  runner,
-			"error": err.Error(),
-		})
+		return "", false
 	case info.IsDir():
-		return "", false, nil
+		return "", false
+	default:
+		return filepath.Clean(resolved), true
 	}
-	blob, err := os.ReadFile(resolved)
+}
+
+func collectReviewFingerprintEntries(projectRoot string, scopePaths []string) ([]reviewFingerprintEntry, *core.APIError) {
+	entries := make(map[string]reviewFingerprintEntry)
+	orderedScope := append([]string(nil), scopePaths...)
+	sort.Strings(orderedScope)
+	for _, relativePath := range orderedScope {
+		absolutePath := filepath.Join(projectRoot, filepath.FromSlash(relativePath))
+		info, err := os.Stat(absolutePath)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			entries[relativePath] = reviewFingerprintEntry{Path: relativePath, Kind: "missing"}
+			continue
+		case err != nil:
+			return nil, core.NewError("INTERNAL_ERROR", "failed to stat scoped review file", map[string]any{
+				"path":  relativePath,
+				"error": err.Error(),
+			})
+		case info.IsDir():
+			dirEntries, apiErr := collectReviewDirectoryFingerprintEntries(projectRoot, relativePath)
+			if apiErr != nil {
+				return nil, apiErr
+			}
+			if len(dirEntries) == 0 {
+				entries[relativePath] = reviewFingerprintEntry{Path: relativePath, Kind: "dir-empty"}
+				continue
+			}
+			for _, entry := range dirEntries {
+				entries[entry.Path] = entry
+			}
+			continue
+		}
+
+		blob, err := os.ReadFile(absolutePath)
+		if err != nil {
+			return nil, core.NewError("INTERNAL_ERROR", "failed to read scoped review file", map[string]any{
+				"path":  relativePath,
+				"error": err.Error(),
+			})
+		}
+		sum := sha256.Sum256(blob)
+		entries[relativePath] = reviewFingerprintEntry{Path: relativePath, Kind: "file", Hash: hex.EncodeToString(sum[:])}
+	}
+
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	out := make([]reviewFingerprintEntry, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, entries[key])
+	}
+	return out, nil
+}
+
+func collectReviewDirectoryFingerprintEntries(projectRoot, rootRelative string) ([]reviewFingerprintEntry, *core.APIError) {
+	rootAbsolute := filepath.Join(projectRoot, filepath.FromSlash(rootRelative))
+	entries := make([]reviewFingerprintEntry, 0)
+	err := filepath.Walk(rootAbsolute, func(current string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			if current == rootAbsolute {
+				return nil
+			}
+			if info.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+
+		relativePath, relErr := filepath.Rel(projectRoot, current)
+		if relErr != nil {
+			return relErr
+		}
+		normalizedPath := normalizeCompletionPath(filepath.ToSlash(relativePath))
+		if normalizedPath == "" {
+			return nil
+		}
+		blob, readErr := os.ReadFile(current)
+		if readErr != nil {
+			return readErr
+		}
+		sum := sha256.Sum256(blob)
+		entries = append(entries, reviewFingerprintEntry{Path: normalizedPath, Kind: "file", Hash: hex.EncodeToString(sum[:])})
+		return nil
+	})
 	if err != nil {
-		return "", false, core.NewError("INTERNAL_ERROR", "failed to read workflow runner file", map[string]any{
-			"path":  runner,
+		return nil, core.NewError("INTERNAL_ERROR", "failed to walk scoped review directory", map[string]any{
+			"path":  rootRelative,
 			"error": err.Error(),
 		})
 	}
-	sum := sha256.Sum256(blob)
-	return hex.EncodeToString(sum[:]), true, nil
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries, nil
 }
 
 func writeFingerprintPart(w io.Writer, value string) {
@@ -581,20 +706,7 @@ func latestReviewAttemptByFingerprint(attempts []core.ReviewAttempt, fingerprint
 }
 
 func reviewAttemptEligibleForFingerprintSkip(attempt core.ReviewAttempt) bool {
-	if attempt.Passed {
-		return true
-	}
-	if attempt.TimedOut || attempt.ExitCode == nil {
-		return false
-	}
-	outcome := strings.ToLower(strings.TrimSpace(attempt.Outcome))
-	if strings.Contains(outcome, "signal:") {
-		return false
-	}
-	if strings.Contains(outcome, "did not produce structured output") || strings.Contains(outcome, "produced no structured output") {
-		return false
-	}
-	return true
+	return attempt.Passed
 }
 
 func countPassingReviewAttempts(attempts []core.ReviewAttempt) int {
