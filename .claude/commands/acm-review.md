@@ -14,6 +14,7 @@ Steps:
 
 Constraints:
 - `review` is intentionally thin and lowers to a single `work` task update.
+- Use `review` for one named workflow gate, not for bulk repo verification.
 - Defaults are `key=review:cross-llm`, `summary=\"Cross-LLM review\"`, and `status=complete`.
 - Use `{\"run\":true}` when the repo workflow defines a runnable review gate; manual complete notes do not satisfy runnable gates.
 - Manual `status`, `outcome`, `blocked_reason`, and `evidence` fields are only for non-run mode.

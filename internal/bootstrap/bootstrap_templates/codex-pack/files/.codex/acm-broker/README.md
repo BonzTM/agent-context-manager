@@ -33,10 +33,17 @@ Codex can drive the full ACM workflow directly:
 1. `acm context`
 2. `acm fetch` only when you need to hydrate specific plan, task, memory, or pointer content
 3. `acm work` for multi-step tasks or when governed file scope expands through `plan.discovered_paths`
-4. `acm review` when a workflow gate needs a review record or runnable review
-5. `acm verify`
+4. `acm verify` for deterministic repo-defined checks
+5. `acm review` when a workflow gate needs one review record or runnable signoff gate
 6. `acm done`
 7. `acm memory`
+
+Keep the command boundary explicit:
+
+- `verify` answers "which repo-defined checks apply to this task and current diff?"
+- `review` answers "has this one named workflow gate been satisfied?"
+
+When a task specifically needs rendered ACM artifacts instead of normal envelopes, use the backend-only `export` surface through `acm run --in assets/requests/export.json` or `acm-mcp invoke --tool export --in assets/requests/mcp_export.json`. For quick human-facing CLI output, `context`, `fetch`, `history`, and `status` also support `--format json|markdown` with optional `--out-file` / `--force`; those flags lower to the same backend export path.
 
 Use the same maintenance loop as any other primary ACM operator when rules, tags, tests, workflows, onboarding, or tool-surface behavior change:
 
@@ -48,6 +55,7 @@ Use the same maintenance loop as any other primary ACM operator when rules, tags
 - `context` is task framing, not a substitute for Codex reading the repo itself.
 - If governed work discovers later-relevant files, declare them with `work.plan.discovered_paths` before expecting `review` or `done` to pass.
 - `done` can omit `files_changed` and rely on the receipt baseline delta when that is more convenient.
+- Use `verify` for repo checks and `review` for named workflow gates; `review` is not a second generic test runner.
 
 ## AGENTS companion
 
