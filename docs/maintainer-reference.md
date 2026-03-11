@@ -87,6 +87,16 @@ Run `go test ./...` for the normal local suite. Run `go test ./internal/integrat
 - `review` is for one workflow gate from `.acm/acm-workflows.yaml`. In run mode it executes that gate's `run` block, fingerprints the scoped change set, records attempts, and updates one review task such as `review:cross-llm`.
 - If you are choosing between them, ask: "Am I running deterministic repo checks?" Use `verify`. "Am I satisfying a named workflow signoff gate?" Use `review`.
 
+## TDD Gates
+
+Planned behavior-changing Go work under `cmd/**` or `internal/**` must include a `tdd:red` task before implementation, or a `tdd:exemption` task with a concrete justification. Repo-local `verify` treats non-test Go changes under those paths as behavior changes unless that exemption is present.
+
+Pattern:
+
+- Add a `tdd:red` leaf task with acceptance criteria that describe the failing test before writing the production code.
+- Once the red test exists, implement the production code and confirm the test goes green.
+- If TDD is genuinely impractical for a specific change, add a `tdd:exemption` task with a `summary` that explains why.
+
 ## Planning And Orchestration
 
 - Governed multi-step work in this repo uses the staged plan contract in [feature-plans.md](feature-plans.md).

@@ -73,6 +73,7 @@ For Codex-first repo setup, see `codex/README.md` and `codex/AGENTS.example.md` 
 - When `work.tasks` is non-empty, include `verify:tests` for executable verification tracking.
 - `verify:diff-review` is optional workflow metadata, not a built-in acm completion gate.
 - Some repos use `verify` to enforce richer feature-plan schemas built on `kind=feature`, stage tasks, task hierarchy, and leaf-task acceptance criteria. Follow the repo-local contract when it exists.
+- Some repos require TDD gates: a `tdd:red` task before implementation for behavior-changing code, or a `tdd:exemption` task with justification. Check the repo's rules and `acm-tests.yaml` selectors.
 - When a repo uses stage-based feature plans, keep `plan.stages.*` and the matching `stage:*` tasks aligned; ACM may reconcile the stage fields from those grouping-task statuses during terminal auto-close.
 - For code changes, run `verify` before `done` unless the repo rules explicitly allow otherwise.
 - For `done`, `scope_mode=strict` blocks on incomplete required completion tasks. When changed files are supplied and no workflow gates are configured, ACM falls back to `verify:tests`; `scope_mode=warn` surfaces warnings.

@@ -65,6 +65,13 @@ rules:
 #     enforcement: hard
 #     tags: [planning, workflow]
 
+# Optional TDD gate rules (used in the acm dogfood repo):
+#   - id: rule_tdd_red_green
+#     summary: Write a failing test before implementing behavior-changing Go code.
+#     content: Planned behavior-changing Go work under cmd/** or internal/** must include a tdd:red task before implementation, or a tdd:exemption task with a concrete justification.
+#     enforcement: hard
+#     tags: [verification, quality, tdd]
+
 # Field notes:
 # - id: optional; when omitted, acm generates a deterministic stable id.
 # - summary: required (title or content may substitute, but summary is preferred).

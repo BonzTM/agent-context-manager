@@ -615,3 +615,57 @@ Run:
 ```bash
 acm-mcp invoke --tool history --in assets/requests/mcp_history.json
 ```
+
+## CLI `export` request
+
+`export` is an advanced backend-only surface for rendering stable JSON or Markdown artifacts from ACM-owned data. It is not part of the normal agent task loop — use `context`, `fetch`, `history`, or `status` for day-to-day work. Use `export` when you specifically need a rendered artifact file.
+
+```json
+{
+  "version": "acm.v1",
+  "command": "export",
+  "request_id": "req-export-001",
+  "payload": {
+    "project_id": "customer-portal",
+    "format": "markdown",
+    "fetch": {
+      "receipt_id": "replace-from-context-receipt"
+    }
+  }
+}
+```
+
+Run via structured JSON automation:
+
+```bash
+acm run --in assets/requests/export.json
+```
+
+For ad hoc CLI rendering, the read-oriented convenience surfaces also accept `--format` and `--out-file`:
+
+```bash
+acm context --task-text "continue work" --phase execute --format markdown --out-file artifacts/context.md --force
+acm fetch --receipt-id replace-from-context-receipt --format json --out-file artifacts/fetch.json --force
+acm history --entity work --scope current --format markdown --out-file artifacts/history.md --force
+acm status --format json --out-file artifacts/status.json --force
+```
+
+These convenience flags lower into the backend `export` command under the hood.
+
+## MCP `export` input
+
+```json
+{
+  "project_id": "customer-portal",
+  "format": "markdown",
+  "fetch": {
+    "receipt_id": "replace-from-context-receipt"
+  }
+}
+```
+
+Run:
+
+```bash
+acm-mcp invoke --tool export --in assets/requests/mcp_export.json
+```

@@ -646,7 +646,8 @@ completion:
         phases: ["review"]
         changed_paths_any: ["cmd/**", "internal/**", "spec/**"]
       run:
-        argv: ["scripts/acm-cross-review.sh", "--model", "gpt-5.3-codex", "--reasoning-effort", "xhigh"]
+        # Edit argv to match your reviewer setup (model, reasoning level, etc.)
+        argv: ["scripts/acm-cross-review.sh"]
         cwd: .
         timeout_sec: 1800
 ```
