@@ -61,6 +61,8 @@ When changing rules, tags, tests, workflows, onboarding, or tool-surface behavio
 - If verification fails, fix it or report it clearly. Do not claim success.
 - If a planned task or review gate becomes obsolete, mark it `superseded` instead of leaving it open or `blocked`.
 - `acm health` and `acm status` warnings about stale plans, plan-status drift, or plans left open only for administrative closeout are bookkeeping regressions. Clean them up before `done` when they are part of your task.
+- Planned behavior-changing Go work under `cmd/**` or `internal/**` should add a `tdd:red` task before implementation, or a `tdd:exemption` task with a concrete justification.
+- Repo-local verify treats non-test Go changes under `cmd/**` or `internal/**` as behavior changes unless that exemption is present.
 
 ## Slow Path Docs
 

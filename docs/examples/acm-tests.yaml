@@ -1,6 +1,8 @@
 # Save this as .acm/acm-tests.yaml (preferred) or acm-tests.yaml in the project root.
 # Go-oriented starter verification file for a new service repo.
 # Keep the structure, then swap argv/selectors to match your stack.
+# Repo-local verify scripts can inspect ACM_RECEIPT_ID, ACM_PLAN_KEY,
+# ACM_VERIFY_PHASE, ACM_VERIFY_TAGS_JSON, and ACM_VERIFY_FILES_CHANGED_JSON.
 
 version: acm.tests.v1
 

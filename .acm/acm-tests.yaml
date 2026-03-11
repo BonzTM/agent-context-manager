@@ -48,6 +48,29 @@ tests:
     expected:
       exit_code: 0
 
+  - id: go-changed-packages
+    summary: Run go test for packages touched by the current verify diff
+    command:
+      argv: ["python3", "scripts/acm-go-test-targets.py"]
+      env:
+        GOCACHE: "/tmp/agent-context-manager-gocache"
+        GOMODCACHE: "/tmp/agent-context-manager-gomodcache"
+    select:
+      phases: ["execute", "review"]
+      changed_paths_any: ["cmd/**", "internal/**", "go.mod", "go.sum"]
+    expected:
+      exit_code: 0
+
+  - id: tdd-guard
+    summary: Enforce this repo's TDD metadata and test-delta policy for Go behavior changes
+    command:
+      argv: ["python3", "scripts/acm-tdd-guard.py"]
+    select:
+      phases: ["execute", "review"]
+      changed_paths_any: ["AGENTS.md", ".acm/**", "cmd/**", "internal/**", "scripts/**"]
+    expected:
+      exit_code: 0
+
   - id: full-go-suite
     summary: Run the full repository Go test suite for product changes
     command:

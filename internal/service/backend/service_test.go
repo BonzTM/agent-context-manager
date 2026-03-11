@@ -3798,6 +3798,15 @@ tests:
 			if got := extraEnv["ACM_PLAN_KEY"]; got != "plan:receipt.abc123" {
 				t.Fatalf("unexpected injected ACM_PLAN_KEY: %+v", extraEnv)
 			}
+			if got := extraEnv["ACM_VERIFY_PHASE"]; got != "review" {
+				t.Fatalf("unexpected injected ACM_VERIFY_PHASE: %+v", extraEnv)
+			}
+			if got := extraEnv["ACM_VERIFY_TAGS_JSON"]; got != `["backend"]` {
+				t.Fatalf("unexpected injected ACM_VERIFY_TAGS_JSON: %+v", extraEnv)
+			}
+			if got := extraEnv["ACM_VERIFY_FILES_CHANGED_JSON"]; got != `["internal/service/backend/service.go"]` {
+				t.Fatalf("unexpected injected ACM_VERIFY_FILES_CHANGED_JSON: %+v", extraEnv)
+			}
 			exitCode := 0
 			return verifyCommandRun{
 				ExitCode:   &exitCode,
@@ -3978,6 +3987,15 @@ tests:
 	}
 	if gotEnv["ACM_PLAN_KEY"] != "plan:receipt.abc123" {
 		t.Fatalf("unexpected derived ACM_PLAN_KEY: %+v", gotEnv)
+	}
+	if gotEnv["ACM_VERIFY_PHASE"] != "execute" {
+		t.Fatalf("unexpected derived ACM_VERIFY_PHASE: %+v", gotEnv)
+	}
+	if gotEnv["ACM_VERIFY_TAGS_JSON"] != "[]" {
+		t.Fatalf("unexpected derived ACM_VERIFY_TAGS_JSON: %+v", gotEnv)
+	}
+	if gotEnv["ACM_VERIFY_FILES_CHANGED_JSON"] != "[]" {
+		t.Fatalf("unexpected derived ACM_VERIFY_FILES_CHANGED_JSON: %+v", gotEnv)
 	}
 }
 

@@ -666,20 +666,32 @@ func verifyCommandEnvironment(selection verifySelectionContext) map[string]strin
 		planKey = "plan:" + receiptID
 	}
 
-	var extraEnv map[string]string
+	extraEnv := map[string]string{
+		"ACM_VERIFY_TAGS_JSON":          verifyJSONListEnv(selection.Tags),
+		"ACM_VERIFY_FILES_CHANGED_JSON": verifyJSONListEnv(selection.FilesChanged),
+	}
 	if receiptID != "" {
-		if extraEnv == nil {
-			extraEnv = map[string]string{}
-		}
 		extraEnv["ACM_RECEIPT_ID"] = receiptID
 	}
 	if planKey != "" {
-		if extraEnv == nil {
-			extraEnv = map[string]string{}
-		}
 		extraEnv["ACM_PLAN_KEY"] = planKey
 	}
+	if selection.Phase != "" {
+		extraEnv["ACM_VERIFY_PHASE"] = string(selection.Phase)
+	}
 	return extraEnv
+}
+
+func verifyJSONListEnv(values []string) string {
+	normalized := normalizeValues(values)
+	if normalized == nil {
+		normalized = []string{}
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
 }
 
 func runVerifyCommand(ctx context.Context, projectRoot string, def verifyTestDefinition, extraEnv map[string]string) verifyCommandRun {

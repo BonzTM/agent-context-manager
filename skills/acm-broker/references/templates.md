@@ -262,7 +262,7 @@ If the repo defines a richer feature-plan contract, use the same `work` surface 
 }
 ```
 
-Repos can enforce that schema through a repo-local `verify` script that inspects the active plan via `ACM_PLAN_KEY` and `ACM_RECEIPT_ID`.
+Repos can enforce that schema through a repo-local `verify` script that inspects the active plan via `ACM_PLAN_KEY` / `ACM_RECEIPT_ID` and verify selection metadata via `ACM_VERIFY_PHASE`, `ACM_VERIFY_TAGS_JSON`, and `ACM_VERIFY_FILES_CHANGED_JSON`.
 
 ## MCP `work` input
 

@@ -12,6 +12,24 @@ rules:
     enforcement: hard
     tags: [planning, work]
 
+  - id: rule_repo_tdd_red_green
+    summary: Planned Go behavior work in this repo must record a red/green loop or an exemption.
+    content: For planned behavior-changing Go work under cmd/** or internal/**, add a complete `tdd:red` task before implementation or a complete `tdd:exemption` task when TDD is intentionally skipped. The `tdd:red` task should name the targeted failing test or package command.
+    enforcement: hard
+    tags: [tests, planning, workflow]
+
+  - id: rule_repo_tdd_test_delta
+    summary: Go behavior changes in this repo need test-file deltas or an explicit exemption.
+    content: For Go behavior changes under cmd/** or internal/**, keep Go test-file updates in the same task unless a complete `tdd:exemption` task records why the change is behavior-preserving or otherwise unsuitable for TDD.
+    enforcement: hard
+    tags: [tests, verify]
+
+  - id: rule_repo_targeted_go_loop
+    summary: Prefer targeted Go package tests before the broad suite.
+    content: During execute and review, use the repo-local changed-package Go test runner first, then rely on cli-build and the full Go suite as broader confirmation.
+    enforcement: soft
+    tags: [tests, verify, workflow]
+
   - id: rule_contract_schema_lockstep
     summary: Keep v1 contracts and schema files in lockstep.
     content: Any change to payloads, results, validation, or command semantics must update internal/contracts/v1, spec/v1 schemas, and the corresponding tests together.

@@ -329,6 +329,15 @@ Repo-local canonical tag aliases that extend acm's embedded base dictionary. Mer
 
 Repo-defined executable checks for `verify`. v1 definitions are argv-only. Use `--tests-file` on `verify` to override auto-discovery.
 
+When verify context is available, ACM also injects generic metadata for repo-local scripts:
+
+- `ACM_RECEIPT_ID` and `ACM_PLAN_KEY`
+- `ACM_VERIFY_PHASE`
+- `ACM_VERIFY_TAGS_JSON`
+- `ACM_VERIFY_FILES_CHANGED_JSON`
+
+That metadata is policy-neutral. Repos can use it for targeted test selection, plan-aware guards, or other local workflow checks without making those policies part of ACM's product defaults.
+
 ### Repo-Local Feature Plan Conventions
 
 ACM's built-in `work` schema already supports richer planning detail through `plan.stages`, `parent_task_key`, `depends_on`, and `acceptance_criteria`. Repos can layer a stricter feature-planning contract on top of those fields without changing ACM itself.
