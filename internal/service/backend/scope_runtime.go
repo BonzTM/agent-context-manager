@@ -212,6 +212,16 @@ func effectiveScopePaths(scope core.ReceiptScope, plan *core.WorkPlan) []string 
 	return normalizeCompletionPaths(paths)
 }
 
+func completionEffectiveScopePaths(scope core.ReceiptScope, plan *core.WorkPlan) []string {
+	paths := append([]string(nil), scope.InitialScopePaths...)
+	if plan != nil {
+		paths = append(paths, plan.DiscoveredPaths...)
+		paths = append(paths, plan.InScope...)
+	}
+	paths = append(paths, completionScopeManagedPaths()...)
+	return normalizeCompletionPaths(paths)
+}
+
 func pathWithinScope(candidate string, scopePaths []string) bool {
 	normalizedCandidate := normalizeCompletionPath(candidate)
 	if normalizedCandidate == "" {

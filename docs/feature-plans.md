@@ -37,6 +37,7 @@ Root feature plans must include these top-level tasks:
 
 The three `stage:*` tasks are grouping tasks. They stay top-level and do not set `parent_task_key`.
 Their task status should mirror the corresponding plan stage status.
+When ACM auto-closes a plan into a terminal status, it also reconciles those plan stage fields from the matching `stage:*` task statuses so completed feature plans do not retain stale stage metadata.
 
 Place concrete planning or implementation tasks underneath them with `parent_task_key`. Example child task keys:
 

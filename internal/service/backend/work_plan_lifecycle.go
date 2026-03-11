@@ -26,9 +26,10 @@ func (s *Service) syncTerminalWorkPlanStatus(ctx context.Context, projectID, rec
 	if !isTerminalPlanStatus(derivedStatus) {
 		return plan, false, nil
 	}
+	derivedStages := deriveTerminalWorkPlanStages(plan.Stages, normalizedItems)
 
 	currentStatus := normalizePlanStatus(plan.Status)
-	if currentStatus == derivedStatus {
+	if currentStatus == derivedStatus && workPlanStagesEqual(plan.Stages, derivedStages) {
 		return plan, false, nil
 	}
 
@@ -38,9 +39,32 @@ func (s *Service) syncTerminalWorkPlanStatus(ctx context.Context, projectID, rec
 		ReceiptID: firstNonEmpty(strings.TrimSpace(receiptID), strings.TrimSpace(plan.ReceiptID)),
 		Mode:      core.WorkPlanModeMerge,
 		Status:    derivedStatus,
+		Stages:    derivedStages,
 	})
 	if err != nil {
 		return core.WorkPlan{}, false, workInternalError("autoclose_work_plan", err)
 	}
 	return upsertResult.Plan, true, nil
+}
+
+func deriveTerminalWorkPlanStages(existing core.WorkPlanStages, items []core.WorkItem) core.WorkPlanStages {
+	derived := existing
+	for _, item := range items {
+		status := normalizeWorkItemStatus(item.Status)
+		switch strings.TrimSpace(item.ItemKey) {
+		case "stage:spec-outline":
+			derived.SpecOutline = status
+		case "stage:refined-spec":
+			derived.RefinedSpec = status
+		case "stage:implementation-plan":
+			derived.ImplementationPlan = status
+		}
+	}
+	return derived
+}
+
+func workPlanStagesEqual(left, right core.WorkPlanStages) bool {
+	return normalizeWorkItemStatus(left.SpecOutline) == normalizeWorkItemStatus(right.SpecOutline) &&
+		normalizeWorkItemStatus(left.RefinedSpec) == normalizeWorkItemStatus(right.RefinedSpec) &&
+		normalizeWorkItemStatus(left.ImplementationPlan) == normalizeWorkItemStatus(right.ImplementationPlan)
 }

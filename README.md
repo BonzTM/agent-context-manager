@@ -133,7 +133,7 @@ acm sync --mode working_tree
 
 Wire agents to acm via slash commands, skill packs, or MCP tools — see [Getting Started](docs/getting-started.md) for adopter setup details.
 
-Once connected, most adopters mainly use `context`, `work`, `verify`, `done`, and `memory`, with `fetch`, `review`, and `history` as supporting surfaces. You can test any operation manually via CLI (e.g., `acm context --task-text "fix the login bug" --phase execute`). See the [CLI Reference](#cli-reference) below.
+Once connected, most adopters mainly use `context`, `work`, `verify`, `done`, and `memory`, with `fetch`, `review`, and `history` as supporting surfaces. The advanced backend-only `export` surface is available through `acm run` or MCP when you need stable JSON or Markdown artifact rendering. You can test any operation manually via CLI (e.g., `acm context --task-text "fix the login bug" --phase execute`). See the [CLI Reference](#cli-reference) below.
 
 If you are maintaining ACM itself rather than adopting it in another repo, use [AGENTS.md](AGENTS.md), [docs/maintainer-map.md](docs/maintainer-map.md), and [docs/maintainer-reference.md](docs/maintainer-reference.md) for the repo's maintainer workflow. This README stays product-facing.
 
@@ -175,10 +175,11 @@ Codex can drive the same core workflow directly: `context`, `work`, `verify`, `r
 acm-mcp invoke --tool context --in payload.json
 ```
 
-Twelve tools exposed:
+Thirteen tools exposed:
 
 - **Core agent-facing** (5): `context`, `work`, `memory`, `verify`, `done`
 - **Supporting agent-facing** (3): `fetch`, `review`, `history`
+- **Advanced backend-only** (1): `export`
 - **Maintenance** (4): `sync`, `health`, `status`, `init`
 
 `review` is intentionally thin — it records one review task through the existing `work` path and can execute a workflow-defined `run` block when requested.
@@ -197,7 +198,7 @@ acm verify        [--project <id>] [--receipt-id <id>] [--plan-key <key>] [--pha
 acm done           [--project <id>] --receipt-id <id> [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] (--outcome <text>|--outcome-file <path>) [--scope-mode <strict|warn>] [--tags-file <path>]
 ```
 
-`done` accepts omitted or empty `files_changed`. ACM computes the task delta from the receipt baseline when that baseline is available, so omission can mean "auto-detect the real delta" rather than only "no-file closure." When the detected delta is empty, the closeout is effectively no-file. When files are supplied explicitly, ACM cross-checks them against the detected delta, surfaces mismatches as violations, and still uses the detected delta as the source of truth for scope and completion-gate checks.
+`done` accepts omitted or empty `files_changed`. ACM computes the task delta from the receipt baseline when that baseline is available, so omission can mean "auto-detect the real delta" rather than only "no-file closure." When the detected delta is empty, the closeout is effectively no-file. When files are supplied explicitly, ACM cross-checks them against the detected delta, surfaces mismatches as violations, and still uses the detected delta as the source of truth for scope and completion-gate checks. For scope validation, `done` accepts receipt `initial_scope_paths`, plan `discovered_paths`, ACM-managed governance files, and path-like entries from `plan.in_scope` so feature-wide plans can close cleanly without forcing every owned path into the original receipt.
 
 ### Supporting Agent-Facing
 
@@ -208,6 +209,10 @@ acm history        [--project <id>] [--entity <all|work|memory|receipt|run>] [--
 ```
 
 If `--project` is omitted, convenience commands default to `ACM_PROJECT_ID` and otherwise infer the project from the effective repo root name. Explicit `--project` still wins.
+
+For raw rendered artifacts, use the backend-only `export` command through `acm run` or MCP. Example request envelope: [docs/examples/export-request.json](docs/examples/export-request.json).
+
+For ad hoc CLI rendering, `context`, `fetch`, `history`, and `status` also accept `--format json|markdown`, plus `--out-file` and `--force` for raw artifact output through the same backend export path. Example command: [docs/examples/context-export-command.txt](docs/examples/context-export-command.txt).
 
 Most list and text flags support inline values and `--*-file` alternatives (`-` for stdin). JSON list/object inputs also support `--*-json` for one-shot agent calls without temporary files.
 
@@ -342,7 +347,7 @@ That metadata is policy-neutral. Repos can use it for targeted test selection, p
 
 ACM's built-in `work` schema already supports richer planning detail through `plan.stages`, `parent_task_key`, `depends_on`, and `acceptance_criteria`. Repos can layer a stricter feature-planning contract on top of those fields without changing ACM itself.
 
-This repo does that for net-new feature work: root plans use `kind=feature`, track `spec_outline` / `refined_spec` / `implementation_plan`, group work under top-level `stage:*` tasks, and treat leaf tasks with explicit `acceptance_criteria` as the atomic units of execution. `acm verify` enforces the contract through `scripts/acm-feature-plan-validate.py`. See [docs/feature-plans.md](docs/feature-plans.md).
+This repo does that for net-new feature work: root plans use `kind=feature`, track `spec_outline` / `refined_spec` / `implementation_plan`, group work under top-level `stage:*` tasks, and treat leaf tasks with explicit `acceptance_criteria` as the atomic units of execution. Terminal plan auto-close also reconciles the plan-stage fields from those `stage:*` task statuses so completed feature plans do not linger with stale stage metadata. `acm verify` enforces the contract through `scripts/acm-feature-plan-validate.py`. See [docs/feature-plans.md](docs/feature-plans.md).
 
 ### Workflows (`.acm/acm-workflows.yaml`)
 

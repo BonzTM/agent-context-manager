@@ -2321,6 +2321,50 @@ func TestDone_StrictModeAcceptsManagedAcmFiles(t *testing.T) {
 	}
 }
 
+func TestDone_StrictModeAcceptsPlanInScopePaths(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:         "project.alpha",
+			ReceiptID:         "receipt.abc123",
+			InitialScopePaths: []string{"src/initial.go"},
+		}},
+		workPlanLookupResult: []core.WorkPlan{{
+			ProjectID: "project.alpha",
+			PlanKey:   "plan:receipt.abc123",
+			ReceiptID: "receipt.abc123",
+			InScope:   []string{"README.md", "docs"},
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "verify:tests", Status: core.WorkItemStatusComplete},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 91, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Done(context.Background(), v1.DonePayload{
+		ProjectID:    "project.alpha",
+		PlanKey:      "plan:receipt.abc123",
+		FilesChanged: []string{"README.md", "docs/getting-started.md"},
+		Outcome:      "completed within plan-owned scope",
+		ScopeMode:    v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected acceptance: %+v", result)
+	}
+	if len(result.Violations) != 0 {
+		t.Fatalf("did not expect scope violations: %+v", result.Violations)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected closeout persistence, got %d", len(repo.saveCalls))
+	}
+}
+
 func TestDone_StrictModeAcceptsCompletedVerifyTestsWithoutDiffReview(t *testing.T) {
 	repo := &fakeRepository{
 		scopeResults: []core.ReceiptScope{{
@@ -6507,6 +6551,54 @@ func TestWork_PersistsCompletedWorkItemsAndDerivesPlanStatus(t *testing.T) {
 	}
 	if call := repo.workPlanUpsertCalls[1]; call.Status != core.PlanStatusComplete || len(call.Tasks) != 0 {
 		t.Fatalf("expected terminal status sync upsert, got %+v", call)
+	}
+}
+
+func TestWork_AutoCloseSyncsStageMetadataFromStageTasks(t *testing.T) {
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Work(context.Background(), v1.WorkPayload{
+		ProjectID: "project.alpha",
+		PlanKey:   "plan:receipt.abc123",
+		ReceiptID: "receipt.abc123",
+		Plan: &v1.WorkPlanPayload{
+			Stages: &v1.WorkPlanStagesPayload{
+				SpecOutline:        v1.WorkItemStatusInProgress,
+				RefinedSpec:        v1.WorkItemStatusPending,
+				ImplementationPlan: v1.WorkItemStatusPending,
+			},
+		},
+		Tasks: []v1.WorkTaskPayload{
+			{Key: "stage:spec-outline", Summary: "Spec outline", Status: v1.WorkItemStatusComplete},
+			{Key: "stage:refined-spec", Summary: "Refined spec", Status: v1.WorkItemStatusComplete},
+			{Key: "stage:implementation-plan", Summary: "Implementation plan", Status: v1.WorkItemStatusComplete},
+			{Key: "impl:apply-fix", Summary: "Apply fix", Status: v1.WorkItemStatusComplete},
+		},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.PlanStatus != core.PlanStatusComplete {
+		t.Fatalf("unexpected plan status: %+v", result)
+	}
+	if len(repo.workPlanUpsertCalls) != 2 {
+		t.Fatalf("expected two work plan upsert calls after auto-close, got %d", len(repo.workPlanUpsertCalls))
+	}
+	call := repo.workPlanUpsertCalls[1]
+	if call.Status != core.PlanStatusComplete {
+		t.Fatalf("expected terminal status sync upsert, got %+v", call)
+	}
+	wantStages := core.WorkPlanStages{
+		SpecOutline:        core.WorkItemStatusComplete,
+		RefinedSpec:        core.WorkItemStatusComplete,
+		ImplementationPlan: core.WorkItemStatusComplete,
+	}
+	if !reflect.DeepEqual(call.Stages, wantStages) {
+		t.Fatalf("expected terminal sync to reconcile stages: got %+v want %+v", call.Stages, wantStages)
 	}
 }
 

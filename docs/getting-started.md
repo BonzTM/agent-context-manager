@@ -272,7 +272,7 @@ acm work --receipt-id <receipt-id> --mode merge \
 
 `tasks` are the canonical payload for tracking. If you only need to record a single review-gate outcome, use `review` instead.
 
-When governed file work expands beyond the receipt's initial scope, record the later-discovered files through `plan.discovered_paths` in `work` before expecting `review` or `done` to pass.
+When governed file work expands beyond the receipt's initial scope, record the later-discovered files through `plan.discovered_paths` in `work` before expecting `review` to pass, and before relying on those paths for memory evidence. `done` also accepts path-like entries from `plan.in_scope`, but `discovered_paths` remains the right way to declare later-found concrete files.
 
 #### Optional richer feature plans
 
@@ -282,6 +282,7 @@ Typical pattern:
 
 - use a root plan with `kind=feature` plus explicit scope metadata
 - mirror `plan.stages.spec_outline` / `refined_spec` / `implementation_plan` with top-level `stage:*` tasks
+- when a plan reaches a terminal status, ACM reconciles those stage fields from the matching `stage:*` task statuses during auto-close
 - treat leaf tasks as the atomic tasks and require `acceptance_criteria` on those leaves
 - use child plans with `kind=feature_stream` and `parent_plan_key` for parallel execution streams
 - run a repo-local validator from `verify`; `ACM_PLAN_KEY` and `ACM_RECEIPT_ID` are injected into verify commands automatically
@@ -355,7 +356,7 @@ acm verify --receipt-id <receipt-id> --phase review \
 
 ### done
 
-Agents call this to close a task after verification is satisfied. ACM computes the task delta from the receipt baseline. When changed files are supplied, acm cross-checks them against the detected delta, surfaces mismatches as violations, validates that file-backed work stays within effective scope (`initial_scope_paths` + `discovered_paths` + ACM-managed governance files), and checks any configured completion task keys from `.acm/acm-workflows.yaml`. If no workflow gates are configured, file-backed closures fall back to `verify:tests`.
+Agents call this to close a task after verification is satisfied. ACM computes the task delta from the receipt baseline. When changed files are supplied, acm cross-checks them against the detected delta, surfaces mismatches as violations, validates that file-backed work stays within effective scope (`initial_scope_paths` + `discovered_paths` + path-like `plan.in_scope` entries + ACM-managed governance files), and checks any configured completion task keys from `.acm/acm-workflows.yaml`. If no workflow gates are configured, file-backed closures fall back to `verify:tests`.
 
 ```bash
 acm done \
@@ -490,15 +491,20 @@ There is intentionally no fake slash-command or hook parity here. Codex relies o
 For models with native tool support, use the MCP adapter:
 
 ```bash
-acm-mcp tools          # list all 12 available tools
+acm-mcp tools          # list all 13 available tools
 acm-mcp invoke --tool context --in payload.json
 ```
 
-The MCP adapter exposes the same 12 operations as the CLI:
+The MCP adapter exposes the same 12 convenience-routed operations plus one backend-only export surface:
 
 - **Core** (5): `context`, `work`, `memory`, `verify`, `done`
 - **Supporting** (3): `fetch`, `review`, `history`
+- **Advanced backend-only** (1): `export`
 - **Maintenance** (4): `sync`, `health`, `status`, `init`
+
+Use `export` through `acm run --in <request.json>` or `acm-mcp invoke --tool export --in <payload.json>` when you need stable JSON or Markdown output for ACM-owned context, fetch, history, or status data. Example envelope: [examples/export-request.json](examples/export-request.json).
+
+For interactive CLI use, `context`, `fetch`, `history`, and `status` also accept `--format json|markdown`, plus `--out-file` and `--force`, to emit raw rendered artifacts through that same backend export path. Example command: [examples/context-export-command.txt](examples/context-export-command.txt).
 
 ## Step 7: Ongoing Maintenance And Advanced Surfaces
 
