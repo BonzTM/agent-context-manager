@@ -36,6 +36,8 @@ func TestConfigFromEnv_DefaultSQLitePathUsesRepoRoot(t *testing.T) {
 	restore := withWorkingDir(t, subdir)
 	defer restore()
 
+	t.Setenv(ProjectRootEnvVar, "")
+	t.Setenv(ProjectIDEnvVar, "")
 	t.Setenv(PostgresDSNEnvVar, "")
 	t.Setenv(SQLitePathEnvVar, "")
 
@@ -66,6 +68,8 @@ func TestConfigFromEnv_LoadsDotEnvFromRepoRoot(t *testing.T) {
 	restore := withWorkingDir(t, root)
 	defer restore()
 
+	unsetEnv(t, ProjectRootEnvVar)
+	unsetEnv(t, ProjectIDEnvVar)
 	unsetEnv(t, PostgresDSNEnvVar)
 	unsetEnv(t, SQLitePathEnvVar)
 

@@ -663,4 +663,3 @@ See [SQLite Operations](sqlite.md) for backup, restore, and rotation procedures.
 
 - Read [Concepts](concepts.md) if any terms are unclear
 - Browse [example request templates](../skills/acm-broker/references/templates.md) for all command formats
-- Review [ADR-001](architecture/ADR-001-context-broker.md) for the archived design history behind the earlier broker model

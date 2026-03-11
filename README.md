@@ -325,8 +325,6 @@ User guides:
 
 Architecture (contributors):
 
-- [ADR-001: Context Broker](docs/architecture/ADR-001-context-broker.md) — historical design record; superseded by the simpler retrieval-free core model
-- [Proposal: Executable Verification](docs/architecture/proposal-verify.md) — historical verify proposal; `eval` has since been removed
 - [Logging Standards](docs/logging.md) — structured logging contract
 
 ## Configuration Files
