@@ -28,6 +28,7 @@ Preferred path:
 ```bash
 go install github.com/bonztm/agent-context-manager/cmd/acm@latest
 go install github.com/bonztm/agent-context-manager/cmd/acm-mcp@latest
+go install github.com/bonztm/agent-context-manager/cmd/acm-web@latest   # optional web dashboard
 ```
 
 Go installs binaries to `$GOBIN` if it is set, otherwise to `$(go env GOPATH)/bin` (typically `~/go/bin`). That directory must be on your `PATH`.
@@ -36,7 +37,7 @@ Go installs binaries to `$GOBIN` if it is set, otherwise to `$(go env GOPATH)/bi
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-If you want prebuilt binaries instead, download the `acm-binaries` artifact from a successful `Go Build` GitHub Actions run and put both `acm` and `acm-mcp` on your `PATH`.
+If you want prebuilt binaries instead, download the `acm-binaries` artifact from a successful `Go Build` GitHub Actions run and put `acm`, `acm-mcp`, and optionally `acm-web` on your `PATH`.
 
 If you are building locally from a checkout:
 
@@ -45,6 +46,7 @@ git clone https://github.com/bonztm/agent-context-manager.git
 cd agent-context-manager
 go build -o dist/acm ./cmd/acm
 go build -o dist/acm-mcp ./cmd/acm-mcp
+go build -o dist/acm-web ./cmd/acm-web    # optional
 export PATH="$PWD/dist:$PATH"
 ```
 
@@ -521,6 +523,24 @@ The MCP adapter exposes the same 12 convenience-routed operations plus one backe
 Use `export` through `acm run --in <request.json>` or `acm-mcp invoke --tool export --in <payload.json>` when you need stable JSON or Markdown output for ACM-owned context, fetch, history, or status data. Example envelope: [examples/export-request.json](examples/export-request.json).
 
 For interactive CLI use, `context`, `fetch`, `history`, and `status` also accept `--format json|markdown`, plus `--out-file` and `--force`, to emit raw rendered artifacts through that same backend export path. Example command: [examples/context-export-command.txt](examples/context-export-command.txt).
+
+## Optional: Web Dashboard
+
+`acm-web` provides a read-only web dashboard for humans to see what agents are working on without touching the CLI.
+
+```bash
+acm-web                       # starts on :8080
+acm-web serve --addr :9090    # custom port
+```
+
+Pages:
+
+- **Board** (`/`) — Kanban board with Pending, In Progress, Blocked, and Done columns. Tasks are tree-sorted with children beneath parents. Click any card for details including navigable parent/child links and rolled-up progress.
+- **Memories** (`/memories.html`) — All durable memories with category, content, and confidence.
+- **Status** (`/status.html`) — Project info, loaded sources, installed integrations, and warnings.
+- **Health** (`/healthz`) — JSON liveness probe for k8s.
+
+`acm-web` reads the same environment variables as `acm` (`ACM_PROJECT_ID`, `ACM_PG_DSN`, etc.) and shares the same database. A `Dockerfile.acm-web` is provided for containerized deployment.
 
 ## Step 7: Ongoing Maintenance And Advanced Surfaces
 

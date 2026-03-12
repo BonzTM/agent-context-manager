@@ -34,6 +34,10 @@ If you need runtime or setup diagnostics, use direct CLI `acm status`.
 - If the repo defines a richer feature-plan contract, populate the required `plan.stages`, `stage:*` tasks, `parent_task_key`, and leaf `acceptance_criteria` before implementation, then let `verify` enforce it.
 - When blocked on a missing product or architectural decision, surface the decision instead of improvising it.
 
+## Web Dashboard
+
+If `acm-web` is installed, humans can view agent work at `http://localhost:8080/` — a read-only kanban board, memories page, and status page. No agent interaction needed.
+
 ## Ruleset Maintenance
 
 When `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, `.acm/acm-tests.yaml`, or `.acm/acm-workflows.yaml` changes, refresh broker state with `acm sync` or `acm health --apply`, then run `acm health`.

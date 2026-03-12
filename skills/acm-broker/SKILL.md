@@ -23,7 +23,7 @@ When the task changes repo governance or onboarding state such as rules, tags, t
 
 ## Interfaces
 
-- These commands assume installed `acm` and `acm-mcp` binaries are available on `PATH`.
+- These commands assume installed `acm` and `acm-mcp` binaries are available on `PATH`. An optional `acm-web` binary provides a read-only web dashboard for humans at `http://localhost:8080/` (kanban board, memories, status).
 - Preferred CLI path:
   - `acm context ...`
   - `acm fetch ...`

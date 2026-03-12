@@ -27,6 +27,7 @@ Preferred install path:
 ```bash
 go install github.com/bonztm/agent-context-manager/cmd/acm@latest
 go install github.com/bonztm/agent-context-manager/cmd/acm-mcp@latest
+go install github.com/bonztm/agent-context-manager/cmd/acm-web@latest
 ```
 
 Go installs binaries to `$GOBIN` if it is set, otherwise to `$(go env GOPATH)/bin` (typically `~/go/bin`). That directory must be on your `PATH`.
@@ -35,7 +36,7 @@ Go installs binaries to `$GOBIN` if it is set, otherwise to `$(go env GOPATH)/bi
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-If you want prebuilt binaries instead, download the `acm-binaries` artifact from a successful `Go Build` GitHub Actions run and place `acm` and `acm-mcp` on your `PATH`.
+If you want prebuilt binaries instead, download the `acm-binaries` artifact from a successful `Go Build` GitHub Actions run and place `acm`, `acm-mcp`, and `acm-web` on your `PATH`.
 
 If you are working from a checkout, build from source:
 
@@ -44,6 +45,7 @@ git clone https://github.com/bonztm/agent-context-manager.git
 cd agent-context-manager
 go build -o dist/acm ./cmd/acm
 go build -o dist/acm-mcp ./cmd/acm-mcp
+go build -o dist/acm-web ./cmd/acm-web
 ```
 
 ## Quick Start (5 minutes)
@@ -295,6 +297,41 @@ acm validate --in request.json
 MCP tools use the same payload schema but omit the outer envelope because the tool name already identifies the command. See [Schema Reference](spec/v1/README.md) and [skills/acm-broker/assets/requests](skills/acm-broker/assets/requests) for worked request examples.
 Structured payloads may omit `project_id` when runtime defaults are configured; `acm run`, `acm validate`, and `acm-mcp invoke` resolve it in the same order as convenience commands.
 
+## Web Dashboard
+
+`acm-web` is a read-only web dashboard that gives humans a live view of what agents are working on. It reuses the same `core.Service` and storage backend as `acm` and `acm-mcp`, bundled into a single binary via `go:embed`.
+
+### Running
+
+```bash
+acm-web                       # starts on :8080
+acm-web serve --addr :9090    # custom port
+```
+
+### Pages
+
+| Page | URL | Description |
+|---|---|---|
+| Board | `/` | Kanban board with Pending, In Progress, Blocked, and Done columns. Tasks are tree-sorted so children appear beneath their parent. Click any card for a detail modal with navigable parent/child/dependency links and rolled-up progress for parent tasks. |
+| Memories | `/memories.html` | All durable memories with category, content, and confidence. |
+| Status | `/status.html` | Project info, loaded sources, installed integrations, and warnings. |
+| Health | `/healthz` | JSON liveness probe for k8s readiness/liveness checks. |
+
+The board supports a scope toggle (Current / Completed / All) and polls the API every 10 seconds.
+
+### Configuration
+
+`acm-web` reads the same environment variables as `acm` and `acm-mcp` (`ACM_PROJECT_ID`, `ACM_PG_DSN`, `ACM_SQLITE_PATH`, etc.). No additional configuration is needed beyond what you already have for the CLI.
+
+### Docker
+
+A `Dockerfile.acm-web` is provided for containerized deployment:
+
+```bash
+docker build -f Dockerfile.acm-web -t acm-web .
+docker run -p 8080:8080 -e ACM_PG_DSN='...' acm-web
+```
+
 ## Storage Backend
 
 SQLite is zero-config by default. acm resolves config in this order:
@@ -329,6 +366,7 @@ See [SQLite Operations](docs/sqlite.md) for deployment, backup, and rotation gui
 User guides:
 
 - [Getting Started](docs/getting-started.md) — full walkthrough from zero to working acm setup
+- [Web Dashboard](#web-dashboard) — read-only kanban board, memories, and status pages
 - [Concepts](docs/concepts.md) — what pointers, receipts, rules, memories, plans, and tags are
 - [SQLite Operations](docs/sqlite.md) — deployment, backup, and rotation
 - [Schema Reference](spec/v1/README.md) — v1 wire contract schemas

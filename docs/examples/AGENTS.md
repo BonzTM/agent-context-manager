@@ -63,6 +63,10 @@ If the repo wants stricter planning for net-new feature work:
 2. Run `acm sync` or `acm health --apply`.
 3. Run `acm health` and resolve blocking findings.
 
+## Web Dashboard
+
+If `acm-web` is installed, humans can view agent work at `http://localhost:8080/` without touching the CLI. Run `acm-web` or `acm-web serve --addr :9090` for a custom port. The dashboard is read-only and shares the same database as `acm`.
+
 ## Tool-Specific Companions
 
 `CLAUDE.md`, slash commands, and Codex skills should stay thin and map their workflow back to this file.
