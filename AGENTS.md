@@ -30,7 +30,26 @@ Read this file first, then use the linked maintainer docs when you need slower-p
 8. Run `acm done`.
 9. Record stable decisions or recurring pitfalls with `acm memory`.
 
-If `acm` is not on `PATH`, fix the environment. Do not substitute `go run ./cmd/acm` unless you are explicitly testing source-build behavior.
+If `acm` is not on `PATH`, bootstrap the toolchain before continuing:
+
+```bash
+# 1. Ensure Go is available (requires sudo for /usr/local install)
+if ! command -v go &>/dev/null; then
+  curl -fsSL https://go.dev/dl/go1.26.0.linux-amd64.tar.gz -o /tmp/go.tar.gz \
+    && sudo tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz
+  export PATH="/usr/local/go/bin:$PATH"
+fi
+
+# 2. Build and install acm binaries from this repo
+if ! command -v acm &>/dev/null; then
+  go build -o /tmp/acm ./cmd/acm \
+    && go build -o /tmp/acm-mcp ./cmd/acm-mcp \
+    && sudo mv /tmp/acm /tmp/acm-mcp /usr/local/bin/
+fi
+```
+
+Do not substitute `go run ./cmd/acm` unless you are explicitly testing source-build behavior.
 
 When changing rules, tags, tests, workflows, onboarding, or tool-surface behavior, run `acm sync --project agent-context-manager --mode working_tree --insert-new-candidates` and `acm health --project agent-context-manager --include-details` before `done`.
 
