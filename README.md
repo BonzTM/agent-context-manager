@@ -12,39 +12,43 @@ acm is intentionally modular. You can adopt only the pieces you need.
 
 ```mermaid
 flowchart TB
-    subgraph human["Human Setup"]
-        init["acm init"] --> configure["Configure<br/>rules · tags · tests · workflows"]
+    subgraph human [" "]
+        direction LR
+        init["🔧 acm init"] --> configure["Configure<br/>rules · tags · tests · workflows"]
         configure --> sync["acm sync"]
     end
 
-    subgraph agent["Agent Task Loop"]
+    subgraph agent [" "]
         direction TB
-        context["acm context<br/><i>receipt + rules + memory + plans</i>"] --> fetch["acm fetch<br/><i>hydrate specific keys</i>"]
-        fetch --> work["acm work<br/><i>create/update plans + tasks</i>"]
-        work --> code["Execute Work<br/><i>read · edit · test</i>"]
-        code --> verify["acm verify<br/><i>repo-defined checks</i>"]
-        verify --> review["acm review --run<br/><i>workflow gate</i>"]
-        review --> done["acm done<br/><i>close + audit</i>"]
-        done -.-> memory["acm memory<br/><i>durable decisions</i>"]
+        context["acm context"] --> fetch["acm fetch"]
+        fetch --> work["acm work"]
+        work --> code["Execute Work"]
+        code --> verify["acm verify"]
+        verify --> review["acm review"]
+        review --> done["acm done"]
+        done -.-> memory["acm memory"]
         memory -.-> context
     end
 
-    subgraph monitor["Human Monitoring"]
-        web["acm-web<br/><i>kanban · memories · status</i>"]
+    subgraph monitor [" "]
+        direction LR
+        web["📊 acm-web"]
         health["acm health · acm status"]
     end
 
-    subgraph storage["Shared State"]
-        db[("SQLite / Postgres")]
-    end
+    db[("SQLite / Postgres")]
 
     sync --> db
-    context --> db
+    context <--> db
     work --> db
     done --> db
     memory --> db
-    web --> db
-    health --> db
+    web <--> db
+    health <--> db
+
+    style human fill:transparent,stroke:#58a6ff,stroke-width:1px,stroke-dasharray:5 5
+    style agent fill:transparent,stroke:#3fb950,stroke-width:1px,stroke-dasharray:5 5
+    style monitor fill:transparent,stroke:#d29922,stroke-width:1px,stroke-dasharray:5 5
 ```
 
 ## Adoption Modes
