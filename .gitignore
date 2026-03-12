@@ -1,6 +1,9 @@
 .agents/
 /bin/
 /dist/
+/acm
+/acm-mcp
+/acm-web
 *.out
 *.test
 .acm/context.db

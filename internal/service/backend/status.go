@@ -18,6 +18,7 @@ import (
 var statusTemplateIDs = []string{
 	"claude-command-pack",
 	"claude-hooks",
+	"codex-pack",
 	"detailed-planning-enforcement",
 	"git-hooks-precommit",
 	"starter-contract",
@@ -128,7 +129,7 @@ func (s *Service) statusRules(projectRoot, rulesFile, tagsFile, projectID string
 	}
 
 	tagNormalizer, tagErr := s.loadCanonicalTagNormalizer(projectRoot, tagsFile)
-	items := make([]v1.StatusSource, 0, len(sources))
+	allItems := make([]v1.StatusSource, 0, len(sources))
 	missing := make([]v1.StatusMissingItem, 0)
 	totalRules := 0
 	for _, source := range sources {
@@ -152,8 +153,13 @@ func (s *Service) statusRules(projectRoot, rulesFile, tagsFile, projectID string
 				totalRules += len(rules)
 			}
 		}
-		items = append(items, item)
+		allItems = append(allItems, item)
 	}
+
+	// Collapse alternate-path sources (e.g. .acm/acm-rules.yaml and
+	// acm-rules.yaml) into one status line. Keep the best representative:
+	// prefer loaded > exists > first discovered.
+	items := collapseAlternateSourceItems(allItems)
 
 	if totalRules == 0 {
 		switch {
@@ -366,30 +372,69 @@ func statusIntegrations(projectRoot string) ([]v1.StatusIntegration, error) {
 		return nil, err
 	}
 
-	out := make([]v1.StatusIntegration, 0, len(templates))
+	// First pass: collect grouped targets per template and build a cross-
+	// template target frequency map so we know which targets are unique.
+	type templateTargetInfo struct {
+		template bootstrapkit.Template
+		groups   [][]string
+	}
+	infos := make([]templateTargetInfo, 0, len(templates))
+	canonFreq := make(map[string]int) // canonical target key -> number of templates claiming it
+
 	for _, template := range templates {
-		expectedTargets := make([]string, 0, len(template.Operations))
-		missingTargets := make([]string, 0, len(template.Operations))
-		presentTargets := 0
+		targets := make([]string, 0, len(template.Operations))
 		for _, op := range template.Operations {
 			target := strings.TrimSpace(op.Target)
-			if target == "" {
-				continue
+			if target != "" {
+				targets = append(targets, target)
 			}
-			expectedTargets = append(expectedTargets, target)
-			if _, err := os.Stat(filepath.Join(projectRoot, filepath.FromSlash(target))); err == nil {
-				presentTargets++
-				continue
+		}
+		groups := groupAlternateTargets(targets)
+		infos = append(infos, templateTargetInfo{template: template, groups: groups})
+		for _, g := range groups {
+			key := canonicalTargetKey(g[0])
+			canonFreq[key]++
+		}
+	}
+
+	// Second pass: compute presence, installed, and missing for each template.
+	out := make([]v1.StatusIntegration, 0, len(infos))
+	for _, info := range infos {
+		presentGroups := 0
+		hasUniquePresent := false
+		missingTargets := make([]string, 0)
+		for _, g := range info.groups {
+			found := false
+			for _, target := range g {
+				if _, err := os.Stat(filepath.Join(projectRoot, filepath.FromSlash(target))); err == nil {
+					found = true
+					break
+				}
 			}
-			missingTargets = append(missingTargets, target)
+			if found {
+				presentGroups++
+				// A target is unique to this template if no other template claims it.
+				if canonFreq[canonicalTargetKey(g[0])] == 1 {
+					hasUniquePresent = true
+				}
+			} else {
+				missingTargets = append(missingTargets, g[0])
+			}
 		}
 
+		// A template is installed only if all grouped targets are present
+		// AND it has at least one target unique to it. Templates whose
+		// targets are all shared with other templates (e.g. verify-*)
+		// cannot be reliably detected as installed by file presence alone.
+		allPresent := len(info.groups) > 0 && presentGroups == len(info.groups)
+		installed := allPresent && hasUniquePresent
+
 		out = append(out, v1.StatusIntegration{
-			ID:              template.ID,
-			Summary:         strings.TrimSpace(template.Summary),
-			Installed:       len(expectedTargets) > 0 && presentTargets == len(expectedTargets),
-			PresentTargets:  presentTargets,
-			ExpectedTargets: len(expectedTargets),
+			ID:              info.template.ID,
+			Summary:         strings.TrimSpace(info.template.Summary),
+			Installed:       installed,
+			PresentTargets:  presentGroups,
+			ExpectedTargets: len(info.groups),
 			MissingTargets:  missingTargets,
 		})
 	}
@@ -398,6 +443,84 @@ func statusIntegrations(projectRoot string) ([]v1.StatusIntegration, error) {
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
+}
+
+// groupAlternateTargets groups template operation targets so that paths
+// differing only by a ".acm/" prefix are treated as alternate locations for
+// the same logical file. For example, ".acm/acm-rules.yaml" and
+// "acm-rules.yaml" become one group. Targets without an alternate are their
+// own group. Order within each group puts the .acm/ variant first (preferred).
+func groupAlternateTargets(targets []string) [][]string {
+	grouped := make(map[string][]string) // canonical -> [paths]
+	order := make([]string, 0, len(targets))
+
+	for _, target := range targets {
+		canon := canonicalTargetKey(target)
+		if _, exists := grouped[canon]; !exists {
+			order = append(order, canon)
+		}
+		grouped[canon] = append(grouped[canon], target)
+	}
+
+	result := make([][]string, 0, len(order))
+	for _, canon := range order {
+		paths := grouped[canon]
+		// Sort so .acm/ prefixed paths come first (preferred location).
+		sort.Slice(paths, func(i, j int) bool {
+			iDotACM := strings.HasPrefix(paths[i], ".acm/")
+			jDotACM := strings.HasPrefix(paths[j], ".acm/")
+			if iDotACM != jDotACM {
+				return iDotACM
+			}
+			return paths[i] < paths[j]
+		})
+		result = append(result, paths)
+	}
+	return result
+}
+
+// canonicalTargetKey returns a normalized key for grouping alternate target
+// paths. It strips a leading ".acm/" prefix so that "acm-rules.yaml" and
+// ".acm/acm-rules.yaml" produce the same key.
+func canonicalTargetKey(target string) string {
+	return strings.TrimPrefix(target, ".acm/")
+}
+
+// collapseAlternateSourceItems groups status source items whose paths differ
+// only by a ".acm/" prefix (alternate locations for the same logical file)
+// and keeps the best representative per group: loaded > exists > first.
+func collapseAlternateSourceItems(items []v1.StatusSource) []v1.StatusSource {
+	type group struct {
+		best  v1.StatusSource
+		score int // 2=loaded, 1=exists, 0=neither
+	}
+	groups := make(map[string]*group)
+	order := make([]string, 0, len(items))
+
+	for _, item := range items {
+		key := canonicalTargetKey(item.SourcePath)
+		score := 0
+		if item.Loaded {
+			score = 2
+		} else if item.Exists {
+			score = 1
+		}
+		if g, ok := groups[key]; ok {
+			if score > g.score {
+				g.best = item
+				g.score = score
+			}
+		} else {
+			groups[key] = &group{best: item, score: score}
+			order = append(order, key)
+		}
+	}
+
+	out := make([]v1.StatusSource, 0, len(order))
+	for _, key := range order {
+		out = append(out, groups[key].best)
+	}
+	return out
 }
 
 func anyStatusSourceExists(items []v1.StatusSource) bool {

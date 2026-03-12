@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ACM Board</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-brand">
+      <span class="navbar-logo">ACM</span>
+    </div>
+    <div class="navbar-links">
+      <a href="/" class="nav-link active">Board</a>
+      <a href="/memories.html" class="nav-link">Memories</a>
+      <a href="/status.html" class="nav-link">Status</a>
+    </div>
+  </nav>
+
+  <main class="board-page">
+    <header class="page-header">
+      <h1>Task Board</h1>
+      <div class="header-meta">
+        <div class="scope-toggle">
+          <button class="scope-btn active" data-scope="current" onclick="ACM.setScope('current')">Current</button>
+          <button class="scope-btn" data-scope="completed" onclick="ACM.setScope('completed')">Completed</button>
+          <button class="scope-btn" data-scope="all" onclick="ACM.setScope('all')">All</button>
+        </div>
+        <span class="poll-indicator" id="poll-indicator" title="Live updating">
+          <span class="poll-dot"></span>
+          Live
+        </span>
+      </div>
+    </header>
+
+    <div id="board-container" class="board-container">
+      <div class="board-loading">
+        <div class="spinner"></div>
+        <p>Loading plans&hellip;</p>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/htmx.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

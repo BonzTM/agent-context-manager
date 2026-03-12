@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ACM Memories</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-brand">
+      <span class="navbar-logo">ACM</span>
+    </div>
+    <div class="navbar-links">
+      <a href="/" class="nav-link">Board</a>
+      <a href="/memories.html" class="nav-link active">Memories</a>
+      <a href="/status.html" class="nav-link">Status</a>
+    </div>
+  </nav>
+
+  <main class="status-page">
+    <header class="page-header">
+      <h1>Durable Memories</h1>
+      <div class="header-meta">
+        <span class="poll-indicator" id="poll-indicator" title="Live updating">
+          <span class="poll-dot"></span>
+          Live
+        </span>
+      </div>
+    </header>
+
+    <div id="memories-container" class="status-container">
+      <div class="board-loading">
+        <div class="spinner"></div>
+        <p>Loading memories&hellip;</p>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/htmx.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

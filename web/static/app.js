@@ -1,0 +1,885 @@
+/* ==========================================================================
+   ACM Kanban — Application JS
+   Vanilla JS, no build step. Uses fetch for API calls.
+   ========================================================================== */
+
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  // Board columns — "done" absorbs complete + superseded.
+  const BOARD_COLUMNS = ["pending", "in_progress", "blocked", "done"];
+
+  const COLUMN_LABELS = {
+    pending: "Pending",
+    in_progress: "In Progress",
+    blocked: "Blocked",
+    done: "Done",
+  };
+
+  // All known task statuses and their display labels (used elsewhere).
+  const STATUSES = ["pending", "in_progress", "complete", "blocked", "superseded"];
+
+  const STATUS_LABELS = {
+    pending: "Pending",
+    in_progress: "In Progress",
+    complete: "Complete",
+    blocked: "Blocked",
+    superseded: "Superseded",
+    done: "Done",
+  };
+
+  // Map raw task status to a board column.
+  function boardColumn(status) {
+    if (status === "complete" || status === "superseded") return "done";
+    if (BOARD_COLUMNS.includes(status)) return status;
+    return "pending";
+  }
+
+  function esc(str) {
+    const el = document.createElement("span");
+    el.textContent = str;
+    return el.innerHTML;
+  }
+
+  function shortKey(key) {
+    if (!key) return "";
+    // e.g. "impl:receipt-handler" -> "impl:receipt-handler"
+    // keep it readable but cap length
+    return key.length > 48 ? key.slice(0, 45) + "\u2026" : key;
+  }
+
+  // ---------------------------------------------------------------------------
+  // API
+  // ---------------------------------------------------------------------------
+
+  async function fetchJSON(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  }
+
+  async function getPlans(scope) {
+    const url = scope ? "/api/plans?scope=" + encodeURIComponent(scope) : "/api/plans";
+    const data = await fetchJSON(url);
+    return data.items || [];
+  }
+
+  async function getPlanDetail(key) {
+    const data = await fetchJSON("/api/plans/" + encodeURIComponent(key));
+    return data.document || {};
+  }
+
+  async function getStatus() {
+    return fetchJSON("/api/status");
+  }
+
+  async function getMemories() {
+    const data = await fetchJSON("/api/memories");
+    return data.items || [];
+  }
+
+  async function getMemoryDetail(key) {
+    const data = await fetchJSON("/api/memories/" + encodeURIComponent(key));
+    return data.document || {};
+  }
+
+  // ---------------------------------------------------------------------------
+  // Board Page
+  // ---------------------------------------------------------------------------
+
+  function isboardPage() {
+    const p = location.pathname;
+    return p === "/" || p === "/index.html";
+  }
+
+  function bucketTasks(tasks) {
+    const buckets = {};
+    for (const col of BOARD_COLUMNS) buckets[col] = [];
+    for (const t of tasks) {
+      buckets[boardColumn(t.status)].push(t);
+    }
+    return buckets;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Task Type System — map key prefixes to human-friendly types
+  // ---------------------------------------------------------------------------
+
+  const TASK_TYPES = {
+    stage:  { label: "Stage",        cls: "type-stage" },
+    spec:   { label: "Spec",         cls: "type-spec" },
+    refine: { label: "Refinement",   cls: "type-refine" },
+    impl:   { label: "Task",         cls: "type-impl" },
+    verify: { label: "Verification", cls: "type-verify" },
+    review: { label: "Review",       cls: "type-review" },
+    tdd:    { label: "TDD",          cls: "type-tdd" },
+  };
+
+  function taskType(key) {
+    if (!key) return null;
+    const prefix = key.split(":")[0];
+    return TASK_TYPES[prefix] || null;
+  }
+
+  // Store all tasks globally so modal/navigation can find anything.
+  let _boardTasks = [];
+  let _tasksByKey = {};
+  let _childrenOf = {}; // parent_key -> [idx, ...]
+
+  function buildIndex(allTasks) {
+    _boardTasks = allTasks;
+    _tasksByKey = {};
+    _childrenOf = {};
+    for (let i = 0; i < allTasks.length; i++) {
+      const t = allTasks[i];
+      if (t.key) {
+        _tasksByKey[t.key] = i;
+      }
+      if (t.parent_task_key) {
+        if (!_childrenOf[t.parent_task_key]) _childrenOf[t.parent_task_key] = [];
+        _childrenOf[t.parent_task_key].push(i);
+      }
+    }
+  }
+
+  function renderCard(task, idx, depth) {
+    const statusCls = STATUSES.includes(task.status) ? task.status : "pending";
+    const type = taskType(task.key);
+    const childCount = (_childrenOf[task.key] || []).length;
+    const indent = depth > 0 ? ` style="margin-left:${depth * 16}px"` : "";
+
+    let tagsHtml = "";
+    if (type) {
+      tagsHtml += `<span class="card-type ${type.cls}">${esc(type.label)}</span>`;
+    }
+    if (childCount > 0) {
+      tagsHtml += `<span class="card-children-badge">${childCount} sub</span>`;
+    }
+
+    let footerHtml = "";
+    if (task._planTitle) {
+      footerHtml += `<span class="card-plan">${esc(task._planTitle)}</span>`;
+    }
+
+    return `
+      <div class="task-card ${statusCls} depth-${Math.min(depth, 3)}"${indent} onclick="ACM.openCard(${idx})">
+        ${tagsHtml ? `<div class="card-tags">${tagsHtml}</div>` : ""}
+        <div class="card-summary">${esc(task.summary || "")}</div>
+        ${footerHtml ? `<div class="card-footer">${footerHtml}</div>` : ""}
+      </div>`;
+  }
+
+  // Sort indices into tree order: roots first, then children beneath
+  // their parent, recursively. Depth is tracked for indentation.
+  function treeSort(indices, tasks) {
+    const indexSet = new Set(indices);
+
+    // Build local parent->children map within this column's indices.
+    const childrenInCol = {};
+    const roots = [];
+    for (const i of indices) {
+      const parentKey = tasks[i].parent_task_key;
+      const parentIdx = parentKey ? _tasksByKey[parentKey] : undefined;
+      if (parentIdx !== undefined && indexSet.has(parentIdx)) {
+        if (!childrenInCol[parentIdx]) childrenInCol[parentIdx] = [];
+        childrenInCol[parentIdx].push(i);
+      } else {
+        roots.push(i);
+      }
+    }
+
+    // Walk depth-first from roots.
+    const sorted = [];
+    function walk(idx, depth) {
+      sorted.push({ idx, depth });
+      const kids = childrenInCol[idx] || [];
+      for (const kid of kids) {
+        walk(kid, depth + 1);
+      }
+    }
+    for (const r of roots) walk(r, 0);
+    return sorted;
+  }
+
+  function renderBoard(allTasks) {
+    buildIndex(allTasks);
+
+    // Bucket tasks keeping global index.
+    const buckets = {};
+    for (const col of BOARD_COLUMNS) buckets[col] = [];
+    for (let i = 0; i < allTasks.length; i++) {
+      buckets[boardColumn(allTasks[i].status)].push(i);
+    }
+
+    return `<div class="columns-row columns-${BOARD_COLUMNS.length}">` +
+      BOARD_COLUMNS.map((col) => {
+        const indices = buckets[col];
+        const tree = treeSort(indices, allTasks);
+        const cardsHtml = tree.length
+          ? tree.map(({ idx, depth }) => renderCard(allTasks[idx], idx, depth)).join("")
+          : `<div class="column-empty">No tasks</div>`;
+        return `
+          <div class="column">
+            <div class="column-header">
+              <span class="column-dot ${col}"></span>
+              <span class="column-name">${COLUMN_LABELS[col]}</span>
+              <span class="column-count">${indices.length}</span>
+            </div>
+            <div class="column-cards">${cardsHtml}</div>
+          </div>`;
+      }).join("") + `</div>`;
+  }
+
+  // Current board scope — persists across polls.
+  let _boardScope = "current";
+
+  function cleanPlanTitle(plan, detail) {
+    // Prefer the explicit title from the plan detail.
+    if (detail && detail.plan && detail.plan.title) return detail.plan.title;
+    // Fall back to the receipt key, cleaned up.
+    const key = plan.plan_key || plan.key || "";
+    if (key.startsWith("plan:receipt-")) {
+      return key.replace("plan:receipt-", "receipt ").slice(0, 24) + "\u2026";
+    }
+    if (key.startsWith("plan:")) return key.slice(5);
+    return key || "Untitled Plan";
+  }
+
+  async function loadBoard() {
+    const container = document.getElementById("board-container");
+    if (!container) return;
+
+    try {
+      const plans = await getPlans(_boardScope);
+
+      if (!plans.length) {
+        container.innerHTML = `
+          <div class="board-empty">
+            <h2>No plans found</h2>
+            <p>Create a plan with ACM to see tasks here.</p>
+          </div>`;
+        return;
+      }
+
+      // Fetch details for each plan in parallel
+      const details = await Promise.allSettled(
+        plans.map(async (plan) => {
+          if (!plan.fetch_keys || !plan.fetch_keys.length) {
+            return { plan, detail: null, tasks: [] };
+          }
+          const detail = await getPlanDetail(plan.fetch_keys[0]);
+          const tasks =
+            detail.plan && detail.plan.tasks ? detail.plan.tasks : [];
+          return { plan, detail, tasks };
+        })
+      );
+
+      // Flatten all tasks into a single list, tagging each with its plan.
+      const allTasks = [];
+      for (const result of details) {
+        if (result.status === "fulfilled") {
+          const { plan, detail, tasks } = result.value;
+          const title = cleanPlanTitle(plan, detail);
+          for (const task of tasks) {
+            allTasks.push({ ...task, _planTitle: title });
+          }
+        }
+      }
+
+      if (!allTasks.length) {
+        container.innerHTML = `
+          <div class="board-empty">
+            <h2>No tasks found</h2>
+            <p>Plans exist but contain no tasks yet.</p>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = renderBoard(allTasks);
+    } catch (err) {
+      console.error("Board load error:", err);
+      container.innerHTML = `<div class="error-banner">Failed to load board: ${esc(err.message)}</div>`;
+    }
+  }
+
+  window.ACM = window.ACM || {};
+  window.ACM.setScope = function (scope) {
+    _boardScope = scope;
+    // Update toggle button states.
+    document.querySelectorAll(".scope-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.scope === scope);
+    });
+    loadBoard();
+  };
+
+  // ---------------------------------------------------------------------------
+  // Status Page
+  // ---------------------------------------------------------------------------
+
+  function isStatusPage() {
+    return location.pathname === "/status.html";
+  }
+
+  function badgeClass(status) {
+    if (status === "ok") return "ok";
+    if (status === "warn" || status === "warning") return "warn";
+    return "error";
+  }
+
+  function summaryStatus(summary) {
+    // summary.ready is a boolean; missing_count/warning_count are ints.
+    if (!summary.ready) return "error";
+    if (summary.warning_count > 0 || summary.missing_count > 0) return "warn";
+    return "ok";
+  }
+
+  function sourceStatus(s) {
+    if (s.loaded) return "ok";
+    if (s.exists) return "warn";
+    return "missing";
+  }
+
+  function renderStatusPage(data) {
+    const summary = data.summary || {};
+    const project = data.project || {};
+    const sources = data.sources || [];
+    const integrations = data.integrations || [];
+    const warnings = data.warnings || [];
+    const missing = data.missing || [];
+
+    const overallStatus = summaryStatus(summary);
+
+    // Project info section
+    const projectHtml = `
+      <div class="status-section">
+        <div class="status-section-header">
+          <h2>Project</h2>
+          <span class="status-badge ${badgeClass(overallStatus)}">${esc(overallStatus)}</span>
+        </div>
+        <div class="status-section-body">
+          <div class="kv-row">
+            <span class="kv-label">Project ID</span>
+            <span class="kv-value">${esc(project.project_id || "\u2014")}</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-label">Project Root</span>
+            <span class="kv-value">${esc(project.project_root || "\u2014")}</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-label">Backend</span>
+            <span class="kv-value">${esc(project.backend || "\u2014")}</span>
+          </div>
+        </div>
+      </div>`;
+
+    // Sources section — real fields: kind, source_path, exists, loaded, item_count
+    let sourcesBody = "";
+    if (sources.length) {
+      sourcesBody = sources
+        .map(
+          (s) => `
+          <div class="source-item">
+            <span class="source-name">${esc(s.kind || "unknown")}</span>
+            <span class="source-path">${esc(s.source_path || s.absolute_path || "")}</span>
+            <span class="source-status">
+              <span class="status-badge ${badgeClass(sourceStatus(s))}">${s.loaded ? "loaded (" + (s.item_count || 0) + ")" : s.exists ? "not loaded" : "missing"}</span>
+            </span>
+          </div>`
+        )
+        .join("");
+    } else {
+      sourcesBody = `<div class="empty-message">No sources configured.</div>`;
+    }
+    const sourcesHtml = `
+      <div class="status-section">
+        <div class="status-section-header"><h2>Sources</h2></div>
+        <div class="status-section-body">${sourcesBody}</div>
+      </div>`;
+
+    // Integrations section — real fields: id, summary, installed, present_targets, expected_targets, missing_targets
+    let intBody = "";
+    if (integrations.length) {
+      intBody = integrations
+        .map((s) => {
+          let badge, cls, tooltipLines;
+          if (s.installed) {
+            badge = "installed";
+            cls = "ok";
+            tooltipLines = [s.present_targets + "/" + s.expected_targets + " targets present"];
+          } else if (s.present_targets === 0) {
+            badge = "not installed";
+            cls = "";
+            tooltipLines = [s.expected_targets + " target" + (s.expected_targets !== 1 ? "s" : "") + " required"];
+            if (s.missing_targets && s.missing_targets.length) {
+              tooltipLines.push(...s.missing_targets);
+            }
+          } else {
+            badge = "not installed";
+            cls = "";
+            tooltipLines = [s.present_targets + "/" + s.expected_targets + " targets present"];
+            if (s.missing_targets && s.missing_targets.length) {
+              tooltipLines.push("Missing:");
+              tooltipLines.push(...s.missing_targets);
+            }
+          }
+
+          const tooltipHtml = tooltipLines.map((l) => esc(l)).join("\n");
+
+          return `
+            <div class="source-item">
+              <span class="source-name">${esc(s.id)}</span>
+              <span class="source-path">${esc(s.summary || "")}</span>
+              <span class="source-status">
+                <span class="tooltip-wrap">
+                  <span class="status-badge ${cls}">${esc(badge)}</span>
+                  <span class="tooltip-content">${tooltipHtml}</span>
+                </span>
+              </span>
+            </div>`;
+        })
+        .join("");
+    } else {
+      intBody = `<div class="empty-message">No integrations available.</div>`;
+    }
+    const intHtml = `
+      <div class="status-section">
+        <div class="status-section-header"><h2>Integrations</h2></div>
+        <div class="status-section-body">${intBody}</div>
+      </div>`;
+
+    // Warnings section
+    const allWarnings = [
+      ...warnings.map((w) => ({ text: typeof w === "string" ? w : w.message || w.detail || JSON.stringify(w), type: "warn" })),
+      ...missing.map((m) => ({ text: typeof m === "string" ? m : m.message || m.detail || JSON.stringify(m), type: "missing" })),
+    ];
+
+    let warnBody = "";
+    if (allWarnings.length) {
+      warnBody = allWarnings
+        .map(
+          (w) => `
+          <div class="warning-item">
+            <span class="warning-icon">&#9888;</span>
+            <span class="warning-text">${esc(w.text)}</span>
+          </div>`
+        )
+        .join("");
+    } else {
+      warnBody = `<div class="empty-message">No warnings. Everything looks good.</div>`;
+    }
+    const warnHtml = `
+      <div class="status-section">
+        <div class="status-section-header"><h2>Warnings</h2></div>
+        <div class="status-section-body">${warnBody}</div>
+      </div>`;
+
+    return projectHtml + sourcesHtml + intHtml + warnHtml;
+  }
+
+  async function loadStatus() {
+    const container = document.getElementById("status-container");
+    if (!container) return;
+
+    try {
+      const data = await getStatus();
+      container.innerHTML = renderStatusPage(data);
+    } catch (err) {
+      console.error("Status load error:", err);
+      container.innerHTML = `<div class="error-banner">Failed to load status: ${esc(err.message)}</div>`;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Memories Page
+  // ---------------------------------------------------------------------------
+
+  function isMemoriesPage() {
+    return location.pathname === "/memories.html";
+  }
+
+  const CATEGORY_LABELS = {
+    decision: "Decision",
+    pattern: "Pattern",
+    gotcha: "Gotcha",
+    preference: "Preference",
+    context: "Context",
+  };
+
+  function categoryBadgeClass(category) {
+    if (category === "decision") return "in_progress";
+    if (category === "gotcha") return "blocked";
+    if (category === "pattern") return "complete";
+    return "pending";
+  }
+
+  function renderMemoryCard(mem, detail) {
+    const cat = mem.kind || "unknown";
+    const catLabel = CATEGORY_LABELS[cat] || cat;
+    const cls = categoryBadgeClass(cat);
+    const updated = mem.updated_at
+      ? new Date(mem.updated_at).toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })
+      : "";
+
+    let bodyHtml = "";
+    if (detail && detail.memory) {
+      const m = detail.memory;
+      if (m.content) {
+        bodyHtml += `<div class="memory-content">${esc(m.content)}</div>`;
+      }
+      if (m.confidence) {
+        bodyHtml += `<div class="memory-meta-row"><span class="memory-meta-label">Confidence</span><span class="memory-meta-value">${m.confidence}/5</span></div>`;
+      }
+    }
+
+    return `
+      <div class="memory-card">
+        <div class="memory-card-header">
+          <span class="count-badge ${cls}">${esc(catLabel)}</span>
+          <span class="memory-key">${esc(mem.key)}</span>
+          <span class="memory-date">${esc(updated)}</span>
+        </div>
+        <div class="memory-card-subject">${esc(mem.summary || "")}</div>
+        ${bodyHtml}
+      </div>`;
+  }
+
+  async function loadMemories() {
+    const container = document.getElementById("memories-container");
+    if (!container) return;
+
+    try {
+      const items = await getMemories();
+
+      if (!items.length) {
+        container.innerHTML = `
+          <div class="board-empty">
+            <h2>No memories found</h2>
+            <p>Durable memories created via ACM will appear here.</p>
+          </div>`;
+        return;
+      }
+
+      // Fetch details for each memory in parallel
+      const details = await Promise.allSettled(
+        items.map(async (mem) => {
+          if (!mem.fetch_keys || !mem.fetch_keys.length) {
+            return { mem, detail: null };
+          }
+          const detail = await getMemoryDetail(mem.fetch_keys[0]);
+          return { mem, detail };
+        })
+      );
+
+      let html = "";
+      for (const result of details) {
+        if (result.status === "fulfilled") {
+          const { mem, detail } = result.value;
+          html += renderMemoryCard(mem, detail);
+        }
+      }
+
+      container.innerHTML = html || `
+        <div class="board-empty">
+          <h2>No memories loaded</h2>
+          <p>Could not retrieve memory details.</p>
+        </div>`;
+    } catch (err) {
+      console.error("Memories load error:", err);
+      container.innerHTML = `<div class="error-banner">Failed to load memories: ${esc(err.message)}</div>`;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Card Detail Modal
+  // ---------------------------------------------------------------------------
+
+  window.ACM = window.ACM || {};
+
+  function ensureModalContainer() {
+    let overlay = document.getElementById("card-modal-overlay");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "card-modal-overlay";
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = `<div class="modal-content" id="card-modal-content"></div>`;
+      overlay.addEventListener("click", function (e) {
+        if (e.target === overlay) ACM.closeCard();
+      });
+      document.body.appendChild(overlay);
+    }
+    return overlay;
+  }
+
+  // Collect all descendants of a task recursively.
+  function collectDescendants(taskKey) {
+    const result = [];
+    const queue = _childrenOf[taskKey] || [];
+    const visited = new Set();
+    for (let i = 0; i < queue.length; i++) {
+      const ci = queue[i];
+      if (visited.has(ci)) continue;
+      visited.add(ci);
+      result.push(ci);
+      const child = _boardTasks[ci];
+      if (child && _childrenOf[child.key]) {
+        queue.push(..._childrenOf[child.key]);
+      }
+    }
+    return result;
+  }
+
+  // Build a rollup summary for a parent task from all descendants.
+  function buildRollup(taskKey) {
+    const descIndices = collectDescendants(taskKey);
+    if (!descIndices.length) return null;
+
+    const descendants = descIndices.map((i) => _boardTasks[i]);
+    const byStatus = {};
+    for (const s of STATUSES) byStatus[s] = [];
+    for (const d of descendants) {
+      const s = STATUSES.includes(d.status) ? d.status : "pending";
+      byStatus[s].push(d);
+    }
+
+    const total = descendants.length;
+    const done = byStatus.complete.length + byStatus.superseded.length;
+    const blocked = byStatus.blocked.length;
+    const inProgress = byStatus.in_progress.length;
+    const pending = total - done - blocked - inProgress;
+
+    // Collect all outstanding acceptance criteria from incomplete leaves.
+    const outstandingAC = [];
+    const blockers = [];
+    for (const d of descendants) {
+      if (d.status === "complete" || d.status === "superseded") continue;
+      if (d.blocked_reason) {
+        blockers.push({ task: d, reason: d.blocked_reason });
+      }
+      if (d.acceptance_criteria && d.acceptance_criteria.length) {
+        outstandingAC.push({ task: d, criteria: d.acceptance_criteria });
+      }
+    }
+
+    return { total, done, blocked, inProgress, pending, byStatus, outstandingAC, blockers, descendants };
+  }
+
+  function renderRollup(rollup) {
+    let html = "";
+
+    // Progress bar
+    const pctDone = Math.round((rollup.done / rollup.total) * 100);
+    html += `<div class="rollup-progress">
+      <div class="rollup-bar">
+        <div class="rollup-bar-fill" style="width:${pctDone}%"></div>
+      </div>
+      <span class="rollup-pct">${rollup.done}/${rollup.total} complete (${pctDone}%)</span>
+    </div>`;
+
+    // Status breakdown
+    const breakdown = [];
+    if (rollup.inProgress) breakdown.push(`<span class="count-badge in_progress">${rollup.inProgress} In Progress</span>`);
+    if (rollup.pending) breakdown.push(`<span class="count-badge pending">${rollup.pending} Pending</span>`);
+    if (rollup.blocked) breakdown.push(`<span class="count-badge blocked">${rollup.blocked} Blocked</span>`);
+    if (rollup.done) breakdown.push(`<span class="count-badge complete">${rollup.done} Done</span>`);
+    if (breakdown.length) {
+      html += `<div class="rollup-breakdown">${breakdown.join(" ")}</div>`;
+    }
+
+    // Blockers
+    if (rollup.blockers.length) {
+      const items = rollup.blockers.map((b) => {
+        const idx = _tasksByKey[b.task.key];
+        const link = idx !== undefined ? taskLink(b.task.key) : esc(b.task.summary || b.task.key);
+        return `<li class="rollup-blocker"><span class="warning-icon">&#9888;</span> ${link}: ${esc(b.reason)}</li>`;
+      }).join("");
+      html += `<div class="modal-field">
+        <span class="modal-label">Blockers</span>
+        <ul class="modal-nav-list">${items}</ul>
+      </div>`;
+    }
+
+    // Outstanding acceptance criteria from incomplete tasks
+    if (rollup.outstandingAC.length) {
+      const groups = rollup.outstandingAC.map((g) => {
+        const idx = _tasksByKey[g.task.key];
+        const link = idx !== undefined ? taskLink(g.task.key) : esc(g.task.summary || g.task.key);
+        const criteria = g.criteria.map((c) => `<li>${esc(c)}</li>`).join("");
+        return `<div class="rollup-ac-group">
+          <div class="rollup-ac-task">${link}</div>
+          <ul class="modal-list">${criteria}</ul>
+        </div>`;
+      }).join("");
+      html += `<div class="modal-field">
+        <span class="modal-label">Outstanding Acceptance Criteria</span>
+        ${groups}
+      </div>`;
+    }
+
+    return html;
+  }
+
+  function taskLink(key) {
+    const idx = _tasksByKey[key];
+    if (idx === undefined) return `<code>${esc(key)}</code>`;
+    const t = _boardTasks[idx];
+    const type = taskType(key);
+    const typeLabel = type ? `<span class="card-type ${type.cls}" style="font-size:0.68rem">${esc(type.label)}</span> ` : "";
+    return `<a class="task-link" onclick="ACM.openCard(${idx})">${typeLabel}${esc(t.summary || key)}</a>`;
+  }
+
+  window.ACM.openCard = function (idx) {
+    const task = _boardTasks[idx];
+    if (!task) return;
+
+    const overlay = ensureModalContainer();
+    const content = document.getElementById("card-modal-content");
+    const statusCls = STATUSES.includes(task.status) ? task.status : "pending";
+    const statusLabel = STATUS_LABELS[task.status] || task.status;
+    const type = taskType(task.key);
+
+    let sections = "";
+
+    // Type + Status row
+    sections += `<div class="modal-status">`;
+    if (type) {
+      sections += `<span class="card-type ${type.cls}">${esc(type.label)}</span>`;
+    }
+    sections += `<span class="count-badge ${statusCls}">${esc(statusLabel)}</span>`;
+    sections += `</div>`;
+
+    // Key
+    sections += `<div class="modal-field">
+      <span class="modal-label">Key</span>
+      <span class="modal-value mono">${esc(task.key || "")}</span>
+    </div>`;
+
+    // Plan
+    if (task._planTitle) {
+      sections += `<div class="modal-field">
+        <span class="modal-label">Plan</span>
+        <span class="modal-value">${esc(task._planTitle)}</span>
+      </div>`;
+    }
+
+    // Parent (navigable link)
+    if (task.parent_task_key) {
+      sections += `<div class="modal-field">
+        <span class="modal-label">Parent</span>
+        <span class="modal-value">${taskLink(task.parent_task_key)}</span>
+      </div>`;
+    }
+
+    // Children (navigable links)
+    const children = _childrenOf[task.key] || [];
+    if (children.length) {
+      const childLinks = children.map((ci) => {
+        const child = _boardTasks[ci];
+        const childStatusCls = STATUSES.includes(child.status) ? child.status : "pending";
+        return `<li><span class="column-dot ${childStatusCls}" style="width:7px;height:7px;display:inline-block"></span> ${taskLink(child.key)}</li>`;
+      }).join("");
+      sections += `<div class="modal-field">
+        <span class="modal-label">Children</span>
+        <ul class="modal-nav-list">${childLinks}</ul>
+      </div>`;
+    }
+
+    // Rollup — hydrate parent tasks with descendant data
+    const rollup = buildRollup(task.key);
+    if (rollup) {
+      sections += `<div class="modal-field">
+        <span class="modal-label">Progress</span>
+        ${renderRollup(rollup)}
+      </div>`;
+    }
+
+    // Blocked reason
+    if (task.blocked_reason) {
+      sections += `<div class="modal-field">
+        <span class="modal-label">Blocked</span>
+        <span class="modal-value warn">${esc(task.blocked_reason)}</span>
+      </div>`;
+    }
+
+    // Dependencies (navigable links)
+    if (task.depends_on && task.depends_on.length) {
+      const depLinks = task.depends_on.map((d) => `<li>${taskLink(d)}</li>`).join("");
+      sections += `<div class="modal-field">
+        <span class="modal-label">Depends on</span>
+        <ul class="modal-nav-list">${depLinks}</ul>
+      </div>`;
+    }
+
+    // Acceptance criteria
+    if (task.acceptance_criteria && task.acceptance_criteria.length) {
+      const items = task.acceptance_criteria
+        .map((c) => `<li>${esc(c)}</li>`)
+        .join("");
+      sections += `<div class="modal-field">
+        <span class="modal-label">Acceptance Criteria</span>
+        <ul class="modal-list">${items}</ul>
+      </div>`;
+    }
+
+    // References
+    if (task.references && task.references.length) {
+      const refs = task.references
+        .map((r) => `<li><code>${esc(r)}</code></li>`)
+        .join("");
+      sections += `<div class="modal-field">
+        <span class="modal-label">References</span>
+        <ul class="modal-list">${refs}</ul>
+      </div>`;
+    }
+
+    content.innerHTML = `
+      <button class="modal-close" onclick="ACM.closeCard()">&times;</button>
+      <div class="modal-title">${esc(task.summary || task.key || "")}</div>
+      <div class="modal-body">${sections}</div>`;
+
+    overlay.classList.add("open");
+    document.addEventListener("keydown", _modalEscHandler);
+  };
+
+  window.ACM.closeCard = function () {
+    const overlay = document.getElementById("card-modal-overlay");
+    if (overlay) overlay.classList.remove("open");
+    document.removeEventListener("keydown", _modalEscHandler);
+  };
+
+  function _modalEscHandler(e) {
+    if (e.key === "Escape") ACM.closeCard();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Polling
+  // ---------------------------------------------------------------------------
+
+  function startPolling(fn, intervalMs) {
+    // Initial load
+    fn();
+    // Repeat
+    setInterval(fn, intervalMs);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------------
+
+  document.addEventListener("DOMContentLoaded", function () {
+    if (isboardPage()) {
+      startPolling(loadBoard, 10000);
+    } else if (isMemoriesPage()) {
+      startPolling(loadMemories, 30000);
+    } else if (isStatusPage()) {
+      startPolling(loadStatus, 30000);
+    }
+  });
+})();
