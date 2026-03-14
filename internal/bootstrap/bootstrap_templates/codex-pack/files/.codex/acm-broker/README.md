@@ -55,6 +55,7 @@ Use the same maintenance loop as any other primary ACM operator when rules, tags
 - `context` is task framing, not a substitute for Codex reading the repo itself.
 - If governed work discovers later-relevant files, declare them with `work.plan.discovered_paths` before expecting `review` or `done` to pass.
 - `done` can omit `files_changed` and rely on the receipt baseline delta when that is more convenient.
+- `done` and runnable `review` already treat built-in governance files such as repo-root `AGENTS.md`, `CLAUDE.md`, and canonical `.acm/**` contract files as managed scope.
 - Use `verify` for repo checks and `review` for named workflow gates; `review` is not a second generic test runner.
 
 ## AGENTS companion
