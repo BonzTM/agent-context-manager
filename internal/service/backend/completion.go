@@ -139,6 +139,8 @@ func (s *Service) Done(ctx context.Context, payload v1.DonePayload) (v1.DoneResu
 
 func completionScopeManagedPaths() []string {
 	return normalizeCompletionPaths([]string{
+		"AGENTS.md",
+		"CLAUDE.md",
 		".gitignore",
 		workspace.DotEnvExampleFileName,
 		bootstrapkit.DefaultInitCandidatesPath,

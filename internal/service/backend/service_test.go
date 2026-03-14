@@ -2224,6 +2224,47 @@ func TestDone_StrictModeRejectsOutOfScopeWithoutPersistence(t *testing.T) {
 	}
 }
 
+func TestDone_StrictModeAcceptsRootGovernanceContractsInManagedScope(t *testing.T) {
+	repo := &fakeRepository{
+		scopeResults: []core.ReceiptScope{{
+			ProjectID:         "project.alpha",
+			ReceiptID:         "receipt.abc123",
+			InitialScopePaths: []string{"internal/service/backend/service.go"},
+		}},
+		workListResults: [][]core.WorkItem{{
+			{ItemKey: "verify:tests", Status: core.WorkItemStatusComplete},
+		}},
+		saveResult: core.RunReceiptIDs{RunID: 77, ReceiptID: "receipt.abc123"},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Done(context.Background(), v1.DonePayload{
+		ProjectID:    "project.alpha",
+		ReceiptID:    "receipt.abc123",
+		FilesChanged: []string{"AGENTS.md", "CLAUDE.md"},
+		Outcome:      "completed",
+		ScopeMode:    v1.ScopeModeStrict,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if !result.Accepted {
+		t.Fatalf("expected acceptance: %+v", result)
+	}
+	if len(result.Violations) != 0 {
+		t.Fatalf("unexpected violations: %+v", result.Violations)
+	}
+	if len(repo.saveCalls) != 1 {
+		t.Fatalf("expected one save call, got %d", len(repo.saveCalls))
+	}
+	if got := repo.saveCalls[0].FilesChanged; !reflect.DeepEqual(got, []string{"AGENTS.md", "CLAUDE.md"}) {
+		t.Fatalf("unexpected persisted files_changed: got %v", got)
+	}
+}
+
 func TestDone_PlanKeyOnlyUsesDerivedReceiptIDAndDiscoveredPaths(t *testing.T) {
 	repo := &fakeRepository{
 		scopeResults: []core.ReceiptScope{{
