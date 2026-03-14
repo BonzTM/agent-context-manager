@@ -17,6 +17,18 @@ func TestACMCrossReviewAcceptsWorkflowModelArgs(t *testing.T) {
 	assertArgSequence(t, args, "--sandbox", "workspace-write")
 }
 
+func TestACMCrossReviewAcceptsCodexYolo(t *testing.T) {
+	t.Parallel()
+
+	args := runCrossReviewScript(t, []string{"--provider", "codex", "--yolo"})
+	assertArgSequence(t, args, "--yolo")
+	for _, arg := range args {
+		if arg == "--sandbox" {
+			t.Fatalf("did not expect --sandbox when --yolo is enabled: %q", args)
+		}
+	}
+}
+
 func TestACMCrossReviewUsesDefaultModelArgs(t *testing.T) {
 	t.Parallel()
 
@@ -24,6 +36,62 @@ func TestACMCrossReviewUsesDefaultModelArgs(t *testing.T) {
 	assertArgSequence(t, args, "--model", "gpt-5.3-codex")
 	assertArgSequence(t, args, "-c", `model_reasoning_effort="xhigh"`)
 	assertArgSequence(t, args, "--sandbox", "read-only")
+}
+
+func TestACMCrossReviewRunsClaudePrintMode(t *testing.T) {
+	t.Parallel()
+
+	args, prompt := runCrossReviewScriptWithPrompt(t, []string{"--provider", "claude", "--model", "sonnet"})
+	assertArgSequence(t, args, "-p")
+	assertArgSequence(t, args, "--model", "sonnet")
+	assertArgSequence(t, args, "--output-format", "json")
+	assertArgSequence(t, args, "--json-schema")
+	if !strings.Contains(prompt, "Review the current task-scoped uncommitted changes") {
+		t.Fatalf("expected review prompt to be piped to Claude, got %q", prompt)
+	}
+}
+
+func TestACMCrossReviewRunsClaudeWithDangerouslySkipPermissions(t *testing.T) {
+	t.Parallel()
+
+	args := runCrossReviewScript(t, []string{"--provider", "claude", "--dangerously-skip-permissions"})
+	assertArgSequence(t, args, "-p")
+	assertArgSequence(t, args, "--dangerously-skip-permissions")
+}
+
+func TestACMCrossReviewMapsYoloToClaudeDangerousPermissions(t *testing.T) {
+	t.Parallel()
+
+	args := runCrossReviewScript(t, []string{"--provider", "claude", "--yolo"})
+	assertArgSequence(t, args, "-p")
+	assertArgSequence(t, args, "--dangerously-skip-permissions")
+}
+
+func TestACMCrossReviewRejectsClaudeSandboxFlag(t *testing.T) {
+	t.Parallel()
+
+	output := runCrossReviewScriptExpectFailure(t, []string{"--provider", "claude", "--sandbox", "read-only"})
+	if !strings.Contains(output, "--sandbox is only supported with --provider codex") {
+		t.Fatalf("expected provider-specific sandbox failure, got %q", output)
+	}
+}
+
+func TestACMCrossReviewRejectsCodexDangerousPermissionsFlag(t *testing.T) {
+	t.Parallel()
+
+	output := runCrossReviewScriptExpectFailure(t, []string{"--provider", "codex", "--dangerously-skip-permissions"})
+	if !strings.Contains(output, "--dangerously-skip-permissions is only supported with --provider claude") {
+		t.Fatalf("expected provider-specific dangerous-permissions failure, got %q", output)
+	}
+}
+
+func TestACMCrossReviewAllowsCodexWhenDangerousPermissionsEnvIsFalse(t *testing.T) {
+	t.Parallel()
+
+	args := runCrossReviewScriptWithExtraEnv(t, []string{"--provider", "codex"}, map[string]string{
+		"ACM_CROSS_REVIEW_DANGEROUSLY_SKIP_PERMISSIONS": "false",
+	})
+	assertArgSequence(t, args, "--model", "gpt-5.3-codex")
 }
 
 func TestACMCrossReviewIncludesManagedAndDeletedScopedFiles(t *testing.T) {
@@ -863,17 +931,75 @@ exit 0
 func runCrossReviewScript(t *testing.T, reviewArgs []string) []string {
 	t.Helper()
 
+	args, _ := runCrossReviewScriptWithPromptAndEnv(t, reviewArgs, nil)
+	return args
+}
+
+func runCrossReviewScriptWithExtraEnv(t *testing.T, reviewArgs []string, extraEnv map[string]string) []string {
+	t.Helper()
+
+	args, _ := runCrossReviewScriptWithPromptAndEnv(t, reviewArgs, extraEnv)
+	return args
+}
+
+func runCrossReviewScriptExpectFailure(t *testing.T, reviewArgs []string) string {
+	t.Helper()
+
 	tempRoot := t.TempDir()
 	binDir := filepath.Join(tempRoot, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("mkdir bin: %v", err)
 	}
 
-	capturePath := filepath.Join(tempRoot, "codex-args.txt")
+	writeExecutable(t, filepath.Join(binDir, "codex"), "#!/usr/bin/env bash\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "claude"), "#!/usr/bin/env bash\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "acm"), "#!/usr/bin/env bash\nexit 0\n")
+
+	projectRoot := filepath.Join(tempRoot, "project-root")
+	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
+		t.Fatalf("mkdir project root: %v", err)
+	}
+
+	cmdArgs := append([]string{"scripts/acm-cross-review.sh"}, reviewArgs...)
+	cmd := exec.Command("bash", cmdArgs...)
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"ACM_PROJECT_ID=agent-context-manager",
+		"ACM_RECEIPT_ID=receipt-test",
+		"ACM_PROJECT_ROOT="+projectRoot,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected cross-review script to fail, output=%s", string(output))
+	}
+	return string(output)
+}
+
+func runCrossReviewScriptWithPrompt(t *testing.T, reviewArgs []string) ([]string, string) {
+	t.Helper()
+
+	return runCrossReviewScriptWithPromptAndEnv(t, reviewArgs, nil)
+}
+
+func runCrossReviewScriptWithPromptAndEnv(t *testing.T, reviewArgs []string, extraEnv map[string]string) ([]string, string) {
+	t.Helper()
+
+	tempRoot := t.TempDir()
+	binDir := filepath.Join(tempRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+
+	capturePath := filepath.Join(tempRoot, "reviewer-args.txt")
+	promptPath := filepath.Join(tempRoot, "reviewer-prompt.txt")
 	writeExecutable(t, filepath.Join(binDir, "codex"), `#!/usr/bin/env bash
 set -euo pipefail
 capture_path="${ACM_TEST_CAPTURE:?}"
+prompt_path="${ACM_TEST_PROMPT:?}"
 printf '%s\n' "$@" >"${capture_path}"
+cat >"${prompt_path}"
 output_path=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -886,8 +1012,15 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-cat >/dev/null
 printf '{"status":"pass","summary":"ok","findings":[]}\n' >"${output_path}"
+`)
+	writeExecutable(t, filepath.Join(binDir, "claude"), `#!/usr/bin/env bash
+set -euo pipefail
+capture_path="${ACM_TEST_CAPTURE:?}"
+prompt_path="${ACM_TEST_PROMPT:?}"
+printf '%s\n' "$@" >"${capture_path}"
+cat >"${prompt_path}"
+printf '{"status":"pass","summary":"ok","findings":[]}\n'
 `)
 	writeExecutable(t, filepath.Join(binDir, "acm"), `#!/usr/bin/env bash
 exit 0
@@ -907,7 +1040,11 @@ exit 0
 		"ACM_RECEIPT_ID=receipt-test",
 		"ACM_PROJECT_ROOT="+projectRoot,
 		"ACM_TEST_CAPTURE="+capturePath,
+		"ACM_TEST_PROMPT="+promptPath,
 	)
+	for key, value := range extraEnv {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -921,7 +1058,11 @@ exit 0
 	if err != nil {
 		t.Fatalf("read captured codex args: %v", err)
 	}
-	return splitNonEmptyLines(string(raw))
+	promptRaw, err := os.ReadFile(promptPath)
+	if err != nil {
+		t.Fatalf("read captured prompt: %v", err)
+	}
+	return splitNonEmptyLines(string(raw)), string(promptRaw)
 }
 
 func repoRoot(t *testing.T) string {

@@ -6,7 +6,21 @@ usage() {
 Run the repo-local cross-LLM review gate for ACM.
 
 Usage:
-  scripts/acm-cross-review.sh [--model <codex-model>] [--reasoning-effort <level>] [--sandbox <mode>]
+  scripts/acm-cross-review.sh [--provider <codex|claude>] [--model <model>] [--reasoning-effort <level>] [--sandbox <mode>] [--yolo] [--dangerously-skip-permissions]
+
+Notes:
+  --yolo is the shared high-trust shortcut. For Codex it passes native --yolo;
+  for Claude it enables --dangerously-skip-permissions.
+
+Cheat sheet:
+  Codex default sandboxed review:
+    scripts/acm-cross-review.sh --provider codex --sandbox read-only
+  Codex high-trust review in an already isolated container:
+    scripts/acm-cross-review.sh --provider codex --model gpt-5.3-codex --reasoning-effort high --yolo
+  Claude default print-mode review:
+    scripts/acm-cross-review.sh --provider claude --model sonnet
+  Claude high-trust review in an already isolated container:
+    scripts/acm-cross-review.sh --provider claude --model sonnet --yolo
 
 Environment:
   ACM_PROJECT_ID
@@ -16,9 +30,12 @@ Environment:
   ACM_REVIEW_KEY
   ACM_REVIEW_SUMMARY
   ACM_WORKFLOW_SOURCE_PATH
+  ACM_CROSS_REVIEW_PROVIDER
   ACM_CROSS_REVIEW_MODEL
   ACM_CROSS_REVIEW_REASONING_EFFORT
   ACM_CROSS_REVIEW_SANDBOX
+  ACM_CROSS_REVIEW_YOLO
+  ACM_CROSS_REVIEW_DANGEROUSLY_SKIP_PERMISSIONS
   ACM_REVIEW_BASELINE_CAPTURED
   ACM_REVIEW_EFFECTIVE_SCOPE_PATHS_JSON
   ACM_REVIEW_CHANGED_PATHS_JSON
@@ -40,12 +57,41 @@ require_flag_value() {
   fi
 }
 
+normalize_bool() {
+  local value="${1:-}"
+  case "${value,,}" in
+    1|true|yes|on)
+      printf 'true\n'
+      ;;
+    *)
+      printf 'false\n'
+      ;;
+  esac
+}
+
+default_provider="codex"
 default_codex_model="gpt-5.3-codex"
+default_claude_model=""
 default_reasoning_effort="xhigh"
 default_codex_sandbox="read-only"
-codex_model="${ACM_CROSS_REVIEW_MODEL:-${default_codex_model}}"
-codex_reasoning_effort="${ACM_CROSS_REVIEW_REASONING_EFFORT:-${default_reasoning_effort}}"
-codex_sandbox="${ACM_CROSS_REVIEW_SANDBOX:-${default_codex_sandbox}}"
+reasoning_effort_explicit=false
+sandbox_explicit=false
+dangerously_skip_permissions_explicit=false
+if [[ -n "${ACM_CROSS_REVIEW_REASONING_EFFORT:-}" ]]; then
+  reasoning_effort_explicit=true
+fi
+if [[ -n "${ACM_CROSS_REVIEW_SANDBOX:-}" ]]; then
+  sandbox_explicit=true
+fi
+if [[ "$(normalize_bool "${ACM_CROSS_REVIEW_DANGEROUSLY_SKIP_PERMISSIONS:-false}")" == "true" ]]; then
+  dangerously_skip_permissions_explicit=true
+fi
+review_provider="${ACM_CROSS_REVIEW_PROVIDER:-${default_provider}}"
+review_model="${ACM_CROSS_REVIEW_MODEL:-}"
+review_reasoning_effort="${ACM_CROSS_REVIEW_REASONING_EFFORT:-${default_reasoning_effort}}"
+review_sandbox="${ACM_CROSS_REVIEW_SANDBOX:-${default_codex_sandbox}}"
+review_yolo="$(normalize_bool "${ACM_CROSS_REVIEW_YOLO:-false}")"
+review_dangerously_skip_permissions="$(normalize_bool "${ACM_CROSS_REVIEW_DANGEROUSLY_SKIP_PERMISSIONS:-false}")"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,18 +101,34 @@ while [[ $# -gt 0 ]]; do
       ;;
     --model)
       require_flag_value "$1" "${2:-}"
-      codex_model="$2"
+      review_model="$2"
+      shift 2
+      ;;
+    --provider)
+      require_flag_value "$1" "${2:-}"
+      review_provider="$2"
       shift 2
       ;;
     --reasoning|--reasoning-effort)
       require_flag_value "$1" "${2:-}"
-      codex_reasoning_effort="$2"
+      review_reasoning_effort="$2"
+      reasoning_effort_explicit=true
       shift 2
       ;;
     --sandbox)
       require_flag_value "$1" "${2:-}"
-      codex_sandbox="$2"
+      review_sandbox="$2"
+      sandbox_explicit=true
       shift 2
+      ;;
+    --yolo)
+      review_yolo=true
+      shift
+      ;;
+    --dangerously-skip-permissions)
+      review_dangerously_skip_permissions=true
+      dangerously_skip_permissions_explicit=true
+      shift
       ;;
     *)
       die_usage "unknown argument: $1"
@@ -74,8 +136,34 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if ! command -v codex >/dev/null 2>&1; then
-  echo "codex CLI is required for scripts/acm-cross-review.sh" >&2
+case "${review_provider}" in
+  codex)
+    if [[ -z "${review_model}" ]]; then
+      review_model="${default_codex_model}"
+    fi
+    if [[ "${dangerously_skip_permissions_explicit}" == "true" ]]; then
+      die_usage "--dangerously-skip-permissions is only supported with --provider claude"
+    fi
+    ;;
+  claude)
+    if [[ -z "${review_model}" ]]; then
+      review_model="${default_claude_model}"
+    fi
+    if [[ "${sandbox_explicit}" == "true" ]]; then
+      die_usage "--sandbox is only supported with --provider codex"
+    fi
+    if [[ "${reasoning_effort_explicit}" == "true" ]]; then
+      die_usage "--reasoning-effort is only supported with --provider codex"
+    fi
+    ;;
+  *)
+    die_usage "unsupported provider: ${review_provider}"
+    ;;
+esac
+
+reviewer_cli="${review_provider}"
+if ! command -v "${reviewer_cli}" >/dev/null 2>&1; then
+  echo "${reviewer_cli} CLI is required for scripts/acm-cross-review.sh" >&2
   exit 127
 fi
 if ! command -v git >/dev/null 2>&1; then
@@ -110,8 +198,8 @@ changed_files_path="${tmp_dir}/changed-files.txt"
 diff_summary_path="${tmp_dir}/diff-summary.txt"
 review_diff_path="${tmp_dir}/review-diff.txt"
 diff_prompt_path="${tmp_dir}/review-diff-prompt.txt"
-codex_stdout_path="${tmp_dir}/codex-stdout.txt"
-codex_stderr_path="${tmp_dir}/codex-stderr.txt"
+reviewer_stdout_path="${tmp_dir}/reviewer-stdout.txt"
+reviewer_stderr_path="${tmp_dir}/reviewer-stderr.txt"
 receipt_fetch_path="${tmp_dir}/receipt-fetch.json"
 plan_fetch_path="${tmp_dir}/plan-fetch.json"
 effective_scope_paths_path="${tmp_dir}/effective-scope-paths.txt"
@@ -433,28 +521,59 @@ Context:
 - workflow_source_path: ${ACM_WORKFLOW_SOURCE_PATH:-.acm/acm-workflows.yaml}
 EOF
 
-codex_args=(
-  exec
-  --model "${codex_model}"
-  -c "model_reasoning_effort=\"${codex_reasoning_effort}\""
-  --sandbox "${codex_sandbox}"
-  --ephemeral
-  -C "${REPO_ROOT}"
-  --output-schema "${schema_path}"
-  --output-last-message "${output_path}"
-  -
-)
+reviewer_args=()
+if [[ "${review_provider}" == "codex" ]]; then
+  reviewer_args=(
+    exec
+  )
+  if [[ -n "${review_model}" ]]; then
+    reviewer_args+=(--model "${review_model}")
+  fi
+  reviewer_args+=(
+    -c "model_reasoning_effort=\"${review_reasoning_effort}\""
+  )
+  if [[ "${review_yolo}" == "true" ]]; then
+    reviewer_args+=(--yolo)
+  else
+    reviewer_args+=(--sandbox "${review_sandbox}")
+  fi
+  reviewer_args+=(
+    --ephemeral
+    -C "${REPO_ROOT}"
+    --output-schema "${schema_path}"
+    --output-last-message "${output_path}"
+    -
+  )
+else
+  reviewer_args=(
+    -p
+  )
+  if [[ -n "${review_model}" ]]; then
+    reviewer_args+=(--model "${review_model}")
+  fi
+  if [[ "${review_yolo}" == "true" || "${review_dangerously_skip_permissions}" == "true" ]]; then
+    reviewer_args+=(--dangerously-skip-permissions)
+  fi
+  reviewer_args+=(
+    --output-format json
+    --json-schema "$(tr -d '\n' <"${schema_path}")"
+  )
+fi
 
-mkdir -p "${tmp_dir}/codex-cache"
-
-codex_exit_code=0
-# Preserve the user's Codex home so auth/config remain available, but isolate cache/tmp writes.
-XDG_CACHE_HOME="${tmp_dir}/codex-cache" \
-TMPDIR="${tmp_dir}" \
-codex "${codex_args[@]}" >"${codex_stdout_path}" 2>"${codex_stderr_path}" <"${prompt_path}" || codex_exit_code=$?
+reviewer_exit_code=0
+if [[ "${review_provider}" == "codex" ]]; then
+  mkdir -p "${tmp_dir}/codex-cache"
+  # Preserve the user's Codex home so auth/config remain available, but isolate cache/tmp writes.
+  XDG_CACHE_HOME="${tmp_dir}/codex-cache" \
+  TMPDIR="${tmp_dir}" \
+  "${reviewer_cli}" "${reviewer_args[@]}" >"${reviewer_stdout_path}" 2>"${reviewer_stderr_path}" <"${prompt_path}" || reviewer_exit_code=$?
+else
+  TMPDIR="${tmp_dir}" \
+  "${reviewer_cli}" "${reviewer_args[@]}" <"${prompt_path}" >"${reviewer_stdout_path}" 2>"${reviewer_stderr_path}" || reviewer_exit_code=$?
+fi
 
 if [[ ! -s "${output_path}" ]]; then
-  if python3 - "${codex_stdout_path}" "${codex_stderr_path}" "${output_path}" <<'PY'
+  if python3 - "${reviewer_stdout_path}" "${reviewer_stderr_path}" "${output_path}" <<'PY'
 import json
 import sys
 
@@ -493,17 +612,17 @@ PY
 fi
 
 if [[ ! -s "${output_path}" ]]; then
-  if [[ -s "${codex_stdout_path}" ]]; then
-    tail -n 80 "${codex_stdout_path}" >&2 || cat "${codex_stdout_path}" >&2
+  if [[ -s "${reviewer_stdout_path}" ]]; then
+    tail -n 80 "${reviewer_stdout_path}" >&2 || cat "${reviewer_stdout_path}" >&2
   fi
-  if [[ -s "${codex_stderr_path}" ]]; then
-    tail -n 80 "${codex_stderr_path}" >&2 || cat "${codex_stderr_path}" >&2
+  if [[ -s "${reviewer_stderr_path}" ]]; then
+    tail -n 80 "${reviewer_stderr_path}" >&2 || cat "${reviewer_stderr_path}" >&2
   fi
-  if (( codex_exit_code != 0 )); then
-    printf 'FAIL: codex review did not produce structured output (exit %s).\n' "${codex_exit_code}" >&2
-    exit "${codex_exit_code}"
+  if (( reviewer_exit_code != 0 )); then
+    printf 'FAIL: %s review did not produce structured output (exit %s).\n' "${review_provider}" "${reviewer_exit_code}" >&2
+    exit "${reviewer_exit_code}"
   fi
-  echo "FAIL: codex review produced no structured output." >&2
+  printf 'FAIL: %s review produced no structured output.\n' "${review_provider}" >&2
   exit 1
 fi
 

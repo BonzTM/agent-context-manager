@@ -24,8 +24,9 @@ completion:
         phases: ["review"]
         changed_paths_any: ["cmd/**", "internal/**", "spec/**"]
       run:
-        # Repo-local script flags belong in argv, so you can pin the review model here.
-        # Edit argv to match your reviewer setup (model, reasoning level, sandbox mode, etc.)
-        argv: ["scripts/acm-cross-review.sh", "--sandbox", "read-only"]
+        # Repo-local script flags belong in argv, so you can pin the review provider and native
+        # review flags here. Supported examples include Codex `--provider codex --yolo` and
+        # Claude `--provider claude --dangerously-skip-permissions`.
+        argv: ["scripts/acm-cross-review.sh", "--provider", "codex", "--yolo"]
         cwd: .
         timeout_sec: 1800

@@ -38,12 +38,14 @@ completion:
       run:
         argv:
           - "scripts/acm-cross-review.sh"
+          - "--provider"
+          - "codex"
           - "--model"
           - "gpt-5.3-codex"
           - "--reasoning-effort"
           - "high"
-          # Set this per host/runtime. Keep read-only where Landlock works; relax it on nested/containerized hosts that already provide isolation.
-          - "--sandbox"
-          - "workspace-write"          
+          # On this repo's nested/containerized hosts, prefer Codex native yolo mode instead of
+          # inner sandbox flags so the outer runtime can provide isolation without Landlock clashes.
+          - "--yolo"
         cwd: .
         timeout_sec: 1800
