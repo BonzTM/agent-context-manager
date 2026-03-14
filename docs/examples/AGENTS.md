@@ -21,6 +21,7 @@ Keep this file as the fast path, then move heavier architecture, checklist, or t
 6. If code, config, schema, or other executable behavior changes, run `verify` before `done`.
 7. If `.acm/acm-workflows.yaml` requires review task keys such as `review:cross-llm`, prefer `review --run` when the task defines a `run` block; otherwise use manual `review` fields or `work` before `done`.
 8. End every task with `done`, including every changed file for file-backed work when you know them, or letting ACM derive the task delta from the receipt baseline. When that detected delta is empty, the closeout is effectively no-file.
+   Built-in governance files such as repo-root `AGENTS.md`, `CLAUDE.md`, and canonical `.acm/**` contract files are already treated as managed completion scope.
 9. If you learn a reusable decision, gotcha, or preference, record it with `memory`.
 
 When the task changes rules, tags, tests, workflows, onboarding, or tool-surface behavior, refresh broker state with `acm sync --mode working_tree --insert-new-candidates` and then run `acm health --include-details` before `done`.

@@ -130,7 +130,7 @@ Effective scope is the union of:
 
 - receipt `initial_scope_paths`
 - plan `discovered_paths`
-- ACM-managed governance files that are allowed outside project code scope
+- ACM-managed governance files that are allowed outside project code scope, including repo-root `AGENTS.md`, `CLAUDE.md`, and the canonical `.acm/**` contract files
 
 `done` and runnable `review` use this effective scope together with the receipt baseline to validate what actually changed.
 
@@ -216,7 +216,7 @@ completion:
         timeout_sec: 1800
 ```
 
-Runnable review gates are terminal checks, not inner-loop retries. ACM persists append-only review attempts and, when `rerun_requires_new_fingerprint: true`, only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. The scoped fingerprint covers the effective scope for the task: receipt `initial_scope_paths`, any `plan.discovered_paths` recorded through `work`, and ACM-managed governance files that completion reporting already allows outside plan scope.
+Runnable review gates are terminal checks, not inner-loop retries. ACM persists append-only review attempts and, when `rerun_requires_new_fingerprint: true`, only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. The scoped fingerprint covers the effective scope for the task: receipt `initial_scope_paths`, any `plan.discovered_paths` recorded through `work`, and ACM-managed governance files that completion reporting already allows outside plan scope, including repo-root `AGENTS.md` and `CLAUDE.md`.
 
 Selectors use the same shape as `verify` selection: `phases`, `tags_any`, `changed_paths_any`, and `always_run`.
 
