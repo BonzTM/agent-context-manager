@@ -3,16 +3,18 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Install acm-broker skill assets for Codex and Claude.
+Install acm-broker skill assets for Codex, Claude, and OpenCode.
 
 Usage:
   scripts/install-skill-pack.sh [options]
 
 Options:
   --codex [<path>]        Install Codex skill pack only. Optional path sets Codex home
-                          (default: $CODEX_HOME or ~/.codex)
+                           (default: $CODEX_HOME or ~/.codex)
   --claude [<path>]       Install Claude command pack only. Optional path sets target repo
-                          (default: current directory)
+                           (default: current directory)
+  --opencode [<path>]     Install OpenCode repo-local companion docs only. Optional
+                           path sets target repo (default: current directory)
   -h, --help              Show help
 
 Examples:
@@ -21,6 +23,8 @@ Examples:
   scripts/install-skill-pack.sh --claude /path/to/project
   scripts/install-skill-pack.sh --codex
   scripts/install-skill-pack.sh --codex /path/to/codex-home
+  scripts/install-skill-pack.sh --opencode
+  scripts/install-skill-pack.sh --opencode /path/to/project
   scripts/install-skill-pack.sh --codex --claude /path/to/project
 USAGE
 }
@@ -33,8 +37,10 @@ fi
 
 codex_home="${CODEX_HOME:-${HOME}/.codex}"
 claude_target="$(pwd)"
+opencode_target="$(pwd)"
 install_codex=true
 install_claude=true
+install_opencode=false
 selection_explicit=false
 
 select_target() {
@@ -42,12 +48,15 @@ select_target() {
   if [[ "${selection_explicit}" == false ]]; then
     install_codex=false
     install_claude=false
+    install_opencode=false
     selection_explicit=true
   fi
   if [[ "${target}" == "codex" ]]; then
     install_codex=true
-  else
+  elif [[ "${target}" == "claude" ]]; then
     install_claude=true
+  else
+    install_opencode=true
   fi
 }
 
@@ -122,6 +131,20 @@ while [[ $# -gt 0 ]]; do
       claude_target="${1#--claude=}"
       shift
       ;;
+    --opencode)
+      select_target opencode
+      if [[ $# -ge 2 && "$2" != -* ]]; then
+        opencode_target="$2"
+        shift 2
+      else
+        shift
+      fi
+      ;;
+    --opencode=*)
+      select_target opencode
+      opencode_target="${1#--opencode=}"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -134,7 +157,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "${install_codex}" == false && "${install_claude}" == false ]]; then
+if [[ "${install_codex}" == false && "${install_claude}" == false && "${install_opencode}" == false ]]; then
   echo "error: no install targets selected" >&2
   exit 2
 fi
@@ -184,4 +207,17 @@ if [[ "${install_claude}" == true ]]; then
   echo "Installed Claude companion docs: ${claude_pack_dir}"
 fi
 
-echo "Done. Restart Codex and/or Claude Code to load the installed assets."
+if [[ "${install_opencode}" == true ]]; then
+  opencode_target="$(cd "${opencode_target}" && pwd)"
+  opencode_pack_dir="${opencode_target}/.opencode/acm-broker"
+
+  mkdir -p "${opencode_pack_dir}"
+  cp "${skill_src}/opencode/AGENTS.example.md" "${opencode_pack_dir}/AGENTS.example.md"
+  cp "${skill_src}/opencode/README.md" "${opencode_pack_dir}/README.md"
+
+  echo "Installed OpenCode companion docs: ${opencode_pack_dir}"
+  echo "OpenCode install is docs-only; use normal acm CLI/MCP access from the repo."
+  echo "Optional repo-local OpenCode companion via init: acm init --apply-template opencode-pack"
+fi
+
+echo "Done. Restart Codex and/or Claude Code, or reload OpenCode if it caches companion docs, to load the installed assets."

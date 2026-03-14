@@ -19,6 +19,7 @@ var statusTemplateIDs = []string{
 	"claude-command-pack",
 	"claude-hooks",
 	"codex-pack",
+	"opencode-pack",
 	"detailed-planning-enforcement",
 	"git-hooks-precommit",
 	"starter-contract",

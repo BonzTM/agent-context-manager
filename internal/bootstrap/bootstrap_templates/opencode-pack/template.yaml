@@ -1,0 +1,10 @@
+version: acm.init-template.v1
+id: opencode-pack
+summary: Seed OpenCode ACM companion docs into .opencode/acm-broker.
+operations:
+  - type: create_if_missing
+    target: .opencode/acm-broker/README.md
+    source: files/.opencode/acm-broker/README.md
+  - type: create_if_missing
+    target: .opencode/acm-broker/AGENTS.example.md
+    source: files/.opencode/acm-broker/AGENTS.example.md

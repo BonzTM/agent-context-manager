@@ -123,6 +123,7 @@ acm init \
 
 `--apply-template` is repeatable and safe to re-run. Templates only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments (e.g. `.claude/settings.json`). They never delete files or overwrite files you've edited.
 Add `--apply-template codex-pack` when you want repo-local Codex companion docs under `.codex/acm-broker/`.
+Add `--apply-template opencode-pack` when you want repo-local OpenCode companion docs under `.opencode/acm-broker/`.
 
 Starter verify profiles:
 
@@ -139,6 +140,7 @@ Planning profile:
 Tooling companions:
 
 - `codex-pack` — seeds `.codex/acm-broker/README.md` and `.codex/acm-broker/AGENTS.example.md` so Codex has repo-local companion docs in addition to the global skill install
+- `opencode-pack` — seeds `.opencode/acm-broker/README.md` and `.opencode/acm-broker/AGENTS.example.md` for the explicit repo-local OpenCode companion path
 - `claude-command-pack` — seeds `.claude/commands/*` and `.claude/acm-broker/*`
 - `claude-hooks` — seeds `.claude/hooks/acm-receipt-guard.sh`, `.claude/hooks/acm-receipt-mark.sh`, `.claude/hooks/acm-session-context.sh`, `.claude/hooks/acm-edit-state.sh`, and `.claude/hooks/acm-stop-guard.sh` to inject the ACM loop at session start, block edits until `/acm-context` succeeds, require `/acm-work` before untracked multi-file edits, and block stop until edits are reported
 - `git-hooks-precommit` — seeds `.githooks/pre-commit` for staged-file `acm verify` gating; enable with `git config core.hooksPath .githooks`
@@ -212,6 +214,43 @@ That seeds `.codex/acm-broker/README.md` and `.codex/acm-broker/AGENTS.example.m
 
 Codex can drive the same core workflow directly: `context`, `work`, `verify`, `review`, `done`, and `memory`. The absence of slash commands or Claude-style hooks is intentional; Codex relies on the installed skill, repo-root `AGENTS.md`, and normal CLI/MCP access.
 
+### OpenCode (repo-local companion docs)
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --opencode
+```
+
+Run this from your project root. It installs `.opencode/acm-broker/README.md` and `.opencode/acm-broker/AGENTS.example.md` into the current repo.
+
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --opencode`.
+
+Use `--opencode` when you want to add the OpenCode companion docs to an existing repo immediately.
+
+If you prefer to seed the same repo-local companion files through `init`, run:
+
+```bash
+acm init --apply-template opencode-pack
+```
+
+Use `opencode-pack` when you are bootstrapping a repo with `acm init` and want the OpenCode companion docs created alongside the rest of the starter ACM assets.
+
+That seeds `.opencode/acm-broker/README.md` and `.opencode/acm-broker/AGENTS.example.md`. Keep the repo-root `AGENTS.md` authoritative; the OpenCode companion path is intentionally explicit and repo-local until this repo documents a verified stronger native OpenCode integration surface.
+
+OpenCode can drive the same core workflow directly: `context`, `work`, `verify`, `review`, `done`, and `memory`. Use OpenCode's native repo search and edit tools normally; ACM supplies durable context, planning state, verification, review gates, completion reporting, and shared memory.
+
+Minimal walkthrough:
+
+1. Install the repo-local companion docs with `--opencode` or seed them during `acm init` with `opencode-pack`.
+2. Keep the repo-root `AGENTS.md` as the source of truth.
+3. In OpenCode, start real work with `acm context --project <id> --task-text "..." --phase plan|execute|review`.
+4. For multi-step work, persist plan/task state with `acm work` and declare `plan.discovered_paths` when governed scope expands.
+5. Before closing, run `acm verify`, then `acm review --run` when the workflow requires it, then `acm done`.
+6. If the task produced a reusable decision or pitfall, save it with `acm memory`.
+
+For already isolated hosts such as devcontainers, LXC containers, or similar outer sandboxes, prefer repo workflow review argv that use `--yolo` on `scripts/acm-cross-review.sh`. That keeps the review runner from fighting a second nested sandbox while still preserving the outer isolation boundary.
+
+Unlike the Claude path, ACM does not currently ship an OpenCode hook pack. That is intentional: this repo has not yet documented a verified native OpenCode hook mechanism, so the supported path stays explicit and inspectable through repo-local docs plus normal CLI/MCP access.
+
 ### MCP (tool-native models)
 
 ```bash
@@ -228,7 +267,7 @@ Thirteen tools exposed:
 `verify` and `review` are intentionally different:
 
 - `verify` runs deterministic repo-defined executable checks from `.acm/acm-tests.yaml` and updates `verify:tests`.
-- `review` satisfies one named workflow gate from `.acm/acm-workflows.yaml`; in run mode it executes that gate's `run` block and records review attempts for one review task such as `review:cross-llm`.
+- `review` satisfies one named workflow gate from `.acm/acm-workflows.yaml`; in run mode it executes that gate's `run` block and records review attempts for one review task such as `review:cross-llm`. Reviewer-specific choices such as provider selection stay in the workflow `run.argv` block; `--yolo` is the shared high-trust shortcut and maps to native Codex yolo mode or Claude dangerous-permissions mode.
 
 Use the commands for different questions:
 
@@ -466,6 +505,7 @@ Templates are seed-only — they create missing files but never overwrite edited
 | `verify-python` | Python-oriented `.acm/acm-tests.yaml` |
 | `verify-rust` | Rust-oriented `.acm/acm-tests.yaml` |
 | `codex-pack` | `.codex/acm-broker/README.md`, `.codex/acm-broker/AGENTS.example.md` |
+| `opencode-pack` | `.opencode/acm-broker/README.md`, `.opencode/acm-broker/AGENTS.example.md` |
 | `claude-command-pack` | `.claude/commands/*`, `.claude/acm-broker/*` |
 | `claude-hooks` | Claude hook settings plus ACM process guard scripts |
 | `git-hooks-precommit` | `.githooks/pre-commit` |

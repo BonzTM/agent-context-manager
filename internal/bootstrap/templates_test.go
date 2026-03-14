@@ -88,6 +88,31 @@ func TestCodexPackTemplateMatchesSkillPack(t *testing.T) {
 	}
 }
 
+func TestOpenCodePackTemplateMatchesSkillPack(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"bootstrap_templates/opencode-pack/files/.opencode/acm-broker/README.md":         "../../skills/acm-broker/opencode/README.md",
+		"bootstrap_templates/opencode-pack/files/.opencode/acm-broker/AGENTS.example.md": "../../skills/acm-broker/opencode/AGENTS.example.md",
+	}
+
+	for embeddedPath, repoRelativePath := range cases {
+		t.Run(filepath.Base(embeddedPath), func(t *testing.T) {
+			expected, err := os.ReadFile(filepath.Clean(repoRelativePath))
+			if err != nil {
+				t.Fatalf("read skill-pack asset: %v", err)
+			}
+			actual, err := initTemplateFS.ReadFile(embeddedPath)
+			if err != nil {
+				t.Fatalf("read embedded template asset: %v", err)
+			}
+			if string(actual) != string(expected) {
+				t.Fatalf("template asset drifted from skill-pack counterpart: %s", embeddedPath)
+			}
+		})
+	}
+}
+
 func TestRepoClaudeCommandPackMatchesSkillPack(t *testing.T) {
 	t.Parallel()
 
@@ -125,6 +150,31 @@ func TestRepoCodexCompanionMatchesSkillPack(t *testing.T) {
 	cases := map[string]string{
 		"../../.codex/acm-broker/README.md":         "../../skills/acm-broker/codex/README.md",
 		"../../.codex/acm-broker/AGENTS.example.md": "../../skills/acm-broker/codex/AGENTS.example.md",
+	}
+
+	for repoRelativePath, skillRelativePath := range cases {
+		t.Run(filepath.Base(repoRelativePath), func(t *testing.T) {
+			actual, err := os.ReadFile(filepath.Clean(repoRelativePath))
+			if err != nil {
+				t.Fatalf("read repo asset: %v", err)
+			}
+			expected, err := os.ReadFile(filepath.Clean(skillRelativePath))
+			if err != nil {
+				t.Fatalf("read skill-pack asset: %v", err)
+			}
+			if string(actual) != string(expected) {
+				t.Fatalf("repo asset drifted from skill-pack counterpart: %s", repoRelativePath)
+			}
+		})
+	}
+}
+
+func TestRepoOpenCodeCompanionMatchesSkillPack(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"../../.opencode/acm-broker/README.md":         "../../skills/acm-broker/opencode/README.md",
+		"../../.opencode/acm-broker/AGENTS.example.md": "../../skills/acm-broker/opencode/AGENTS.example.md",
 	}
 
 	for repoRelativePath, skillRelativePath := range cases {
@@ -535,6 +585,60 @@ func TestCodexCompanionExampleTreatsCodexAsPrimaryOperator(t *testing.T) {
 	}
 }
 
+func TestOpenCodeCompanionCoversPrimaryWorkflowWithoutInventedGlobalHooks(t *testing.T) {
+	t.Parallel()
+
+	raw, err := initTemplateFS.ReadFile("bootstrap_templates/opencode-pack/files/.opencode/acm-broker/README.md")
+	if err != nil {
+		t.Fatalf("read embedded OpenCode companion: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{
+		"acm init --apply-template opencode-pack",
+		"work.plan.discovered_paths",
+		"acm sync --mode working_tree --insert-new-candidates",
+		"acm health --include-details",
+		"`acm context`",
+		"`acm work`",
+		"`acm verify`",
+		"`acm done`",
+		"`acm memory`",
+		"documentation only",
+	} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("OpenCode companion is missing snippet %q", snippet)
+		}
+	}
+	for _, forbidden := range []string{"/acm-context", "SessionStart", "~/.opencode/skills"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("OpenCode companion must not imply unsupported integration snippet %q", forbidden)
+		}
+	}
+}
+
+func TestOpenCodeCompanionExampleTreatsOpenCodeAsPrimaryOperator(t *testing.T) {
+	t.Parallel()
+
+	raw, err := initTemplateFS.ReadFile("bootstrap_templates/opencode-pack/files/.opencode/acm-broker/AGENTS.example.md")
+	if err != nil {
+		t.Fatalf("read embedded OpenCode AGENTS example: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{
+		"OpenCode is a primary ACM operator",
+		"acm context",
+		"acm verify",
+		"acm done",
+		"acm memory",
+		"work.plan.discovered_paths",
+		".opencode/acm-broker/",
+	} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("OpenCode AGENTS example is missing snippet %q", snippet)
+		}
+	}
+}
+
 func TestDetailedPlanningTemplateValidatorSkipsUnmaterializedReceiptPlans(t *testing.T) {
 	t.Parallel()
 
@@ -576,6 +680,21 @@ func TestInitTemplateDocsListCodexPack(t *testing.T) {
 	}
 }
 
+func TestInitTemplateDocsListOpenCodePack(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Clean("../../docs/examples/init-templates.md"))
+	if err != nil {
+		t.Fatalf("read init-template docs: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{"`opencode-pack`", ".opencode/acm-broker/README.md", ".opencode/acm-broker/AGENTS.example.md"} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("init-template docs are missing snippet %q", snippet)
+		}
+	}
+}
+
 func TestInstallSkillPackMentionsCodexCompanionDocs(t *testing.T) {
 	t.Parallel()
 
@@ -585,6 +704,21 @@ func TestInstallSkillPackMentionsCodexCompanionDocs(t *testing.T) {
 	}
 	content := string(raw)
 	for _, snippet := range []string{"Installed Codex companion docs", "codex-pack"} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("install script is missing snippet %q", snippet)
+		}
+	}
+}
+
+func TestInstallSkillPackMentionsOpenCodeCompanionDocs(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Clean("../../scripts/install-skill-pack.sh"))
+	if err != nil {
+		t.Fatalf("read install script: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{"Installed OpenCode companion docs", "opencode-pack", "--opencode"} {
 		if !strings.Contains(content, snippet) {
 			t.Fatalf("install script is missing snippet %q", snippet)
 		}

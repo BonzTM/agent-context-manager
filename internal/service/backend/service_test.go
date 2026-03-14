@@ -3427,7 +3427,7 @@ func TestStatus_ReportsMissingCanonicalSources(t *testing.T) {
 	for _, integration := range result.Integrations {
 		integrationIDs = append(integrationIDs, integration.ID)
 	}
-	for _, id := range []string{"starter-contract", "detailed-planning-enforcement", "verify-generic", "verify-go", "verify-python", "verify-rust", "verify-ts"} {
+	for _, id := range []string{"starter-contract", "detailed-planning-enforcement", "verify-generic", "verify-go", "verify-python", "verify-rust", "verify-ts", "opencode-pack"} {
 		if !containsString(integrationIDs, id) {
 			t.Fatalf("expected integration %q in %+v", id, integrationIDs)
 		}
@@ -5343,6 +5343,54 @@ func TestInit_ApplyClaudeCommandPackIndexesCreatedFiles(t *testing.T) {
 		".claude/acm-broker/README.md",
 		".claude/commands/acm-context.md",
 		".claude/commands/acm-review.md",
+	} {
+		if !containsString(gotPaths, required) {
+			t.Fatalf("expected indexed template path %q in %v", required, gotPaths)
+		}
+	}
+}
+
+func TestInit_ApplyOpenCodePackIndexesCreatedFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Init(context.Background(), v1.InitPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+		ApplyTemplates:   []string{"opencode-pack"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if result.CandidateCount != 3 || result.IndexedStubs != 3 {
+		t.Fatalf("unexpected bootstrap counts: %+v", result)
+	}
+	templateResult, ok := initTemplateResultByID(result.TemplateResults, "opencode-pack")
+	if !ok {
+		t.Fatalf("expected opencode-pack result, got %+v", result.TemplateResults)
+	}
+	if len(templateResult.Created) != 2 {
+		t.Fatalf("expected 2 created files, got %+v", templateResult.Created)
+	}
+
+	gotPaths := make([]string, 0, len(repo.upsertStubCalls[0]))
+	for _, stub := range repo.upsertStubCalls[0] {
+		gotPaths = append(gotPaths, stub.Path)
+	}
+	for _, required := range []string{
+		".opencode/acm-broker/README.md",
+		".opencode/acm-broker/AGENTS.example.md",
 	} {
 		if !containsString(gotPaths, required) {
 			t.Fatalf("expected indexed template path %q in %v", required, gotPaths)

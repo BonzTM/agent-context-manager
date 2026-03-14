@@ -74,6 +74,7 @@ acm init \
 ```
 
 Swap in `--apply-template codex-pack` when you want repo-local Codex companion docs under `.codex/acm-broker/` instead of Claude-specific command assets.
+Use `--apply-template opencode-pack` when you want repo-local OpenCode companion docs under `.opencode/acm-broker/` without assuming a global OpenCode skill location.
 
 This scans your repo and creates auto-indexed pointer stubs for discovered files so `fetch`, health, memory evidence, and governed scope checks can work immediately. When `--project` is omitted, acm uses `ACM_PROJECT_ID` first and otherwise infers the project identifier from the effective repo root. Pass `--project` when you want a short stable namespace that differs from the folder name.
 
@@ -87,7 +88,7 @@ This scans your repo and creates auto-indexed pointer stubs for discovered files
 
 Use `--persist-candidates` to save the enumerated file list to `.acm/init_candidates.json`.
 
-Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `detailed-planning-enforcement`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `codex-pack`, `claude-command-pack`, `claude-hooks`, `git-hooks-precommit`. See [docs/examples/init-templates.md](examples/init-templates.md) for the seeded files and template-specific behavior.
+Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `detailed-planning-enforcement`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `codex-pack`, `opencode-pack`, `claude-command-pack`, `claude-hooks`, `git-hooks-precommit`. See [docs/examples/init-templates.md](examples/init-templates.md) for the seeded files and template-specific behavior.
 
 If you want to inspect indexing drift later, use `acm health --include-details` or `acm status`. The standalone `coverage` command is gone; the useful signals now live in health/status.
 
@@ -504,6 +505,57 @@ Claude and Codex hand off through the same ACM state. A common pattern is:
 
 There is intentionally no fake slash-command or hook parity here. Codex relies on the installed skill, the repo-root `AGENTS.md`, and normal CLI/MCP access.
 
+### OpenCode
+
+Install the repo-local OpenCode companion docs into your project:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --opencode
+```
+
+Run this from your project root. It installs:
+
+- `.opencode/acm-broker/README.md`
+- `.opencode/acm-broker/AGENTS.example.md`
+
+If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --opencode`.
+
+Use `--opencode` when you are adding OpenCode guidance to an existing repo immediately.
+
+If you prefer to seed the same files through `init`, rerun:
+
+```bash
+acm init --apply-template opencode-pack
+```
+
+Use `opencode-pack` when you are already bootstrapping the repo with `acm init` and want the OpenCode companion docs created alongside the rest of the starter ACM assets.
+
+Keep the repo-root `AGENTS.md` authoritative. The current OpenCode path is explicit and repo-local: companion docs plus normal `acm` CLI or MCP access.
+
+OpenCode is a primary ACM operator, not only a review backend. The normal loop is:
+
+1. `context`
+2. `work`
+3. `verify`
+4. `review`
+5. `done`
+6. `memory`
+
+Use OpenCode's native repo search and edit tools normally; ACM provides durable state, rules, verification, review, and governed closeout.
+
+Short walkthrough:
+
+1. Install the companion docs with `--opencode`, or seed them during `acm init` with `opencode-pack`.
+2. Keep `AGENTS.md` authoritative and use `.opencode/acm-broker/README.md` as the thin OpenCode companion.
+3. Start implementation or debugging work with `acm context --project <id> --task-text "..." --phase execute`.
+4. If the task spans multiple steps or files, persist it with `acm work`; add `plan.discovered_paths` before review/done when governed scope expands.
+5. Run `acm verify` before completion, then `acm review --run` when `.acm/acm-workflows.yaml` selects a runnable review gate, then `acm done`.
+6. Record stable operator decisions or pitfalls with `acm memory`.
+
+For already isolated/containerized hosts, prefer workflow `run.argv` that uses `scripts/acm-cross-review.sh --yolo`; the shared high-trust shortcut avoids nested sandbox conflicts while relying on the outer container boundary.
+
+There is intentionally no undocumented global OpenCode skill path or hidden hook story here. ACM does not currently ship an OpenCode hook pack because this repo has not documented a verified native OpenCode hook mechanism yet.
+
 ### MCP
 
 For models with native tool support, use the MCP adapter:
@@ -666,15 +718,16 @@ completion:
         phases: ["review"]
         changed_paths_any: ["cmd/**", "internal/**", "spec/**"]
       run:
-        # Edit argv to match your reviewer setup (model, reasoning level, sandbox mode, etc.)
-        argv: ["scripts/acm-cross-review.sh", "--sandbox", "read-only"]
+        # Edit argv to match your reviewer setup (provider, model, reasoning level, native
+        # permission/sandbox flags, etc.)
+        argv: ["scripts/acm-cross-review.sh", "--provider", "codex", "--yolo"]
         cwd: .
         timeout_sec: 1800
 ```
 
 Init seeds the thin `required_tasks: []` skeleton by default. Adding gates like `review:cross-llm` is an opt-in repo policy choice.
 
-When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. The scoped fingerprint covers effective scope (`initial_scope_paths` + `discovered_paths`) plus ACM-managed governance files that completion reporting already allows outside project file scope, including repo-root `AGENTS.md` and `CLAUDE.md`. Without `run`, agents can use manual `review` fields or a direct `work` update, but those manual notes do not satisfy runnable gates. Repo-local reviewer choices such as a Codex model, reasoning effort, or sandbox mode belong in the workflow `run.argv`.
+When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. The scoped fingerprint covers effective scope (`initial_scope_paths` + `discovered_paths`) plus ACM-managed governance files that completion reporting already allows outside project file scope, including repo-root `AGENTS.md` and `CLAUDE.md`. Without `run`, agents can use manual `review` fields or a direct `work` update, but those manual notes do not satisfy runnable gates. Repo-local reviewer choices such as provider selection, model, reasoning effort, and the shared `--yolo` high-trust shortcut belong in the workflow `run.argv`; for Claude, `--yolo` maps to dangerous permission bypass, and `--dangerously-skip-permissions` remains available as the explicit provider-native form.
 If the working tree is dirty but the active effective scope captures zero of those changes into the runnable review set, the runner should fail fast and tell the agent to rerun `context` with a broader task or declare the missing files through `work`. Runnable review output should also surface the total repo-changed versus scoped-changed file counts for quick diagnosis.
 
 Keep richer plan-shape enforcement in `verify`, not `completion.required_tasks`, unless you truly need an additional final gate. Workflow selectors operate on phase, tags, paths, and pointers; they do not currently distinguish thin plans from `kind=feature` plans by themselves.

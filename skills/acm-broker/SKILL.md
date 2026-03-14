@@ -57,6 +57,7 @@ Defaults:
 
 Use templates from `references/templates.md` and `assets/requests/*.json`.
 For Codex-first repo setup, see `codex/README.md` and `codex/AGENTS.example.md` inside this skill for the companion docs that pair the global skill with a repo-root `AGENTS.md`.
+For OpenCode-first repo setup, see `opencode/README.md` and `opencode/AGENTS.example.md` for the repo-local companion docs installed through `scripts/install-skill-pack.sh --opencode` or `acm init --apply-template opencode-pack`.
 
 ## Rules
 

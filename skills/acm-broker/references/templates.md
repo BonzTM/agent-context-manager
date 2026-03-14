@@ -5,6 +5,7 @@
 These examples assume installed `acm` and `acm-mcp` binaries are available on `PATH`.
 Example payloads show explicit `project_id` values for clarity. In live usage you may omit `project_id` when `ACM_PROJECT_ID` is set or acm can infer the project from the effective repo root.
 For Codex-first repo setup, the installed skill also ships `codex/README.md` and `codex/AGENTS.example.md`, and `acm init --apply-template codex-pack` seeds repo-local copies under `.codex/acm-broker/`.
+For OpenCode-first repo setup, `scripts/install-skill-pack.sh --opencode` or `acm init --apply-template opencode-pack` seeds repo-local companion docs under `.opencode/acm-broker/`.
 
 1. Run `acm context`.
 2. Follow the returned rules block (or rule pointers) as hard requirements.
@@ -349,7 +350,7 @@ Run:
 acm-mcp invoke --tool review --in assets/requests/mcp_review.json
 ```
 
-`review` is intentionally thin. It lowers to one `work.tasks[]` merge update. Omitted `key`, `summary`, and `status` default to `review:cross-llm`, `Cross-LLM review`, and `complete`. Prefer `run=true` when the repo workflow defines a runnable review gate because manual complete notes do not satisfy runnable gates. Use `status=blocked` plus `blocked_reason` when the review gate is waiting or failed, and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode. Put repo-local reviewer choices such as script arguments, model ids, reasoning levels, or sandbox modes in the workflow `run.argv` block.
+`review` is intentionally thin. It lowers to one `work.tasks[]` merge update. Omitted `key`, `summary`, and `status` default to `review:cross-llm`, `Cross-LLM review`, and `complete`. Prefer `run=true` when the repo workflow defines a runnable review gate because manual complete notes do not satisfy runnable gates. Use `status=blocked` plus `blocked_reason` when the review gate is waiting or failed, and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode. Put repo-local reviewer choices such as script arguments, provider selection, model ids, reasoning levels, and the shared `--yolo` high-trust shortcut in the workflow `run.argv` block; for Claude, `--yolo` maps to `--dangerously-skip-permissions`.
 
 When work tasks are present, `done.scope_mode` controls gate behavior: `strict` enforces configured completion tasks from `.acm/acm-workflows.yaml`, and `warn` surfaces warnings. ACM uses the receipt baseline delta as the authoritative file set when it is available. If you also supply `files_changed`, ACM cross-checks that list and surfaces mismatches as violations. When changed files are present and no workflow gates are configured, ACM falls back to `verify:tests`; a detected empty delta behaves like a no-file closure but still honors explicit workflow gates.
 
