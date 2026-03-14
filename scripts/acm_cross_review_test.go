@@ -11,9 +11,10 @@ import (
 func TestACMCrossReviewAcceptsWorkflowModelArgs(t *testing.T) {
 	t.Parallel()
 
-	args := runCrossReviewScript(t, []string{"--model", "gpt-5.4", "--reasoning-effort", "high"})
+	args := runCrossReviewScript(t, []string{"--model", "gpt-5.4", "--reasoning-effort", "high", "--sandbox", "workspace-write"})
 	assertArgSequence(t, args, "--model", "gpt-5.4")
 	assertArgSequence(t, args, "-c", `model_reasoning_effort="high"`)
+	assertArgSequence(t, args, "--sandbox", "workspace-write")
 }
 
 func TestACMCrossReviewUsesDefaultModelArgs(t *testing.T) {
@@ -22,6 +23,7 @@ func TestACMCrossReviewUsesDefaultModelArgs(t *testing.T) {
 	args := runCrossReviewScript(t, nil)
 	assertArgSequence(t, args, "--model", "gpt-5.3-codex")
 	assertArgSequence(t, args, "-c", `model_reasoning_effort="xhigh"`)
+	assertArgSequence(t, args, "--sandbox", "read-only")
 }
 
 func TestACMCrossReviewIncludesManagedAndDeletedScopedFiles(t *testing.T) {

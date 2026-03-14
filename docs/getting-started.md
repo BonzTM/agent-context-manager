@@ -666,15 +666,15 @@ completion:
         phases: ["review"]
         changed_paths_any: ["cmd/**", "internal/**", "spec/**"]
       run:
-        # Edit argv to match your reviewer setup (model, reasoning level, etc.)
-        argv: ["scripts/acm-cross-review.sh"]
+        # Edit argv to match your reviewer setup (model, reasoning level, sandbox mode, etc.)
+        argv: ["scripts/acm-cross-review.sh", "--sandbox", "read-only"]
         cwd: .
         timeout_sec: 1800
 ```
 
 Init seeds the thin `required_tasks: []` skeleton by default. Adding gates like `review:cross-llm` is an opt-in repo policy choice.
 
-When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. The scoped fingerprint covers effective scope (`initial_scope_paths` + `discovered_paths`) plus ACM-managed governance files that completion reporting already allows outside project file scope, including repo-root `AGENTS.md` and `CLAUDE.md`. Without `run`, agents can use manual `review` fields or a direct `work` update, but those manual notes do not satisfy runnable gates. Repo-local reviewer choices such as a Codex model or reasoning effort belong in the workflow `run.argv`.
+When a gate defines `run`, agents satisfy it with `acm review --run` (or `run=true`). ACM only skips reruns after a passing attempt already assessed the current fingerprint; failed or interrupted same-fingerprint attempts rerun until any configured `max_attempts` budget is exhausted. The scoped fingerprint covers effective scope (`initial_scope_paths` + `discovered_paths`) plus ACM-managed governance files that completion reporting already allows outside project file scope, including repo-root `AGENTS.md` and `CLAUDE.md`. Without `run`, agents can use manual `review` fields or a direct `work` update, but those manual notes do not satisfy runnable gates. Repo-local reviewer choices such as a Codex model, reasoning effort, or sandbox mode belong in the workflow `run.argv`.
 If the working tree is dirty but the active effective scope captures zero of those changes into the runnable review set, the runner should fail fast and tell the agent to rerun `context` with a broader task or declare the missing files through `work`. Runnable review output should also surface the total repo-changed versus scoped-changed file counts for quick diagnosis.
 
 Keep richer plan-shape enforcement in `verify`, not `completion.required_tasks`, unless you truly need an additional final gate. Workflow selectors operate on phase, tags, paths, and pointers; they do not currently distinguish thin plans from `kind=feature` plans by themselves.

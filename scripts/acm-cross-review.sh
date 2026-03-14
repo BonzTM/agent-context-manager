@@ -6,7 +6,7 @@ usage() {
 Run the repo-local cross-LLM review gate for ACM.
 
 Usage:
-  scripts/acm-cross-review.sh [--model <codex-model>] [--reasoning-effort <level>]
+  scripts/acm-cross-review.sh [--model <codex-model>] [--reasoning-effort <level>] [--sandbox <mode>]
 
 Environment:
   ACM_PROJECT_ID
@@ -18,6 +18,7 @@ Environment:
   ACM_WORKFLOW_SOURCE_PATH
   ACM_CROSS_REVIEW_MODEL
   ACM_CROSS_REVIEW_REASONING_EFFORT
+  ACM_CROSS_REVIEW_SANDBOX
   ACM_REVIEW_BASELINE_CAPTURED
   ACM_REVIEW_EFFECTIVE_SCOPE_PATHS_JSON
   ACM_REVIEW_CHANGED_PATHS_JSON
@@ -41,8 +42,10 @@ require_flag_value() {
 
 default_codex_model="gpt-5.3-codex"
 default_reasoning_effort="xhigh"
+default_codex_sandbox="read-only"
 codex_model="${ACM_CROSS_REVIEW_MODEL:-${default_codex_model}}"
 codex_reasoning_effort="${ACM_CROSS_REVIEW_REASONING_EFFORT:-${default_reasoning_effort}}"
+codex_sandbox="${ACM_CROSS_REVIEW_SANDBOX:-${default_codex_sandbox}}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +61,11 @@ while [[ $# -gt 0 ]]; do
     --reasoning|--reasoning-effort)
       require_flag_value "$1" "${2:-}"
       codex_reasoning_effort="$2"
+      shift 2
+      ;;
+    --sandbox)
+      require_flag_value "$1" "${2:-}"
+      codex_sandbox="$2"
       shift 2
       ;;
     *)
@@ -428,7 +436,7 @@ codex_args=(
   exec
   --model "${codex_model}"
   -c "model_reasoning_effort=\"${codex_reasoning_effort}\""
-  --sandbox read-only
+  --sandbox "${codex_sandbox}"
   --ephemeral
   -C "${REPO_ROOT}"
   --output-schema "${schema_path}"

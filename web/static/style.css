@@ -310,12 +310,53 @@ a:hover {
 
 .swimlane-body {
   overflow: hidden;
-  max-height: 2000px;
+  max-height: 4000px;
   transition: max-height 0.3s ease;
 }
 .swimlane.collapsed .swimlane-body {
   max-height: 0 !important;
   padding: 0;
+}
+
+/* Nested plan swimlanes */
+.swimlane-children {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.swimlane-nested {
+  margin-bottom: 0;
+  border-left: 2px solid var(--border-default);
+  margin-left: 0.75rem;
+  padding-left: 0.75rem;
+}
+.swimlane-nested .swimlane-header {
+  background: var(--bg-surface-raised);
+  border-color: var(--border-muted);
+  font-size: 0.92em;
+}
+.swimlane-nested .swimlane-header:hover {
+  background: var(--bg-surface-overlay);
+}
+
+/* Deeper nesting gets progressively subtler */
+.swimlane-depth-2 {
+  border-left-color: var(--border-muted);
+}
+.swimlane-depth-2 .swimlane-header {
+  background: var(--bg-surface-overlay);
+}
+.swimlane-depth-3 .swimlane-header {
+  background: var(--bg-surface-overlay);
+  opacity: 0.95;
+}
+
+/* Sub-plan count badge */
+.count-badge.child-plans {
+  background: rgba(136, 132, 216, 0.15);
+  color: #a89cdb;
 }
 
 /* Plan progress bar (inline in swimlane header) */

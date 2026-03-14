@@ -25,7 +25,7 @@ completion:
         changed_paths_any: ["cmd/**", "internal/**", "spec/**"]
       run:
         # Repo-local script flags belong in argv, so you can pin the review model here.
-        # Edit argv to match your reviewer setup (model, reasoning level, etc.)
-        argv: ["scripts/acm-cross-review.sh"]
+        # Edit argv to match your reviewer setup (model, reasoning level, sandbox mode, etc.)
+        argv: ["scripts/acm-cross-review.sh", "--sandbox", "read-only"]
         cwd: .
         timeout_sec: 1800

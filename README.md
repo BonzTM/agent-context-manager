@@ -288,7 +288,7 @@ If the repo has uncommitted changes but the current effective scope captures non
 
 **Manual mode** (no `--run`): use `--status`, `--outcome`, `--blocked-reason`, and `--evidence` to record a review note directly. Manual notes do not satisfy runnable review gates that define `run`, and these fields are ignored in run mode. Use `status=superseded` when a review gate or planned step is obsolete and should close cleanly instead of lingering as blocked.
 
-Keep raw reviewer commands in repo-local scripts and workflow definitions, not maintainer prose. If a repo-local reviewer script needs model-specific settings, pass them through the workflow `run.argv` list.
+Keep raw reviewer commands in repo-local scripts and workflow definitions, not maintainer prose. If a repo-local reviewer script needs model, reasoning, or sandbox settings, pass them through the workflow `run.argv` list.
 
 **History discovery:** use `acm history` for both work-specific and multi-entity discovery. Set `--entity work` when you need `--scope` or `--kind`; use other entities for memories, receipts, or runs. Results include `fetch_keys` for follow-up `acm fetch`.
 

@@ -210,8 +210,8 @@ completion:
         phases: ["review"]
         changed_paths_any: ["cmd/**", "internal/**", "spec/**"]
       run:
-        # Edit argv to match your reviewer setup (model, reasoning level, etc.)
-        argv: ["scripts/acm-cross-review.sh"]
+        # Edit argv to match your reviewer setup (model, reasoning level, sandbox mode, etc.)
+        argv: ["scripts/acm-cross-review.sh", "--sandbox", "read-only"]
         cwd: .
         timeout_sec: 1800
 ```
@@ -222,7 +222,7 @@ Selectors use the same shape as `verify` selection: `phases`, `tags_any`, `chang
 
 **Fallback behavior:** If no workflow file exists or no completion requirements are declared, acm requires `verify:tests` by default. When a workflow declares requirements, only those task keys are enforced.
 
-Init seeds a thin `required_tasks: []` skeleton. Adding keys like `review:cross-llm` is opt-in, and reviewer-specific script arguments such as model or reasoning choices belong in the workflow `run.argv`.
+Init seeds a thin `required_tasks: []` skeleton. Adding keys like `review:cross-llm` is opt-in, and reviewer-specific script arguments such as model, reasoning, or sandbox choices belong in the workflow `run.argv`.
 
 ## File-Based Flags
 

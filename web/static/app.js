@@ -195,7 +195,7 @@
   // Current board state — persists across polls.
   let _boardScope = "current";
   let _taskFilter = "work"; // "work" = hide scaffolding, "all" = show everything
-  let _expandedPlans = new Set(); // track which plans are expanded by title
+  let _expandedPlans = new Set(); // track which plans are expanded by key or title
 
   function cleanPlanTitle(plan, detail) {
     if (detail && detail.plan && detail.plan.title) return detail.plan.title;
@@ -254,7 +254,10 @@
 
         const title = cleanPlanTitle(plan, detail);
         const status = planStatus(plan, detail);
-        const globalOffset = allTasks.length;
+        const planKey = plan.plan_key || plan.key || "";
+        const parentPlanKey = (detail && detail.plan && detail.plan.parent_plan_key)
+          ? detail.plan.parent_plan_key
+          : (plan.parent_plan_key || "");
 
         // All tasks go into the global index (for modal navigation).
         for (const task of tasks) {
@@ -269,9 +272,11 @@
         planDataList.push({
           title,
           status,
+          planKey,
+          parentPlanKey,
           tasks: visibleTasks,
           allTasksForCounts: tasks, // always count from full set
-          globalOffset,
+          children: [], // filled below
         });
       }
 
@@ -287,22 +292,30 @@
         return;
       }
 
-      // Auto-expand if there's only one plan.
-      if (planDataList.length === 1 && _expandedPlans.size === 0) {
-        _expandedPlans.add(planDataList[0].title);
+      // Build plan tree: group child plans under their parents.
+      const plansByKey = {};
+      for (const pd of planDataList) {
+        if (pd.planKey) plansByKey[pd.planKey] = pd;
       }
 
-      // Render each plan as a swimlane, mapping visible task indices to global.
-      let html = "";
+      const rootPlans = [];
       for (const pd of planDataList) {
-        // Build a mapping from visible tasks to their global indices.
-        const visibleGlobalIndices = [];
-        for (const vt of pd.tasks) {
-          // Find this task in the global list by key.
-          const gi = _tasksByKey[vt.key];
-          if (gi !== undefined) visibleGlobalIndices.push(gi);
+        if (pd.parentPlanKey && plansByKey[pd.parentPlanKey]) {
+          plansByKey[pd.parentPlanKey].children.push(pd);
+        } else {
+          rootPlans.push(pd);
         }
-        html += renderSwimlaneWithIndices(pd, visibleGlobalIndices);
+      }
+
+      // Auto-expand if there's only one root plan.
+      if (rootPlans.length === 1 && _expandedPlans.size === 0) {
+        _expandedPlans.add(rootPlans[0].planKey || rootPlans[0].title);
+      }
+
+      // Render plan tree recursively.
+      let html = "";
+      for (const pd of rootPlans) {
+        html += renderPlanTree(pd, 0);
       }
 
       container.innerHTML = html;
@@ -312,17 +325,90 @@
     }
   }
 
+  // Collect all task keys from a plan's descendant plans (not the plan itself).
+  function collectDescendantPlanTaskKeys(pd) {
+    const keys = new Set();
+    for (const child of pd.children) {
+      for (const t of child.allTasksForCounts) {
+        if (t.key) keys.add(t.key);
+      }
+      // Recurse into grandchildren etc.
+      for (const k of collectDescendantPlanTaskKeys(child)) {
+        keys.add(k);
+      }
+    }
+    return keys;
+  }
+
+  // Render a plan and its children recursively.
+  function renderPlanTree(pd, depth) {
+    // Exclude tasks that belong to descendant plans from this plan's kanban.
+    const descendantTaskKeys = collectDescendantPlanTaskKeys(pd);
+    const ownTasks = descendantTaskKeys.size > 0
+      ? pd.tasks.filter((t) => !descendantTaskKeys.has(t.key))
+      : pd.tasks;
+    const ownAllTasks = descendantTaskKeys.size > 0
+      ? pd.allTasksForCounts.filter((t) => !descendantTaskKeys.has(t.key))
+      : pd.allTasksForCounts;
+
+    const visibleGlobalIndices = [];
+    for (const vt of ownTasks) {
+      const gi = _tasksByKey[vt.key];
+      if (gi !== undefined) visibleGlobalIndices.push(gi);
+    }
+
+    // Aggregate counts across this plan and all descendant plans.
+    const aggCounts = aggregatePlanCounts(pd);
+
+    // Render child plans recursively.
+    let childrenHtml = "";
+    if (pd.children.length) {
+      childrenHtml = `<div class="swimlane-children">`;
+      for (const child of pd.children) {
+        childrenHtml += renderPlanTree(child, depth + 1);
+      }
+      childrenHtml += `</div>`;
+    }
+
+    // Use de-duped own tasks for this swimlane's kanban.
+    const dedupedPd = { ...pd, tasks: ownTasks, allTasksForCounts: ownAllTasks };
+    return renderSwimlaneWithIndices(dedupedPd, visibleGlobalIndices, depth, childrenHtml, aggCounts);
+  }
+
+  // Recursively aggregate task counts across a plan and all its child plans.
+  function aggregatePlanCounts(pd) {
+    const counts = taskCounts(pd.allTasksForCounts);
+    for (const child of pd.children) {
+      const childCounts = aggregatePlanCounts(child);
+      counts.total += childCounts.total;
+      counts.pending += childCounts.pending;
+      counts.in_progress += childCounts.in_progress;
+      counts.complete += childCounts.complete;
+      counts.blocked += childCounts.blocked;
+      counts.superseded += childCounts.superseded;
+      counts.done += childCounts.done;
+    }
+    return counts;
+  }
+
   // Render swimlane using pre-mapped global indices for visible tasks.
-  function renderSwimlaneWithIndices(planData, globalIndices) {
-    const { title, tasks, allTasksForCounts, status } = planData;
-    const counts = taskCounts(allTasksForCounts);
-    const isExpanded = _expandedPlans.has(title);
-    const planId = "plan-" + encodeURIComponent(title).replace(/%/g, "_");
+  function renderSwimlaneWithIndices(planData, globalIndices, depth, childrenHtml, aggCounts) {
+    const { title, planKey, tasks, allTasksForCounts, status, children } = planData;
+    depth = depth || 0;
+    childrenHtml = childrenHtml || "";
+    const ownCounts = taskCounts(allTasksForCounts);
+    const displayCounts = aggCounts || ownCounts;
+    const expandKey = planKey || title;
+    const isExpanded = _expandedPlans.has(expandKey);
+    const planId = "plan-" + encodeURIComponent(expandKey).replace(/%/g, "_");
+    const hasChildren = children && children.length > 0;
+    const depthCls = depth > 0 ? " swimlane-nested swimlane-depth-" + Math.min(depth, 3) : "";
 
     let countBadges = "";
-    if (counts.in_progress) countBadges += `<span class="count-badge in_progress">${counts.in_progress}</span>`;
-    if (counts.blocked) countBadges += `<span class="count-badge blocked">${counts.blocked}</span>`;
-    if (counts.pending) countBadges += `<span class="count-badge pending">${counts.pending}</span>`;
+    if (displayCounts.in_progress) countBadges += `<span class="count-badge in_progress">${displayCounts.in_progress}</span>`;
+    if (displayCounts.blocked) countBadges += `<span class="count-badge blocked">${displayCounts.blocked}</span>`;
+    if (displayCounts.pending) countBadges += `<span class="count-badge pending">${displayCounts.pending}</span>`;
+    if (hasChildren) countBadges += `<span class="count-badge child-plans">${children.length} sub-plan${children.length > 1 ? "s" : ""}</span>`;
 
     // Build mini kanban from visible tasks using global indices.
     const buckets = {};
@@ -350,15 +436,16 @@
       }).join("") + `</div>`;
 
     return `
-      <div class="swimlane ${isExpanded ? "" : "collapsed"}" id="${planId}">
+      <div class="swimlane${depthCls} ${isExpanded ? "" : "collapsed"}" id="${planId}" data-plan-key="${esc(expandKey)}">
         <div class="swimlane-header" onclick="ACM.togglePlan(this)">
           <span class="swimlane-toggle">&#9662;</span>
           <span class="swimlane-title">${esc(title)}</span>
           <div class="swimlane-counts">${countBadges}</div>
-          ${renderProgress(counts)}
+          ${renderProgress(displayCounts)}
         </div>
         <div class="swimlane-body">
           ${kanbanHtml}
+          ${childrenHtml}
         </div>
       </div>`;
   }
@@ -383,13 +470,12 @@
   window.ACM.togglePlan = function (headerEl) {
     const swimlane = headerEl.closest(".swimlane");
     if (!swimlane) return;
-    const titleEl = swimlane.querySelector(".swimlane-title");
-    const title = titleEl ? titleEl.textContent : "";
-    if (_expandedPlans.has(title)) {
-      _expandedPlans.delete(title);
+    const key = swimlane.dataset.planKey || swimlane.querySelector(".swimlane-title")?.textContent || "";
+    if (_expandedPlans.has(key)) {
+      _expandedPlans.delete(key);
       swimlane.classList.add("collapsed");
     } else {
-      _expandedPlans.add(title);
+      _expandedPlans.add(key);
       swimlane.classList.remove("collapsed");
     }
   };
