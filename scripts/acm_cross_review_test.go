@@ -121,6 +121,9 @@ JSON
 	if !strings.Contains(promptText, "docs/deleted.md") {
 		t.Fatalf("expected deleted scoped file in prompt, got %s", promptText)
 	}
+	if !strings.Contains(promptText, "must not modify files by any means") || !strings.Contains(promptText, "do not use any command, tool, or redirection that writes to the filesystem") {
+		t.Fatalf("expected explicit no-write review instructions in prompt, got %s", promptText)
+	}
 	if !strings.Contains(promptText, "- changed_detected: 2") || !strings.Contains(promptText, "- scoped_changed: 2") {
 		t.Fatalf("expected scope counts in prompt, got %s", promptText)
 	}

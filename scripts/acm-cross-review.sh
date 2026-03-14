@@ -399,7 +399,7 @@ fi
 cat >"${prompt_path}" <<EOF
 Review the current task-scoped uncommitted changes in the repository at ${REPO_ROOT}.
 
-You are the cross-LLM review gate for ACM. This review is read-only and blocks completion if there are real issues.
+You are the cross-LLM review gate for ACM. This review is read-only, must not modify files by any means, and blocks completion if there are real issues.
 
 Changed files:
 $(if [[ -s "${changed_files_path}" ]]; then cat "${changed_files_path}"; else echo "(no changed files detected)"; fi)
@@ -413,6 +413,7 @@ Scope counts:
 
 Instructions:
 - Start by reading AGENTS.md and .acm/acm-workflows.yaml when present.
+- Do not modify, create, delete, rename, stage, or overwrite files, and do not use any command, tool, or redirection that writes to the filesystem; if an action would change files by any means, do not do it.
 - Treat the review scope as the active effective scope: receipt 'initial_scope_paths', any 'plan.discovered_paths', plus ACM-managed governance files already allowed by completion reporting.
 - Review only the changed files listed above. Open a changed file or run local diff commands for those paths only when the diff summary suggests a plausible blocking risk, and do not roam through unrelated files.
 - Keep the investigation tight: after the initial AGENTS/workflow reads, use at most 8 additional read-only commands before deciding pass/fail.
