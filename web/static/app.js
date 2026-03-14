@@ -96,33 +96,29 @@
     return p === "/" || p === "/index.html";
   }
 
-  function bucketTasks(tasks) {
-    const buckets = {};
-    for (const col of BOARD_COLUMNS) buckets[col] = [];
-    for (const t of tasks) {
-      buckets[boardColumn(t.status)].push(t);
-    }
-    return buckets;
-  }
-
   // ---------------------------------------------------------------------------
   // Task Type System — map key prefixes to human-friendly types
   // ---------------------------------------------------------------------------
 
   const TASK_TYPES = {
-    stage:  { label: "Stage",        cls: "type-stage" },
-    spec:   { label: "Spec",         cls: "type-spec" },
-    refine: { label: "Refinement",   cls: "type-refine" },
-    impl:   { label: "Task",         cls: "type-impl" },
-    verify: { label: "Verification", cls: "type-verify" },
-    review: { label: "Review",       cls: "type-review" },
-    tdd:    { label: "TDD",          cls: "type-tdd" },
+    stage:  { label: "Stage",        cls: "type-stage",  scaffolding: true },
+    spec:   { label: "Spec",         cls: "type-spec",   scaffolding: true },
+    refine: { label: "Refinement",   cls: "type-refine", scaffolding: true },
+    impl:   { label: "Task",         cls: "type-impl",   scaffolding: false },
+    verify: { label: "Verification", cls: "type-verify", scaffolding: false },
+    review: { label: "Review",       cls: "type-review", scaffolding: false },
+    tdd:    { label: "TDD",          cls: "type-tdd",    scaffolding: false },
   };
 
   function taskType(key) {
     if (!key) return null;
     const prefix = key.split(":")[0];
     return TASK_TYPES[prefix] || null;
+  }
+
+  function isScaffolding(key) {
+    const type = taskType(key);
+    return type ? type.scaffolding : false;
   }
 
   // Store all tasks globally so modal/navigation can find anything.
@@ -146,107 +142,76 @@
     }
   }
 
-  function renderCard(task, idx, depth) {
+  function renderCard(task, idx) {
     const statusCls = STATUSES.includes(task.status) ? task.status : "pending";
     const type = taskType(task.key);
-    const childCount = (_childrenOf[task.key] || []).length;
-    const indent = depth > 0 ? ` style="margin-left:${depth * 16}px"` : "";
 
     let tagsHtml = "";
     if (type) {
       tagsHtml += `<span class="card-type ${type.cls}">${esc(type.label)}</span>`;
     }
-    if (childCount > 0) {
-      tagsHtml += `<span class="card-children-badge">${childCount} sub</span>`;
-    }
 
-    let footerHtml = "";
-    if (task._planTitle) {
-      footerHtml += `<span class="card-plan">${esc(task._planTitle)}</span>`;
+    // Show parent context as a subtle label (for flat view)
+    let parentLabel = "";
+    if (task.parent_task_key) {
+      const parentIdx = _tasksByKey[task.parent_task_key];
+      if (parentIdx !== undefined) {
+        const parent = _boardTasks[parentIdx];
+        parentLabel = parent.summary || task.parent_task_key;
+      }
     }
 
     return `
-      <div class="task-card ${statusCls} depth-${Math.min(depth, 3)}"${indent} onclick="ACM.openCard(${idx})">
+      <div class="task-card ${statusCls}" onclick="ACM.openCard(${idx})">
         ${tagsHtml ? `<div class="card-tags">${tagsHtml}</div>` : ""}
         <div class="card-summary">${esc(task.summary || "")}</div>
-        ${footerHtml ? `<div class="card-footer">${footerHtml}</div>` : ""}
+        ${parentLabel ? `<div class="card-footer"><span class="card-parent-ctx">${esc(parentLabel)}</span></div>` : ""}
       </div>`;
   }
 
-  // Sort indices into tree order: roots first, then children beneath
-  // their parent, recursively. Depth is tracked for indentation.
-  function treeSort(indices, tasks) {
-    const indexSet = new Set(indices);
-
-    // Build local parent->children map within this column's indices.
-    const childrenInCol = {};
-    const roots = [];
-    for (const i of indices) {
-      const parentKey = tasks[i].parent_task_key;
-      const parentIdx = parentKey ? _tasksByKey[parentKey] : undefined;
-      if (parentIdx !== undefined && indexSet.has(parentIdx)) {
-        if (!childrenInCol[parentIdx]) childrenInCol[parentIdx] = [];
-        childrenInCol[parentIdx].push(i);
-      } else {
-        roots.push(i);
-      }
+  // Compute status counts from a task list.
+  function taskCounts(tasks) {
+    const counts = { total: tasks.length, pending: 0, in_progress: 0, complete: 0, blocked: 0, superseded: 0 };
+    for (const t of tasks) {
+      if (counts[t.status] !== undefined) counts[t.status]++;
+      else counts.pending++;
     }
-
-    // Walk depth-first from roots.
-    const sorted = [];
-    function walk(idx, depth) {
-      sorted.push({ idx, depth });
-      const kids = childrenInCol[idx] || [];
-      for (const kid of kids) {
-        walk(kid, depth + 1);
-      }
-    }
-    for (const r of roots) walk(r, 0);
-    return sorted;
+    counts.done = counts.complete + counts.superseded;
+    return counts;
   }
 
-  function renderBoard(allTasks) {
-    buildIndex(allTasks);
-
-    // Bucket tasks keeping global index.
-    const buckets = {};
-    for (const col of BOARD_COLUMNS) buckets[col] = [];
-    for (let i = 0; i < allTasks.length; i++) {
-      buckets[boardColumn(allTasks[i].status)].push(i);
-    }
-
-    return `<div class="columns-row columns-${BOARD_COLUMNS.length}">` +
-      BOARD_COLUMNS.map((col) => {
-        const indices = buckets[col];
-        const tree = treeSort(indices, allTasks);
-        const cardsHtml = tree.length
-          ? tree.map(({ idx, depth }) => renderCard(allTasks[idx], idx, depth)).join("")
-          : `<div class="column-empty">No tasks</div>`;
-        return `
-          <div class="column">
-            <div class="column-header">
-              <span class="column-dot ${col}"></span>
-              <span class="column-name">${COLUMN_LABELS[col]}</span>
-              <span class="column-count">${indices.length}</span>
-            </div>
-            <div class="column-cards">${cardsHtml}</div>
-          </div>`;
-      }).join("") + `</div>`;
+  // Render progress bar for a set of counts.
+  function renderProgress(counts) {
+    const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0;
+    return `
+      <div class="plan-progress">
+        <div class="plan-progress-bar">
+          <div class="plan-progress-fill" style="width:${pct}%"></div>
+        </div>
+        <span class="plan-progress-text">${counts.done}/${counts.total}</span>
+      </div>`;
   }
 
-  // Current board scope — persists across polls.
+  // Current board state — persists across polls.
   let _boardScope = "current";
+  let _taskFilter = "work"; // "work" = hide scaffolding, "all" = show everything
+  let _expandedPlans = new Set(); // track which plans are expanded by title
 
   function cleanPlanTitle(plan, detail) {
-    // Prefer the explicit title from the plan detail.
     if (detail && detail.plan && detail.plan.title) return detail.plan.title;
-    // Fall back to the receipt key, cleaned up.
     const key = plan.plan_key || plan.key || "";
     if (key.startsWith("plan:receipt-")) {
       return key.replace("plan:receipt-", "receipt ").slice(0, 24) + "\u2026";
     }
     if (key.startsWith("plan:")) return key.slice(5);
     return key || "Untitled Plan";
+  }
+
+  // Determine overall plan status from a plan summary or detail.
+  function planStatus(plan, detail) {
+    if (plan.status) return plan.status;
+    if (detail && detail.plan && detail.plan.status) return detail.plan.status;
+    return "in_progress";
   }
 
   async function loadBoard() {
@@ -278,19 +243,42 @@
         })
       );
 
-      // Flatten all tasks into a single list, tagging each with its plan.
+      // Build per-plan data and a global task list for the index.
       const allTasks = [];
+      const planDataList = [];
+
       for (const result of details) {
-        if (result.status === "fulfilled") {
-          const { plan, detail, tasks } = result.value;
-          const title = cleanPlanTitle(plan, detail);
-          for (const task of tasks) {
-            allTasks.push({ ...task, _planTitle: title });
-          }
+        if (result.status !== "fulfilled") continue;
+        const { plan, detail, tasks } = result.value;
+        if (!tasks.length) continue;
+
+        const title = cleanPlanTitle(plan, detail);
+        const status = planStatus(plan, detail);
+        const globalOffset = allTasks.length;
+
+        // All tasks go into the global index (for modal navigation).
+        for (const task of tasks) {
+          allTasks.push({ ...task, _planTitle: title });
         }
+
+        // Filter tasks for display based on current filter.
+        const visibleTasks = _taskFilter === "work"
+          ? tasks.filter((t) => !isScaffolding(t.key))
+          : tasks;
+
+        planDataList.push({
+          title,
+          status,
+          tasks: visibleTasks,
+          allTasksForCounts: tasks, // always count from full set
+          globalOffset,
+        });
       }
 
-      if (!allTasks.length) {
+      // Build index from ALL tasks (not filtered) so modal links work.
+      buildIndex(allTasks);
+
+      if (!planDataList.length) {
         container.innerHTML = `
           <div class="board-empty">
             <h2>No tasks found</h2>
@@ -299,21 +287,111 @@
         return;
       }
 
-      container.innerHTML = renderBoard(allTasks);
+      // Auto-expand if there's only one plan.
+      if (planDataList.length === 1 && _expandedPlans.size === 0) {
+        _expandedPlans.add(planDataList[0].title);
+      }
+
+      // Render each plan as a swimlane, mapping visible task indices to global.
+      let html = "";
+      for (const pd of planDataList) {
+        // Build a mapping from visible tasks to their global indices.
+        const visibleGlobalIndices = [];
+        for (const vt of pd.tasks) {
+          // Find this task in the global list by key.
+          const gi = _tasksByKey[vt.key];
+          if (gi !== undefined) visibleGlobalIndices.push(gi);
+        }
+        html += renderSwimlaneWithIndices(pd, visibleGlobalIndices);
+      }
+
+      container.innerHTML = html;
     } catch (err) {
       console.error("Board load error:", err);
       container.innerHTML = `<div class="error-banner">Failed to load board: ${esc(err.message)}</div>`;
     }
   }
 
+  // Render swimlane using pre-mapped global indices for visible tasks.
+  function renderSwimlaneWithIndices(planData, globalIndices) {
+    const { title, tasks, allTasksForCounts, status } = planData;
+    const counts = taskCounts(allTasksForCounts);
+    const isExpanded = _expandedPlans.has(title);
+    const planId = "plan-" + encodeURIComponent(title).replace(/%/g, "_");
+
+    let countBadges = "";
+    if (counts.in_progress) countBadges += `<span class="count-badge in_progress">${counts.in_progress}</span>`;
+    if (counts.blocked) countBadges += `<span class="count-badge blocked">${counts.blocked}</span>`;
+    if (counts.pending) countBadges += `<span class="count-badge pending">${counts.pending}</span>`;
+
+    // Build mini kanban from visible tasks using global indices.
+    const buckets = {};
+    for (const col of BOARD_COLUMNS) buckets[col] = [];
+    for (let i = 0; i < tasks.length; i++) {
+      const gi = globalIndices[i];
+      buckets[boardColumn(tasks[i].status)].push({ task: tasks[i], idx: gi });
+    }
+
+    const kanbanHtml = `<div class="columns-row columns-${BOARD_COLUMNS.length}">` +
+      BOARD_COLUMNS.map((col) => {
+        const items = buckets[col];
+        const cardsHtml = items.length
+          ? items.map(({ task, idx }) => renderCard(task, idx)).join("")
+          : `<div class="column-empty">No tasks</div>`;
+        return `
+          <div class="column">
+            <div class="column-header">
+              <span class="column-dot ${col}"></span>
+              <span class="column-name">${COLUMN_LABELS[col]}</span>
+              <span class="column-count">${items.length}</span>
+            </div>
+            <div class="column-cards">${cardsHtml}</div>
+          </div>`;
+      }).join("") + `</div>`;
+
+    return `
+      <div class="swimlane ${isExpanded ? "" : "collapsed"}" id="${planId}">
+        <div class="swimlane-header" onclick="ACM.togglePlan(this)">
+          <span class="swimlane-toggle">&#9662;</span>
+          <span class="swimlane-title">${esc(title)}</span>
+          <div class="swimlane-counts">${countBadges}</div>
+          ${renderProgress(counts)}
+        </div>
+        <div class="swimlane-body">
+          ${kanbanHtml}
+        </div>
+      </div>`;
+  }
+
   window.ACM = window.ACM || {};
   window.ACM.setScope = function (scope) {
     _boardScope = scope;
-    // Update toggle button states.
-    document.querySelectorAll(".scope-btn").forEach((btn) => {
+    document.querySelectorAll("[data-scope]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.scope === scope);
     });
     loadBoard();
+  };
+
+  window.ACM.setFilter = function (filter) {
+    _taskFilter = filter;
+    document.querySelectorAll("[data-filter]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.filter === filter);
+    });
+    loadBoard();
+  };
+
+  window.ACM.togglePlan = function (headerEl) {
+    const swimlane = headerEl.closest(".swimlane");
+    if (!swimlane) return;
+    const titleEl = swimlane.querySelector(".swimlane-title");
+    const title = titleEl ? titleEl.textContent : "";
+    if (_expandedPlans.has(title)) {
+      _expandedPlans.delete(title);
+      swimlane.classList.add("collapsed");
+    } else {
+      _expandedPlans.add(title);
+      swimlane.classList.remove("collapsed");
+    }
   };
 
   // ---------------------------------------------------------------------------

@@ -310,11 +310,53 @@ a:hover {
 
 .swimlane-body {
   overflow: hidden;
-  transition: max-height var(--transition-normal);
+  max-height: 2000px;
+  transition: max-height 0.3s ease;
 }
 .swimlane.collapsed .swimlane-body {
   max-height: 0 !important;
   padding: 0;
+}
+
+/* Plan progress bar (inline in swimlane header) */
+.plan-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.plan-progress-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--bg-surface-overlay);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.plan-progress-fill {
+  height: 100%;
+  background: var(--status-complete);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.plan-progress-text {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* Parent context label on flat task cards */
+.card-parent-ctx {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
 }
 
 /* Column row */
@@ -920,19 +962,14 @@ a:hover {
   cursor: pointer;
 }
 
-/* Depth-based nesting visual */
-.task-card.depth-1,
-.task-card.depth-2,
-.task-card.depth-3 {
-  border-left-width: 2px;
-  font-size: 0.95em;
+/* Completed/superseded tasks are dimmed */
+.task-card.complete,
+.task-card.superseded {
+  opacity: 0.7;
 }
-.task-card.depth-2,
-.task-card.depth-3 {
-  opacity: 0.92;
-}
-.task-card.depth-3 {
-  font-size: 0.9em;
+.task-card.complete:hover,
+.task-card.superseded:hover {
+  opacity: 1;
 }
 
 /* --- Memory Cards -------------------------------------------------------- */
