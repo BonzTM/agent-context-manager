@@ -10,3 +10,4 @@
 .acm/context.db-shm
 .acm/context.db-wal
 .env
+excalidraw.log

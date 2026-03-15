@@ -59,7 +59,7 @@ flowchart TB
 - **full brokered flow**: use `context`, explicit `fetch` / history hydration, and governed review/closeout when you also want compact always-loaded context and receipt-scoped execution.
 
 The repo you are reading uses a stricter dogfood workflow than many adopters need. `acm init` starts with the minimal core and lets you opt into heavier templates later.
-acm is unreleased. The public contract is still being cleaned up around this smaller core surface, so prefer the current `init/context/work/memory/verify/done` story over older compatibility aliases when they disagree.
+Prefer the current `init/context/work/memory/verify/done` story over older compatibility aliases when they disagree.
 
 ## Install
 

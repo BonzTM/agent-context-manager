@@ -37,6 +37,11 @@ jobs:
           short_sha="${GITHUB_SHA::7}"
           go build -ldflags "-X github.com/bonztm/agent-context-manager/internal/buildinfo.commitShort=${short_sha}" -o dist/acm-mcp ./cmd/acm-mcp
 
+      - name: Build acm-web
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          go build -ldflags "-X github.com/bonztm/agent-context-manager/internal/buildinfo.commitShort=${short_sha}" -o dist/acm-web ./cmd/acm-web
+
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
         with:
