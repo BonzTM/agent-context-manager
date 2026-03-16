@@ -18,6 +18,12 @@ System shape:
 - Service core: command dispatch and `internal/service/backend/`
 - Storage adapters: SQLite and Postgres implementations behind the same repository interfaces
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="architecture/acm-architecture-layers-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="architecture/acm-architecture-layers.png">
+  <img alt="acm layered architecture" src="architecture/acm-architecture-layers.png">
+</picture>
+
 Entrypoints:
 
 - `cmd/acm/` for the CLI binary, convenience subcommands, and JSON envelope mode

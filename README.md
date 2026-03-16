@@ -11,9 +11,9 @@ acm is a repo-owned control plane for AI coding agents. It gives Claude, Codex, 
 acm is intentionally modular. You can adopt only the pieces you need.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/acm-dark-transparent.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/architecture/acm-transparent.png">
-  <img alt="acm control plane workflow" src="docs/architecture/acm-transparent.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/acm-flow-dark-transparent.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/architecture/acm-flow-transparent.png">
+  <img alt="acm control plane workflow" src="docs/architecture/acm-flow-transparent.png">
 </picture>
 
 ## Adoption Modes
