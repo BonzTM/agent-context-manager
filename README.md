@@ -10,46 +10,11 @@ acm is a repo-owned control plane for AI coding agents. It gives Claude, Codex, 
 
 acm is intentionally modular. You can adopt only the pieces you need.
 
-```mermaid
-flowchart TB
-    subgraph human [" "]
-        direction LR
-        init["🔧 acm init"] --> configure["Configure<br/>rules · tags · tests · workflows"]
-        configure --> sync["acm sync"]
-    end
-
-    subgraph agent [" "]
-        direction TB
-        context["acm context"] --> fetch["acm fetch"]
-        fetch --> work["acm work"]
-        work --> code["Execute Work"]
-        code --> verify["acm verify"]
-        verify --> review["acm review"]
-        review --> done["acm done"]
-        done -.-> memory["acm memory"]
-        memory -.-> context
-    end
-
-    subgraph monitor [" "]
-        direction LR
-        web["📊 acm-web"]
-        health["acm health · acm status"]
-    end
-
-    db[("SQLite / Postgres")]
-
-    sync --> db
-    context <--> db
-    work --> db
-    done --> db
-    memory --> db
-    web <--> db
-    health <--> db
-
-    style human fill:transparent,stroke:#58a6ff,stroke-width:1px,stroke-dasharray:5 5
-    style agent fill:transparent,stroke:#3fb950,stroke-width:1px,stroke-dasharray:5 5
-    style monitor fill:transparent,stroke:#d29922,stroke-width:1px,stroke-dasharray:5 5
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/acm-dark-transparent.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/architecture/acm-transparent.png">
+  <img alt="acm control plane workflow" src="docs/architecture/acm-transparent.png">
+</picture>
 
 ## Adoption Modes
 
