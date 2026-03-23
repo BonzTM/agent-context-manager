@@ -13,7 +13,7 @@ ACM is a repo-owned control plane for AI coding agents. It gives Claude, Codex, 
 
 System shape:
 
-- Agent loop: `context -> work -> verify -> review -> done -> memory`
+- Agent loop: `context -> work -> verify -> review -> done`
 - Repo-local inputs: `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, `.acm/acm-tests.yaml`, `.acm/acm-workflows.yaml`
 - Service core: command dispatch and `internal/service/backend/`
 - Storage adapters: SQLite and Postgres implementations behind the same repository interfaces
@@ -36,7 +36,7 @@ internal/
   contracts/v1/    payload types, validation, command catalog, JSON schemas
   commands/        dispatch: command -> service method
   core/            Service interface, Repository interface, domain errors
-  service/backend/ business logic for context, work, verify, done, review, memory, status, health, sync
+  service/backend/ business logic for context, work, verify, done, review, status, health, sync
   adapters/
     sqlite/        SQLite repository implementation
     postgres/      Postgres repository implementation

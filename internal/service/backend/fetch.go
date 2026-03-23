@@ -223,8 +223,6 @@ func runFetchKey(runID int64) string {
 	return fetchKey
 }
 
-
-
 func (s *Service) fetchPlanItem(ctx context.Context, projectID, key, receiptID string) (v1.FetchItem, bool, error) {
 	lookupQuery := core.WorkPlanLookupQuery{
 		ProjectID: projectID,
@@ -499,9 +497,14 @@ func (s *Service) fetchPointerItem(ctx context.Context, projectID, key string) (
 		Summary: summary,
 		Version: versionSeed,
 	}
-	if content, ok := s.readPointerFetchContent(pointer.Path); ok {
+	content, err := s.readPointerFetchContent(pointer.Path)
+	if err == nil {
 		item.Content = content
 		item.Version = indexEntryVersion(versionSeed, content)
+	} else if errors.Is(err, os.ErrNotExist) {
+		return v1.FetchItem{}, false, nil
+	} else {
+		return v1.FetchItem{}, false, err
 	}
 
 	return item, true, nil
@@ -514,10 +517,10 @@ func pointerFetchType(pointer core.CandidatePointer) string {
 	return "pointer"
 }
 
-func (s *Service) readPointerFetchContent(pointerPath string) (string, bool) {
+func (s *Service) readPointerFetchContent(pointerPath string) (string, error) {
 	cleanPath := strings.TrimSpace(pointerPath)
 	if cleanPath == "" {
-		return "", false
+		return "", os.ErrNotExist
 	}
 	if !filepath.IsAbs(cleanPath) {
 		cleanPath = filepath.Join(s.defaultProjectRoot(), filepath.FromSlash(cleanPath))
@@ -525,12 +528,10 @@ func (s *Service) readPointerFetchContent(pointerPath string) (string, bool) {
 	cleanPath = filepath.Clean(cleanPath)
 	content, err := os.ReadFile(cleanPath)
 	if err != nil {
-		return "", false
+		return "", err
 	}
-	return string(content), true
+	return string(content), nil
 }
-
-
 
 func fetchInternalError(operation string, err error) *core.APIError {
 	return core.NewError(

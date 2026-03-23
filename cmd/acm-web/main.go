@@ -127,7 +127,6 @@ func printBanner(addr, projectID string) {
 	fmt.Fprintln(os.Stderr, "  acm-web ready")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  Board:    %s/\n", url)
-	fmt.Fprintf(os.Stderr, "  Memories: %s/memories.html\n", url)
 	fmt.Fprintf(os.Stderr, "  Status:   %s/status.html\n", url)
 	fmt.Fprintf(os.Stderr, "  Health:   %s/healthz\n", url)
 	if projectID != "" {

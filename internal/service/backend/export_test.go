@@ -369,7 +369,7 @@ func TestRenderExportMarkdown_Golden(t *testing.T) {
 							InProgress: 2,
 							Complete:   1,
 						},
-						FetchKeys: []string{"plan:receipt-339e5cfde29fa58b2c5f1c16", "mem:7"},
+						FetchKeys: []string{"plan:receipt-339e5cfde29fa58b2c5f1c16", "run:44"},
 						UpdatedAt: "2026-03-11T13:30:00Z",
 					}},
 				},
@@ -438,6 +438,16 @@ func TestRenderExportMarkdown_Golden(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assertMarkdownGolden(t, tc.golden, renderExportMarkdown(tc.doc))
 		})
+	}
+}
+
+func TestExportHistoryMarkdownFixtureHasNoLegacyMemoryFetchKeys(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "export_markdown", "history.md"))
+	if err != nil {
+		t.Fatalf("read history markdown fixture: %v", err)
+	}
+	if strings.Contains(string(raw), "mem:") {
+		t.Fatalf("history markdown fixture still contains legacy memory fetch keys:\n%s", string(raw))
 	}
 }
 

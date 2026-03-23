@@ -330,6 +330,28 @@ func TestResultSchema_ExportDefinitionsMatchRuntimeEnums(t *testing.T) {
 	}
 }
 
+func TestSharedAndResultSchemasRejectMemoryResidueInCurrentSurfaces(t *testing.T) {
+	sharedRaw := string(readSchemaFixture(t, "shared.schema.json"))
+	resultRaw := string(readSchemaFixture(t, "cli.result.schema.json"))
+	commandRaw := string(readSchemaFixture(t, "cli.command.schema.json"))
+
+	for _, forbidden := range []string{"\"memoryCategory\"", "\"memorySummary\"", "\"contextMemory\"", "\"memoryPayload\"", "\"memories\""} {
+		if strings.Contains(sharedRaw, forbidden) {
+			t.Fatalf("shared.schema.json still contains memory residue %s", forbidden)
+		}
+	}
+
+	for _, forbidden := range []string{"\"exportMemoryDocument\"", "\"memory_count\"", "\"memory_keys\"", "shared.schema.json#/$defs/memoryCategory"} {
+		if strings.Contains(resultRaw, forbidden) {
+			t.Fatalf("cli.result.schema.json still contains memory residue %s", forbidden)
+		}
+	}
+
+	if strings.Contains(commandRaw, "\"memory\"") {
+		t.Fatal("cli.command.schema.json still exposes memory command residue")
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

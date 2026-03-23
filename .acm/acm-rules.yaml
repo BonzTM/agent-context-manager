@@ -175,9 +175,9 @@ rules:
     tags: [verify, completion]
 
   - id: rule_capture_durable_decisions
-    summary: Persist stable architectural decisions as memory.
+    summary: Persist stable architectural decisions in AMM.
     content: >-
-      Record durable decisions and recurring pitfalls with `memory` when they
-      would reduce future rework.
+      Record durable decisions and recurring pitfalls in AMM when they would
+      reduce future rework.
     enforcement: soft
-    tags: [memory, architecture]
+    tags: [architecture]

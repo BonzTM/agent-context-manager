@@ -6,7 +6,6 @@
     "frontend": ["frontend", "ui", "client"],
     "governance": ["governance", "policy", "policies", "rule", "rules"],
     "mcp": ["mcp", "modelcontextprotocol"],
-    "memory": ["memory", "memories"],
     "ops": ["ops", "operations"],
     "postgres": ["postgres", "postgresql", "pg"],
     "review": ["review", "audit"],

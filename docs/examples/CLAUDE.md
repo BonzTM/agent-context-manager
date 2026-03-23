@@ -23,7 +23,7 @@ If you need runtime or setup diagnostics, use direct CLI `acm status`.
 
 ## Claude-Specific Notes
 
-- Keep prompts specific enough that `context` can load the right rules, plans, memories, and any explicit initial scope.
+- Keep prompts specific enough that `context` can load the right rules, plans, and any explicit initial scope.
 - If the receipt looks stale or too narrow, re-run `/acm-context` with a better task description instead of guessing.
 - If governed file work expands beyond the initial receipt scope, record the new files through `/acm-work` before expecting `/acm-review` or `/acm-done` to pass.
 - Do not claim success when `/acm-verify` failed or was skipped for code changes.
@@ -34,7 +34,7 @@ If you need runtime or setup diagnostics, use direct CLI `acm status`.
 
 ## Web Dashboard
 
-If `acm-web` is installed, humans can view agent work at `http://localhost:8080/` — a read-only kanban board, memories page, and status page. No agent interaction needed.
+If `acm-web` is installed, humans can view agent work at `http://localhost:8080/` — a read-only kanban board and status page. No agent interaction needed.
 
 ## Ruleset Maintenance
 

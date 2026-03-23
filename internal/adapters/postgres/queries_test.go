@@ -230,7 +230,7 @@ func TestBuildLookupPointerByKeyQuery_DeterministicAndValidated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(sql, "FROM acm_pointers") || !strings.Contains(sql, "pointer_key = $2") {
+	if !strings.Contains(sql, "FROM acm_pointers") || !strings.Contains(sql, "pointer_key = $2") || !strings.Contains(sql, "is_stale = FALSE") {
 		t.Fatalf("unexpected SQL:\n%s", sql)
 	}
 	wantArgs := []any{"project-a", "pointer-123"}

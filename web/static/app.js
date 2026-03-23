@@ -77,16 +77,7 @@
     return fetchJSON("/api/status");
   }
 
-  async function getMemories() {
-    const data = await fetchJSON("/api/memories");
-    return data.items || [];
-  }
-
-  async function getMemoryDetail(key) {
-    const data = await fetchJSON("/api/memories/" + encodeURIComponent(key));
-    return data.document || {};
-  }
-
+  
   // ---------------------------------------------------------------------------
   // Board Page
   // ---------------------------------------------------------------------------
@@ -658,110 +649,6 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Memories Page
-  // ---------------------------------------------------------------------------
-
-  function isMemoriesPage() {
-    return location.pathname === "/memories.html";
-  }
-
-  const CATEGORY_LABELS = {
-    decision: "Decision",
-    pattern: "Pattern",
-    gotcha: "Gotcha",
-    preference: "Preference",
-    context: "Context",
-  };
-
-  function categoryBadgeClass(category) {
-    if (category === "decision") return "in_progress";
-    if (category === "gotcha") return "blocked";
-    if (category === "pattern") return "complete";
-    return "pending";
-  }
-
-  function renderMemoryCard(mem, detail) {
-    const cat = mem.kind || "unknown";
-    const catLabel = CATEGORY_LABELS[cat] || cat;
-    const cls = categoryBadgeClass(cat);
-    const updated = mem.updated_at
-      ? new Date(mem.updated_at).toLocaleDateString(undefined, {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        })
-      : "";
-
-    let bodyHtml = "";
-    if (detail && detail.memory) {
-      const m = detail.memory;
-      if (m.content) {
-        bodyHtml += `<div class="memory-content">${esc(m.content)}</div>`;
-      }
-      if (m.confidence) {
-        bodyHtml += `<div class="memory-meta-row"><span class="memory-meta-label">Confidence</span><span class="memory-meta-value">${m.confidence}/5</span></div>`;
-      }
-    }
-
-    return `
-      <div class="memory-card">
-        <div class="memory-card-header">
-          <span class="count-badge ${cls}">${esc(catLabel)}</span>
-          <span class="memory-key">${esc(mem.key)}</span>
-          <span class="memory-date">${esc(updated)}</span>
-        </div>
-        <div class="memory-card-subject">${esc(mem.summary || "")}</div>
-        ${bodyHtml}
-      </div>`;
-  }
-
-  async function loadMemories() {
-    const container = document.getElementById("memories-container");
-    if (!container) return;
-
-    try {
-      const items = await getMemories();
-
-      if (!items.length) {
-        container.innerHTML = `
-          <div class="board-empty">
-            <h2>No memories found</h2>
-            <p>Durable memories created via ACM will appear here.</p>
-          </div>`;
-        return;
-      }
-
-      // Fetch details for each memory in parallel
-      const details = await Promise.allSettled(
-        items.map(async (mem) => {
-          if (!mem.fetch_keys || !mem.fetch_keys.length) {
-            return { mem, detail: null };
-          }
-          const detail = await getMemoryDetail(mem.fetch_keys[0]);
-          return { mem, detail };
-        })
-      );
-
-      let html = "";
-      for (const result of details) {
-        if (result.status === "fulfilled") {
-          const { mem, detail } = result.value;
-          html += renderMemoryCard(mem, detail);
-        }
-      }
-
-      container.innerHTML = html || `
-        <div class="board-empty">
-          <h2>No memories loaded</h2>
-          <p>Could not retrieve memory details.</p>
-        </div>`;
-    } catch (err) {
-      console.error("Memories load error:", err);
-      container.innerHTML = `<div class="error-banner">Failed to load memories: ${esc(err.message)}</div>`;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Card Detail Modal
   // ---------------------------------------------------------------------------
 
@@ -1040,8 +927,6 @@
   document.addEventListener("DOMContentLoaded", function () {
     if (isboardPage()) {
       startPolling(loadBoard, 10000);
-    } else if (isMemoriesPage()) {
-      startPolling(loadMemories, 30000);
     } else if (isStatusPage()) {
       startPolling(loadStatus, 30000);
     }

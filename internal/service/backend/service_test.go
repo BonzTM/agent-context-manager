@@ -652,10 +652,6 @@ func TestContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 	if got, want := entryString(rules[0], "rule_id"), "rule_startup"; got != want {
 		t.Fatalf("unexpected stable rule_id: got %q want %q", got, want)
 	}
-	memories := receiptIndexEntries(result.Receipt, "memories")
-	if len(memories) != 0 {
-		t.Fatalf("unexpected receipt memories index count: got %d want 0", len(memories))
-	}
 	plans := receiptIndexEntries(result.Receipt, "plans")
 	if len(plans) != 1 {
 		t.Fatalf("unexpected plan index count: got %d want 1", len(plans))
@@ -2417,7 +2413,7 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 			},
 		}},
 		inventoryResults: []core.PointerInventory{
-			{Path: "internal/a.go"},
+			{Path: "internal/a.go", IsStale: true},
 			{Path: "internal/b.go"},
 			{Path: "internal/c.go"},
 		},
@@ -2427,10 +2423,15 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
-		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+		switch strings.Join(args, " ") {
+		case "ls-files --cached --others --exclude-standard":
+			return "internal/a.go\ninternal/b.go\ninternal/c.go\n", nil
+		case "ls-files --deleted":
+			return "", nil
+		default:
 			t.Fatalf("unexpected git args: %v", args)
+			return "", nil
 		}
-		return "internal/a.go\ninternal/b.go\ninternal/c.go\n", nil
 	}
 
 	health, apiErr := svc.Health(context.Background(), v1.HealthPayload{
@@ -2687,36 +2688,41 @@ func TestStatus_WarnsAboutStaleAndAdministrativePlans(t *testing.T) {
 }
 
 func TestHealthCheck_IncludeDetailsFalseOmitsSamples(t *testing.T) {
-		repo := &fakeRepository{
-			candidateResults: [][]core.CandidatePointer{{
-				{
-					Key:         "ptr:one",
-					Path:        "internal/a.go",
-					Label:       "duplicate",
-					Description: "",
-					IsStale:     true,
-				},
-				{
-					Key:         "ptr:two",
-					Path:        "internal/b.go",
-					Label:       "duplicate",
-					Description: "",
-				},
-			}},
-			inventoryResults: []core.PointerInventory{
-				{Path: "internal/a.go"},
-				{Path: "internal/b.go"},
+	repo := &fakeRepository{
+		candidateResults: [][]core.CandidatePointer{{
+			{
+				Key:         "ptr:one",
+				Path:        "internal/a.go",
+				Label:       "duplicate",
+				Description: "",
+				IsStale:     true,
 			},
-		}
+			{
+				Key:         "ptr:two",
+				Path:        "internal/b.go",
+				Label:       "duplicate",
+				Description: "",
+			},
+		}},
+		inventoryResults: []core.PointerInventory{
+			{Path: "internal/a.go", IsStale: true},
+			{Path: "internal/b.go"},
+		},
+	}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
-		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+		switch strings.Join(args, " ") {
+		case "ls-files --cached --others --exclude-standard":
+			return "internal/a.go\ninternal/b.go\n", nil
+		case "ls-files --deleted":
+			return "", nil
+		default:
 			t.Fatalf("unexpected git args: %v", args)
+			return "", nil
 		}
-		return "internal/a.go\ninternal/b.go\n", nil
 	}
 
 	includeDetails := false
@@ -2749,10 +2755,15 @@ func TestHealthCheck_EmptyIndexFlagsUnindexedFiles(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
-		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+		switch strings.Join(args, " ") {
+		case "ls-files --cached --others --exclude-standard":
+			return "README.md\ninternal/service/backend/service.go\n", nil
+		case "ls-files --deleted":
+			return "", nil
+		default:
 			t.Fatalf("unexpected git args: %v", args)
+			return "", nil
 		}
-		return "README.md\ninternal/service/backend/service.go\n", nil
 	}
 
 	health, apiErr := svc.Health(context.Background(), v1.HealthPayload{
@@ -4810,7 +4821,7 @@ func receiptIndexEntries(receipt *v1.ContextReceipt, index string) []map[string]
 	}
 
 	switch index {
-	case "rules", "memories", "plans":
+	case "rules", "plans":
 		return normalizeIndexEntries(payload[index])
 	default:
 		return nil
@@ -5133,10 +5144,15 @@ func TestComputeInventoryHealth_ComputesSummaryAndDetails(t *testing.T) {
 	}
 
 	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
-		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+		switch strings.Join(args, " ") {
+		case "ls-files --cached --others --exclude-standard":
+			return "src/covered.go\nsrc/stale.go\nsrc/unindexed.go\ncmd/tool/main.go\n", nil
+		case "ls-files --deleted":
+			return "", nil
+		default:
 			t.Fatalf("unexpected git args: %v", args)
+			return "", nil
 		}
-		return "src/covered.go\nsrc/stale.go\nsrc/unindexed.go\ncmd/tool/main.go\n", nil
 	}
 
 	result, apiErr := svc.computeInventoryHealth(context.Background(), "project.alpha", "")
@@ -5146,13 +5162,13 @@ func TestComputeInventoryHealth_ComputesSummaryAndDetails(t *testing.T) {
 	if len(repo.inventoryCalls) != 1 || repo.inventoryCalls[0] != "project.alpha" {
 		t.Fatalf("unexpected inventory calls: %v", repo.inventoryCalls)
 	}
-	if result.Summary.TotalFiles != 4 || result.Summary.IndexedFiles != 2 || result.Summary.UnindexedFiles != 2 || result.Summary.StaleFiles != 2 {
+	if result.Summary.TotalFiles != 4 || result.Summary.IndexedFiles != 2 || result.Summary.UnindexedFiles != 2 || result.Summary.StaleFiles != 1 {
 		t.Fatalf("unexpected inventory summary: %+v", result.Summary)
 	}
 	if !reflect.DeepEqual(result.UnindexedPaths, []string{"cmd/tool/main.go", "src/unindexed.go"}) {
 		t.Fatalf("unexpected unindexed paths: %v", result.UnindexedPaths)
 	}
-	if !reflect.DeepEqual(result.StalePaths, []string{"docs/old.md", "src/stale.go"}) {
+	if !reflect.DeepEqual(result.StalePaths, []string{"src/stale.go"}) {
 		t.Fatalf("unexpected stale paths: %v", result.StalePaths)
 	}
 	if !reflect.DeepEqual(result.UnindexedDirs, []string{"cmd/tool"}) {
@@ -5172,10 +5188,15 @@ func TestComputeInventoryHealth_ExcludesManagedFilesFromTrackedSet(t *testing.T)
 	}
 
 	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
-		if strings.Join(args, " ") != "ls-files --cached --others --exclude-standard" {
+		switch strings.Join(args, " ") {
+		case "ls-files --cached --others --exclude-standard":
+			return ".gitignore\n.env.example\n.acm/acm-tests.yaml\n.acm/context.db-wal\nsrc/covered.go\nsrc/unindexed.go\n", nil
+		case "ls-files --deleted":
+			return "", nil
+		default:
 			t.Fatalf("unexpected git args: %v", args)
+			return "", nil
 		}
-		return ".gitignore\n.env.example\n.acm/acm-tests.yaml\n.acm/context.db-wal\nsrc/covered.go\nsrc/unindexed.go\n", nil
 	}
 
 	result, apiErr := svc.computeInventoryHealth(context.Background(), "project.alpha", "")
@@ -5187,6 +5208,39 @@ func TestComputeInventoryHealth_ExcludesManagedFilesFromTrackedSet(t *testing.T)
 	}
 	if !reflect.DeepEqual(result.UnindexedPaths, []string{"src/unindexed.go"}) {
 		t.Fatalf("unexpected unindexed paths: %v", result.UnindexedPaths)
+	}
+}
+
+func TestComputeInventoryHealth_ExcludesDeletedTrackedFiles(t *testing.T) {
+	repo := &fakeRepository{
+		inventoryResults: []core.PointerInventory{{Path: "src/live.go", IsStale: false}, {Path: "web/memories.html", IsStale: true}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	svc.runGitCommand = func(_ context.Context, _ string, args ...string) (string, error) {
+		switch strings.Join(args, " ") {
+		case "ls-files --cached --others --exclude-standard":
+			return "src/live.go\nweb/memories.html\n", nil
+		case "ls-files --deleted":
+			return "web/memories.html\n", nil
+		default:
+			t.Fatalf("unexpected git args: %v", args)
+			return "", nil
+		}
+	}
+
+	result, apiErr := svc.computeInventoryHealth(context.Background(), "project.alpha", "")
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if result.Summary.TotalFiles != 1 || result.Summary.IndexedFiles != 1 || result.Summary.StaleFiles != 0 {
+		t.Fatalf("unexpected inventory summary: %+v", result.Summary)
+	}
+	if len(result.StalePaths) != 0 {
+		t.Fatalf("expected deleted tracked file to be excluded from stale paths, got %v", result.StalePaths)
 	}
 }
 
@@ -5611,6 +5665,37 @@ func TestFetch_UnknownKeyReturnsNotFound(t *testing.T) {
 	}
 	if len(repo.pointerLookupCalls) != 1 {
 		t.Fatalf("expected one pointer lookup for unknown pointer key, got %d", len(repo.pointerLookupCalls))
+	}
+}
+
+func TestFetch_PointerWithMissingPathReturnsNotFound(t *testing.T) {
+	repo := &fakeRepository{
+		pointerLookupResults: []core.CandidatePointer{{
+			Key:         "code:stale-pointer",
+			Path:        "docs/missing-pointer.txt",
+			Kind:        "doc",
+			Label:       "stale-pointer",
+			Description: "stale pointer",
+			Tags:        []string{"docs"},
+		}},
+	}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
+		ProjectID: "project.alpha",
+		Keys:      []string{"code:stale-pointer"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+	if len(result.Items) != 0 {
+		t.Fatalf("expected zero fetch items for missing pointer, got %+v", result.Items)
+	}
+	if !reflect.DeepEqual(result.NotFound, []string{"code:stale-pointer"}) {
+		t.Fatalf("unexpected not_found: %+v", result.NotFound)
 	}
 }
 

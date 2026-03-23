@@ -301,7 +301,7 @@ If the repo has uncommitted changes but the current effective scope captures non
 
 Keep raw reviewer commands in repo-local scripts and workflow definitions, not maintainer prose. If a repo-local reviewer script needs model, reasoning, or sandbox settings, pass them through the workflow `run.argv` list.
 
-**History discovery:** use `acm history` for both work-specific and multi-entity discovery. Set `--entity work` when you need `--scope` or `--kind`; use other entities for memories, receipts, or runs. Results include `fetch_keys` for follow-up `acm fetch`.
+**History discovery:** use `acm history` for both work-specific and multi-entity discovery. Set `--entity work` when you need `--scope` or `--kind`; use other entities for receipts or runs. Results include `fetch_keys` for follow-up `acm fetch`.
 
 ### Human-Facing Setup And Maintenance
 
@@ -365,7 +365,6 @@ acm-web serve --addr :9090    # custom port
 | Page | URL | Description |
 |---|---|---|
 | Board | `/` | Kanban board with Pending, In Progress, Blocked, and Done columns. Tasks are tree-sorted so children appear beneath their parent. Click any card for a detail modal with navigable parent/child/dependency links and rolled-up progress for parent tasks. |
-| Memories | `/memories.html` | All durable memories with category, content, and confidence. |
 | Status | `/status.html` | Project info, loaded sources, installed integrations, and warnings. |
 | Health | `/healthz` | JSON liveness probe for k8s readiness/liveness checks. |
 
@@ -418,8 +417,8 @@ See [SQLite Operations](docs/sqlite.md) for deployment, backup, and rotation gui
 User guides:
 
 - [Getting Started](docs/getting-started.md) — full walkthrough from zero to working acm setup
-- [Web Dashboard](#web-dashboard) — read-only kanban board, memories, and status pages
-- [Concepts](docs/concepts.md) — what pointers, receipts, rules, memories, plans, and tags are
+- [Web Dashboard](#web-dashboard) — read-only kanban board and status pages
+- [Concepts](docs/concepts.md) — what pointers, receipts, rules, plans, and tags are
 - [SQLite Operations](docs/sqlite.md) — deployment, backup, and rotation
 - [Schema Reference](spec/v1/README.md) — v1 wire contract schemas
 - [Skill Templates](skills/acm-broker/references/templates.md) — request/response examples

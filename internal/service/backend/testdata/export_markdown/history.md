@@ -24,4 +24,4 @@
 - Parent Plan: plan:receipt-parent
 - Updated At: 2026-03-11T13:30:00Z
 - Task Counts: total=4 pending=1 in_progress=2 blocked=0 complete=1
-- Fetch Keys: `mem:7`, `plan:receipt-339e5cfde29fa58b2c5f1c16`
+- Fetch Keys: `plan:receipt-339e5cfde29fa58b2c5f1c16`, `run:44`

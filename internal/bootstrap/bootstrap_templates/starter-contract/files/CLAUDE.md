@@ -23,7 +23,7 @@ If you need runtime or setup diagnostics, use direct CLI `acm status`.
 
 ## Claude-Specific Notes
 
-- Keep prompts specific enough that `context` returns the right rules, active work, memories, and any explicitly known scope.
+- Keep prompts specific enough that `context` returns the right rules, active work, and any explicitly known scope.
 - If the receipt looks stale or too narrow, re-run `/acm-context` with a better task description instead of guessing.
 - If governed file work expands beyond the initial receipt scope, record the new files through `/acm-work` before expecting `/acm-review` or `/acm-done` to pass.
 - Do not claim success when `/acm-verify` failed or was skipped for code changes.

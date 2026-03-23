@@ -72,6 +72,8 @@ func TestHealthFix_DryRunPlansSafeFixers(t *testing.T) {
 			return "new.txt\n", nil
 		case "ls-files --cached --others --exclude-standard":
 			return "tracked.txt\nnew.txt\n", nil
+		case "ls-files --deleted":
+			return "", nil
 		default:
 			return "", nil
 		}
@@ -238,6 +240,8 @@ func TestHealthFix_AllFixerExpandsToDefaultFixers(t *testing.T) {
 			return "new.txt\n", nil
 		case "ls-files --cached --others --exclude-standard":
 			return "tracked.txt\nnew.txt\n", nil
+		case "ls-files --deleted":
+			return "", nil
 		default:
 			return "", nil
 		}

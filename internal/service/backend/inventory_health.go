@@ -58,7 +58,9 @@ func (s *Service) computeInventoryHealth(ctx context.Context, projectID, project
 
 	indexedCount := 0
 	unindexed := make([]string, 0)
+	trackedPaths := make(map[string]struct{}, len(paths))
 	for _, filePath := range paths {
+		trackedPaths[filePath] = struct{}{}
 		if _, ok := pointerByPath[filePath]; ok {
 			indexedCount++
 			continue
@@ -69,6 +71,9 @@ func (s *Service) computeInventoryHealth(ctx context.Context, projectID, project
 	stale := make([]string, 0)
 	for filePath, item := range pointerByPath {
 		if !item.IsStale {
+			continue
+		}
+		if _, ok := trackedPaths[filePath]; !ok {
 			continue
 		}
 		stale = append(stale, filePath)
@@ -100,7 +105,27 @@ func (s *Service) computeInventoryHealth(ctx context.Context, projectID, project
 func (s *Service) collectInventoryPaths(ctx context.Context, projectRoot string) ([]string, error) {
 	gitOutput, err := s.runGit(ctx, projectRoot, "ls-files", "--cached", "--others", "--exclude-standard")
 	if err == nil {
-		return parseInitCandidateGitPaths(gitOutput), nil
+		paths := parseInitCandidateGitPaths(gitOutput)
+		deletedOutput, deletedErr := s.runGit(ctx, projectRoot, "ls-files", "--deleted")
+		if deletedErr != nil {
+			return nil, deletedErr
+		}
+		deleted := make(map[string]struct{})
+		for _, filePath := range parseInitCandidateGitPaths(deletedOutput) {
+			deleted[filePath] = struct{}{}
+		}
+		if len(deleted) == 0 {
+			return paths, nil
+		}
+
+		filtered := make([]string, 0, len(paths))
+		for _, filePath := range paths {
+			if _, isDeleted := deleted[filePath]; isDeleted {
+				continue
+			}
+			filtered = append(filtered, filePath)
+		}
+		return filtered, nil
 	}
 
 	paths, _, walkErr := collectInitCandidatePathsFromWalk(ctx, projectRoot)

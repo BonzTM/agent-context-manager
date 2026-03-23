@@ -232,7 +232,6 @@ acm context --task-file task.txt --phase execute
 
 The response is a JSON receipt containing:
 - `rules` — hard constraints (full content included for hard enforcement rules)
-- `memories` — durable facts from past work
 - `plans` — active work plans for the project, with fetch keys for resumption
 - `initial_scope_paths` — explicitly known starting scope when the caller already knows it
 - `_meta` — receipt ID, resolved tags, task metadata, and the baseline ACM will later use to compute the real task delta for `verify` and `done`
@@ -333,7 +332,7 @@ Manual fields (`--status`, `--outcome`, `--blocked-reason`, `--evidence`) are on
 
 ### acm history discovery
 
-Use the public history surface to rediscover active or archived plans, memories, receipts, and runs without direct database access:
+Use the public history surface to rediscover active or archived plans, receipts, and runs without direct database access:
 
 ```bash
 acm history --entity work --scope current
@@ -576,7 +575,6 @@ acm-web serve --addr :9090    # custom port
 Pages:
 
 - **Board** (`/`) — Kanban board with Pending, In Progress, Blocked, and Done columns. Tasks are tree-sorted with children beneath parents. Click any card for details including navigable parent/child links and rolled-up progress.
-- **Memories** (`/memories.html`) — All durable memories with category, content, and confidence.
 - **Status** (`/status.html`) — Project info, loaded sources, installed integrations, and warnings.
 - **Health** (`/healthz`) — JSON liveness probe for k8s.
 
@@ -629,6 +627,7 @@ acm health --fix all
 Run `acm health --help` to list fixers directly in the CLI.
 
 Available fixers:
+
 - `all` — run the default fixer set (`sync_working_tree`, `index_unindexed_files`, `sync_ruleset`)
 - `sync_working_tree` — re-sync file hashes from disk
 - `index_unindexed_files` — add missing files to the index

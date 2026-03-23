@@ -10,7 +10,6 @@ canonical_tags:
   init: [init, bootstrap, onboard, onboarding]
   sync: [sync, indexing, index]
   health: [health, inventory-health, health-check, health_check, health-fix, health_fix, fixer, unindexed]
-  memory: [memory, memories, durable-memory]
   contract: [contract, contracts, payload, envelope]
   schema: [schema, schemas, json-schema, cli.command.schema, cli.result.schema, shared.schema]
   cli: [cli, command, commands, flags, convenience]

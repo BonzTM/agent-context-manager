@@ -162,6 +162,7 @@ SELECT
 FROM acm_pointers
 WHERE project_id = $1
 	AND pointer_key = $2
+	AND is_stale = FALSE
 `, []any{projectID, pointerKey}, nil
 }
 

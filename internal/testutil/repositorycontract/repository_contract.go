@@ -44,6 +44,9 @@ func RunRepositoryParity(t *testing.T, cfg ContractConfig) {
 	t.Run("lookup_round_trip", func(t *testing.T) {
 		runLookupRoundTrip(t, projectID+".lookup", cfg.Repo)
 	})
+	t.Run("stale_lookup_hidden", func(t *testing.T) {
+		runStaleLookupHidden(t, projectID+".stale-lookup", cfg.Repo)
+	})
 	t.Run("work_plan_round_trip", func(t *testing.T) {
 		runWorkPlanRoundTrip(t, projectID+".workplan", cfg.Repo)
 	})
@@ -246,6 +249,40 @@ func runLookupRoundTrip(t *testing.T, projectID string, repo ContractRepository)
 
 }
 
+func runStaleLookupHidden(t *testing.T, projectID string, repo ContractRepository) {
+	t.Helper()
+	ctx := context.Background()
+
+	if _, err := repo.UpsertPointerStubs(ctx, projectID, []core.PointerStub{{
+		PointerKey:  "pointer.stale.lookup",
+		Path:        "docs/stale-lookup.md",
+		Kind:        "doc",
+		Label:       "Stale lookup pointer",
+		Description: "Pointer used to verify stale rows are hidden from lookup",
+		Tags:        []string{"fetch", "lookup"},
+	}}); err != nil {
+		t.Fatalf("seed stale lookup pointer: %v", err)
+	}
+
+	if _, err := repo.ApplySync(ctx, core.SyncApplyInput{
+		ProjectID: projectID,
+		Mode:      "full",
+		Paths:     []core.SyncPath{},
+	}); err != nil {
+		t.Fatalf("mark stale pointer via full sync: %v", err)
+	}
+
+	_, err := repo.LookupPointerByKey(ctx, core.PointerLookupQuery{
+		ProjectID:  projectID,
+		PointerKey: "pointer.stale.lookup",
+	})
+	if err == nil {
+		t.Fatal("expected stale pointer lookup to be hidden")
+	}
+	if err != core.ErrPointerLookupNotFound {
+		t.Fatalf("expected ErrPointerLookupNotFound, got %v", err)
+	}
+}
 
 func runWorkPlanRoundTrip(t *testing.T, projectID string, repo ContractRepository) {
 	t.Helper()
@@ -604,7 +641,6 @@ func runRunSummaryRoundTrip(t *testing.T, projectID string, repo ContractReposit
 		t.Fatalf("unexpected run history files_changed: %+v", row.FilesChanged)
 	}
 }
-
 
 func candidateKeys(rows []core.CandidatePointer) []string {
 	keys := make([]string, 0, len(rows))

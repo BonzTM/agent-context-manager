@@ -59,7 +59,7 @@ func (s *Service) healthCheck(ctx context.Context, payload v1.HealthPayload) (v1
 	if apiErr != nil {
 		return v1.HealthCheckResult{}, apiErr
 	}
-	checks := buildHealthChecks(candidates, inventory.UnindexedPaths, planDiagnostics, includeDetails, maxFindings)
+	checks := buildHealthChecks(candidates, inventory.StalePaths, inventory.UnindexedPaths, planDiagnostics, includeDetails, maxFindings)
 
 	totalFindings := 0
 	for _, check := range checks {
@@ -166,7 +166,7 @@ func effectiveMaxFindingsPerCheck(maxFindings *int) int {
 	return *maxFindings
 }
 
-func buildHealthChecks(candidates []core.CandidatePointer, unindexedPaths []string, plans planDiagnostics, includeDetails bool, maxFindings int) []v1.HealthCheckItem {
+func buildHealthChecks(candidates []core.CandidatePointer, stalePaths, unindexedPaths []string, plans planDiagnostics, includeDetails bool, maxFindings int) []v1.HealthCheckItem {
 	checks := []v1.HealthCheckItem{
 		healthCheckItem("administrative_closeout_plans", "warn", plans.administrativeCloseout, includeDetails, maxFindings),
 		healthCheckItem("duplicate_labels", "warn", duplicateLabelFindings(candidates), includeDetails, maxFindings),
@@ -174,7 +174,7 @@ func buildHealthChecks(candidates []core.CandidatePointer, unindexedPaths []stri
 		healthCheckItem("orphan_relations", "info", []string{}, includeDetails, maxFindings),
 		healthCheckItem("pending_quarantines", "info", []string{}, includeDetails, maxFindings),
 		healthCheckItem("stale_work_plans", "warn", plans.stale, includeDetails, maxFindings),
-		healthCheckItem("stale_pointers", "warn", stalePointerFindings(candidates), includeDetails, maxFindings),
+		healthCheckItem("stale_pointers", "warn", stalePaths, includeDetails, maxFindings),
 		healthCheckItem("terminal_plan_status_drift", "warn", plans.terminalStatusDrift, includeDetails, maxFindings),
 		healthCheckItem("unindexed_files", "warn", normalizeValues(unindexedPaths), includeDetails, maxFindings),
 		healthCheckItem("unknown_tags", "warn", unknownTagFindings(candidates), includeDetails, maxFindings),
@@ -198,24 +198,6 @@ func healthCheckItem(name, severity string, findings []string, includeDetails bo
 		item.Samples = append([]string(nil), normalizedFindings[:limit]...)
 	}
 	return item
-}
-
-func stalePointerFindings(candidates []core.CandidatePointer) []string {
-	out := make([]string, 0)
-	for _, candidate := range candidates {
-		if !candidate.IsStale {
-			continue
-		}
-		key := strings.TrimSpace(candidate.Key)
-		if key == "" {
-			key = normalizeCompletionPath(candidate.Path)
-		}
-		if key == "" {
-			continue
-		}
-		out = append(out, key)
-	}
-	return out
 }
 
 func emptyDescriptionFindings(candidates []core.CandidatePointer) []string {

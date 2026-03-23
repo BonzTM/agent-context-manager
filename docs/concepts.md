@@ -13,14 +13,13 @@ A pointer is an entry in acm's index that points to something in your codebase �
 - **Tags** — flat list of canonical tags for scoping (e.g., `backend`, `auth`, `test`)
 - **Content hash** — used to detect staleness when files change
 
-Pointers are lightweight. They don't contain the full file content — just enough for acm to index repo artifacts, support `fetch`, power health/status reporting, and let plans or memories point back to concrete code or docs.
+Pointers are lightweight. They don't contain the full file content — just enough for acm to index repo artifacts, support `fetch`, power health/status reporting, and let plans point back to concrete code or docs.
 
 ## Receipt
 
 When you call `context`, acm returns a receipt. A receipt is a scoped snapshot of everything relevant to your task. It contains:
 
 - **Rules** — hard constraints the agent must follow
-- **Memories** — durable facts from past work
 - **Plans** — active work plans for the project, with fetch keys for resumption
 - **Initial scope paths** — any file paths the caller already knew at task start
 - **Meta** — receipt ID, resolved tags, task metadata, and the context-time baseline used for later task-delta detection
@@ -87,7 +86,7 @@ The `review` command lowers to a single `work.tasks[]` merge update. Defaults wh
 
 ## Tag
 
-Tags are flat labels used to scope pointers, rules, memories, verification selectors, and workflow selectors. Examples: `backend`, `auth`, `test`, `frontend`.
+Tags are flat labels used to scope pointers, rules, verification selectors, and workflow selectors. Examples: `backend`, `auth`, `test`, `frontend`.
 
 acm normalizes tags through a canonical dictionary that maps aliases to a single form (e.g., `api` and `server` both map to `backend`). In the simpler context model, tags help route rules, verification, workflow selection, and init/onboarding guidance; they are no longer presented as a ranked retrieval engine.
 

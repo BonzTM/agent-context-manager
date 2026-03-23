@@ -490,6 +490,7 @@ SELECT
 FROM acm_pointers
 WHERE project_id = ?
 	AND pointer_key = ?
+	AND is_stale = 0
 `, projectID, pointerKey).Scan(
 		&row.Key,
 		&row.Path,

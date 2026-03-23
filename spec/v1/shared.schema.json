@@ -413,57 +413,6 @@
         }
       }
     },
-    "memoryCategory": {
-      "type": "string",
-      "enum": [
-        "decision",
-        "gotcha",
-        "pattern",
-        "preference"
-      ]
-    },
-    "memorySummary": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "subject",
-        "content",
-        "confidence",
-        "why"
-      ],
-      "properties": {
-        "id": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "subject": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 160
-        },
-        "content": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 600
-        },
-        "confidence": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 5
-        },
-        "why": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "minItems": 1,
-          "maxItems": 8
-        }
-      }
-    },
     "contextRule": {
       "type": "object",
       "additionalProperties": false,
@@ -496,25 +445,6 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 20000,
-          "pattern": "^.*\\S.*$"
-        }
-      }
-    },
-    "contextMemory": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "key",
-        "summary"
-      ],
-      "properties": {
-        "key": {
-          "$ref": "#/$defs/contractKey"
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 600,
           "pattern": "^.*\\S.*$"
         }
       }
@@ -626,7 +556,6 @@
       "additionalProperties": false,
       "required": [
         "rules",
-        "memories",
         "plans",
         "_meta"
       ],
@@ -635,12 +564,6 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/contextRule"
-          }
-        },
-        "memories": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/contextMemory"
           }
         },
         "plans": {
@@ -659,59 +582,6 @@
         },
         "_meta": {
           "$ref": "#/$defs/contextReceiptMeta"
-        }
-      }
-    },
-    "memoryPayload": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "category",
-        "subject",
-        "content",
-        "related_pointer_keys",
-        "tags",
-        "confidence",
-        "evidence_pointer_keys"
-      ],
-      "properties": {
-        "category": {
-          "$ref": "#/$defs/memoryCategory"
-        },
-        "subject": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 160
-        },
-        "content": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 600
-        },
-        "related_pointer_keys": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/pointerKey"
-          },
-          "maxItems": 32,
-          "uniqueItems": true
-        },
-        "tags": {
-          "$ref": "#/$defs/tagList"
-        },
-        "confidence": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 5
-        },
-        "evidence_pointer_keys": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/pointerKey"
-          },
-          "minItems": 1,
-          "maxItems": 16,
-          "uniqueItems": true
         }
       }
     },

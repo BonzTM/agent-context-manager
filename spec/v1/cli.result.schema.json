@@ -897,10 +897,6 @@
           "type": "integer",
           "minimum": 0
         },
-        "memory_count": {
-          "type": "integer",
-          "minimum": 0
-        },
         "plan_count": {
           "type": "integer",
           "minimum": 0
@@ -1116,58 +1112,6 @@
         "actual": {
           "type": "string",
           "maxLength": 128
-        }
-      }
-    },
-    "exportMemoryDocument": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "key",
-        "summary"
-      ],
-      "properties": {
-        "key": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1024
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
-        },
-        "category": {
-          "$ref": "shared.schema.json#/$defs/memoryCategory"
-        },
-        "subject": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 300
-        },
-        "content": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1000000
-        },
-        "confidence": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 10
-        },
-        "tags": {
-          "$ref": "shared.schema.json#/$defs/tagList"
-        },
-        "related_pointer_keys": {
-          "type": "array",
-          "items": {
-            "$ref": "shared.schema.json#/$defs/pointerKey"
-          },
-          "maxItems": 32,
-          "uniqueItems": true
-        },
-        "updated_at": {
-          "$ref": "shared.schema.json#/$defs/timestamp"
         }
       }
     },
@@ -1432,16 +1376,6 @@
             "$ref": "shared.schema.json#/$defs/pointerKey"
           },
           "maxItems": 512,
-          "uniqueItems": true
-        },
-        "memory_keys": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
-          },
-          "maxItems": 128,
           "uniqueItems": true
         },
         "initial_scope_paths": {
