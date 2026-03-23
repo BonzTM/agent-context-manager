@@ -22,7 +22,6 @@ import (
 
 const (
 	defaultCandidateLimit = 32
-	defaultMemoryLimit    = 16
 	maxQueryLimit         = 512
 	defaultPhase          = "execute"
 
@@ -190,98 +189,6 @@ WHERE project_id = ?
 		return nil, fmt.Errorf("iterate candidate pointers: %w", err)
 	}
 	return storagedomain.SortAndLimitCandidatePointers(candidates, input, defaultCandidateLimit), nil
-}
-
-func (r *Repository) FetchActiveMemories(_ context.Context, input core.ActiveMemoryQuery) ([]core.ActiveMemory, error) {
-	if r == nil || r.db == nil {
-		return nil, fmt.Errorf("sqlite db is required")
-	}
-
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required")
-	}
-	limit := normalizeLimit(input.Limit, defaultMemoryLimit)
-	queryPointerKeys := normalizeStringList(input.PointerKeys)
-	queryTags := normalizeStringList(input.Tags)
-
-	rows, err := r.db.Query(`
-SELECT
-	memory_id,
-	category,
-	subject,
-	content,
-	confidence,
-	tags_json,
-	related_pointer_keys_json,
-	updated_at
-FROM acm_memories
-WHERE project_id = ?
-	AND active = 1
-`, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("query active memories: %w", err)
-	}
-	defer rows.Close()
-
-	memories := make([]core.ActiveMemory, 0)
-	for rows.Next() {
-		var (
-			tagsJSON    string
-			relatedJSON string
-			updatedAt   int64
-			row         core.ActiveMemory
-		)
-		if err := rows.Scan(
-			&row.ID,
-			&row.Category,
-			&row.Subject,
-			&row.Content,
-			&row.Confidence,
-			&tagsJSON,
-			&relatedJSON,
-			&updatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan active memory: %w", err)
-		}
-
-		tags, err := decodeStringList(tagsJSON)
-		if err != nil {
-			return nil, fmt.Errorf("decode memory tags: %w", err)
-		}
-		related, err := decodeStringList(relatedJSON)
-		if err != nil {
-			return nil, fmt.Errorf("decode memory related pointers: %w", err)
-		}
-
-		if len(queryPointerKeys) > 0 || len(queryTags) > 0 {
-			if overlapCount(related, queryPointerKeys) == 0 && overlapCount(tags, queryTags) == 0 {
-				continue
-			}
-		}
-
-		row.Tags = tags
-		row.RelatedPointerKeys = related
-		row.UpdatedAt = unixTime(updatedAt)
-		memories = append(memories, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate active memories: %w", err)
-	}
-
-	sort.Slice(memories, func(i, j int) bool {
-		if memories[i].Confidence != memories[j].Confidence {
-			return memories[i].Confidence > memories[j].Confidence
-		}
-		if !memories[i].UpdatedAt.Equal(memories[j].UpdatedAt) {
-			return memories[i].UpdatedAt.After(memories[j].UpdatedAt)
-		}
-		return memories[i].ID < memories[j].ID
-	})
-	if !input.Unbounded && len(memories) > limit {
-		memories = memories[:limit]
-	}
-	return memories, nil
 }
 
 func (r *Repository) ListPointerInventory(ctx context.Context, projectID string) ([]core.PointerInventory, error) {
@@ -458,8 +365,7 @@ WHERE project_id = ?
 	if err != nil {
 		return core.ReceiptScope{}, fmt.Errorf("decode pointer_keys: %w", err)
 	}
-	memoryIDs, err := decodeInt64List(memoryIDsJSON)
-	if err != nil {
+	if _, err := decodeInt64List(memoryIDsJSON); err != nil {
 		return core.ReceiptScope{}, fmt.Errorf("decode memory_ids: %w", err)
 	}
 	initialScopePaths, err := decodeStringList(initialScopePathsJSON)
@@ -478,7 +384,6 @@ WHERE project_id = ?
 		Phase:             strings.TrimSpace(phase),
 		ResolvedTags:      resolvedTags,
 		PointerKeys:       pointerKeys,
-		MemoryIDs:         memoryIDs,
 		InitialScopePaths: initialScopePaths,
 		BaselineCaptured:  baselineCaptured == 1,
 		BaselinePaths:     baselinePaths,
@@ -620,76 +525,6 @@ WHERE project_id = ?
 		IsRule:      isRuleInt != 0,
 		IsStale:     isStaleInt != 0,
 		UpdatedAt:   unixTime(updatedAt),
-	}, nil
-}
-
-func (r *Repository) LookupMemoryByID(ctx context.Context, input core.MemoryLookupQuery) (core.ActiveMemory, error) {
-	if r == nil || r.db == nil {
-		return core.ActiveMemory{}, fmt.Errorf("sqlite db is required")
-	}
-
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return core.ActiveMemory{}, fmt.Errorf("project_id is required")
-	}
-	if input.MemoryID <= 0 {
-		return core.ActiveMemory{}, fmt.Errorf("memory_id must be positive")
-	}
-
-	var (
-		tagsJSON    string
-		relatedJSON string
-		updatedAt   int64
-		row         core.ActiveMemory
-	)
-	err := r.db.QueryRowContext(ctx, `
-SELECT
-	memory_id,
-	category,
-	subject,
-	content,
-	confidence,
-	tags_json,
-	related_pointer_keys_json,
-	updated_at
-FROM acm_memories
-WHERE project_id = ?
-	AND memory_id = ?
-`, projectID, input.MemoryID).Scan(
-		&row.ID,
-		&row.Category,
-		&row.Subject,
-		&row.Content,
-		&row.Confidence,
-		&tagsJSON,
-		&relatedJSON,
-		&updatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return core.ActiveMemory{}, core.ErrMemoryLookupNotFound
-		}
-		return core.ActiveMemory{}, fmt.Errorf("query memory lookup: %w", err)
-	}
-
-	tags, err := decodeStringList(tagsJSON)
-	if err != nil {
-		return core.ActiveMemory{}, fmt.Errorf("decode memory tags: %w", err)
-	}
-	relatedPointerKeys, err := decodeStringList(relatedJSON)
-	if err != nil {
-		return core.ActiveMemory{}, fmt.Errorf("decode memory related pointers: %w", err)
-	}
-
-	return core.ActiveMemory{
-		ID:                 row.ID,
-		Category:           strings.TrimSpace(row.Category),
-		Subject:            strings.TrimSpace(row.Subject),
-		Content:            strings.TrimSpace(row.Content),
-		Confidence:         row.Confidence,
-		Tags:               normalizeStringList(tags),
-		RelatedPointerKeys: normalizeStringList(relatedPointerKeys),
-		UpdatedAt:          unixTime(updatedAt),
 	}, nil
 }
 
@@ -1303,97 +1138,6 @@ ORDER BY updated_at DESC, r.receipt_id ASC
 	return out, nil
 }
 
-func (r *Repository) ListMemoryHistory(ctx context.Context, input core.MemoryHistoryListQuery) ([]core.MemoryHistorySummary, error) {
-	if r == nil || r.db == nil {
-		return nil, fmt.Errorf("sqlite db is required")
-	}
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required")
-	}
-	limit := input.Limit
-	if !input.Unbounded && limit <= 0 {
-		limit = 20
-	}
-	if !input.Unbounded && limit > 100 {
-		limit = 100
-	}
-	searchPattern := workPlanListSearchPattern(input.Query)
-
-	var query strings.Builder
-	query.WriteString(`
-SELECT
-	memory_id,
-	category,
-	subject,
-	content,
-	confidence,
-	updated_at
-FROM acm_memories
-WHERE project_id = ?
-	AND active = 1
-`)
-	args := []any{projectID}
-
-	if searchPattern != "" {
-		query.WriteString(`  AND (
-	LOWER(COALESCE(category, '')) LIKE ? ESCAPE '\'
-	OR LOWER(COALESCE(subject, '')) LIKE ? ESCAPE '\'
-	OR LOWER(COALESCE(content, '')) LIKE ? ESCAPE '\'
-	OR LOWER(COALESCE(tags_json, '')) LIKE ? ESCAPE '\'
-	OR LOWER(COALESCE(related_pointer_keys_json, '')) LIKE ? ESCAPE '\'
-)
-`)
-		for i := 0; i < 5; i++ {
-			args = append(args, searchPattern)
-		}
-	}
-
-	query.WriteString(`
-ORDER BY updated_at DESC, confidence DESC, memory_id ASC
-`)
-	if !input.Unbounded {
-		query.WriteString("LIMIT ?\n")
-		args = append(args, limit)
-	}
-
-	rows, err := r.db.QueryContext(ctx, query.String(), args...)
-	if err != nil {
-		return nil, fmt.Errorf("query memory history: %w", err)
-	}
-	defer rows.Close()
-
-	out := make([]core.MemoryHistorySummary, 0)
-	for rows.Next() {
-		var (
-			row       core.MemoryHistorySummary
-			updatedAt int64
-		)
-		if err := rows.Scan(
-			&row.MemoryID,
-			&row.Category,
-			&row.Subject,
-			&row.Content,
-			&row.Confidence,
-			&updatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan memory history: %w", err)
-		}
-		if row.MemoryID <= 0 {
-			continue
-		}
-		row.Category = strings.TrimSpace(row.Category)
-		row.Subject = strings.TrimSpace(row.Subject)
-		row.Content = strings.TrimSpace(row.Content)
-		row.UpdatedAt = unixTime(updatedAt)
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate memory history: %w", err)
-	}
-	return out, nil
-}
-
 func (r *Repository) ListRunHistory(ctx context.Context, input core.RunHistoryListQuery) ([]core.RunHistorySummary, error) {
 	if r == nil || r.db == nil {
 		return nil, fmt.Errorf("sqlite db is required")
@@ -1627,179 +1371,6 @@ ORDER BY
 	return out, nil
 }
 
-func (r *Repository) PersistMemory(ctx context.Context, input core.MemoryPersistence) (core.MemoryPersistenceResult, error) {
-	if r == nil || r.db == nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("sqlite db is required")
-	}
-
-	normalized, err := normalizeMemoryPersistence(input)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-	if normalized.Promotable && (!normalized.Validation.HardPassed || !normalized.Validation.SoftPassed) {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("promotable requires hard and soft validation pass")
-	}
-
-	initialStatus := candidateStatusPending
-	if !normalized.Validation.HardPassed {
-		initialStatus = candidateStatusRejected
-	}
-
-	tagsJSON, err := encodeStringList(nonNilStringList(normalized.Tags))
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-	relatedJSON, err := encodeStringList(nonNilStringList(normalized.RelatedPointerKeys))
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-	evidenceJSON, err := encodeStringList(normalized.EvidencePointerKeys)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-	errorsJSON, err := encodeStringList(nonNilStringList(normalized.Validation.Errors))
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-	warningsJSON, err := encodeStringList(nonNilStringList(normalized.Validation.Warnings))
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	insertResult, err := tx.ExecContext(ctx, `
-INSERT INTO acm_memory_candidates (
-	project_id,
-	receipt_id,
-	category,
-	subject,
-	content,
-	confidence,
-	tags_json,
-	related_pointer_keys_json,
-	evidence_pointer_keys_json,
-	dedupe_key,
-	status,
-	hard_passed,
-	soft_passed,
-	validation_errors_json,
-	validation_warnings_json,
-	auto_promote,
-	promotable,
-	created_at,
-	updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
-`,
-		normalized.ProjectID,
-		normalized.ReceiptID,
-		normalized.Category,
-		normalized.Subject,
-		normalized.Content,
-		normalized.Confidence,
-		tagsJSON,
-		relatedJSON,
-		evidenceJSON,
-		normalized.DedupeKey,
-		initialStatus,
-		boolToInt(normalized.Validation.HardPassed),
-		boolToInt(normalized.Validation.SoftPassed),
-		errorsJSON,
-		warningsJSON,
-		boolToInt(normalized.AutoPromote),
-		boolToInt(normalized.Promotable),
-	)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("insert memory candidate: %w", err)
-	}
-	candidateID, err := insertResult.LastInsertId()
-	if err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("read memory candidate id: %w", err)
-	}
-
-	out := core.MemoryPersistenceResult{
-		CandidateID: candidateID,
-		Status:      initialStatus,
-	}
-	if !normalized.Promotable {
-		if err := tx.Commit(); err != nil {
-			return core.MemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
-		}
-		return out, nil
-	}
-
-	insertMemoryResult, err := tx.ExecContext(ctx, `
-INSERT OR IGNORE INTO acm_memories (
-	project_id,
-	category,
-	subject,
-	content,
-	confidence,
-	tags_json,
-	related_pointer_keys_json,
-	evidence_pointer_keys_json,
-	dedupe_key,
-	active,
-	created_at,
-	updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), unixepoch())
-`,
-		normalized.ProjectID,
-		normalized.Category,
-		normalized.Subject,
-		normalized.Content,
-		normalized.Confidence,
-		tagsJSON,
-		relatedJSON,
-		evidenceJSON,
-		normalized.DedupeKey,
-	)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("insert durable memory: %w", err)
-	}
-	insertedRows, err := insertMemoryResult.RowsAffected()
-	if err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("read durable memory rows affected: %w", err)
-	}
-
-	finalStatus := candidateStatusRejected
-	if insertedRows > 0 {
-		promotedMemoryID, err := insertMemoryResult.LastInsertId()
-		if err != nil {
-			return core.MemoryPersistenceResult{}, fmt.Errorf("read durable memory id: %w", err)
-		}
-		out.PromotedMemoryID = promotedMemoryID
-		finalStatus = candidateStatusPromoted
-	}
-
-	_, err = tx.ExecContext(ctx, `
-UPDATE acm_memory_candidates
-SET
-	status = ?,
-	promoted_memory_id = CASE WHEN ? > 0 THEN ? ELSE NULL END,
-	updated_at = unixepoch()
-WHERE candidate_id = ?
-`,
-		finalStatus,
-		out.PromotedMemoryID,
-		out.PromotedMemoryID,
-		candidateID,
-	)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("update memory candidate status: %w", err)
-	}
-
-	out.Status = finalStatus
-	if err := tx.Commit(); err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
-	}
-	return out, nil
-}
-
 func (r *Repository) SaveRunReceiptSummary(ctx context.Context, input core.RunReceiptSummary) (core.RunReceiptIDs, error) {
 	if r == nil || r.db == nil {
 		return core.RunReceiptIDs{}, fmt.Errorf("sqlite db is required")
@@ -1824,7 +1395,7 @@ func (r *Repository) SaveRunReceiptSummary(ctx context.Context, input core.RunRe
 	if err != nil {
 		return core.RunReceiptIDs{}, err
 	}
-	memoryIDsJSON, err := encodeInt64List(nonNilInt64List(normalized.MemoryIDs))
+	memoryIDsJSON, err := encodeInt64List(nil)
 	if err != nil {
 		return core.RunReceiptIDs{}, err
 	}
@@ -1844,7 +1415,7 @@ func (r *Repository) SaveRunReceiptSummary(ctx context.Context, input core.RunRe
 		Phase:        normalized.Phase,
 		ResolvedTags: normalized.ResolvedTags,
 		PointerKeys:  normalized.PointerKeys,
-		MemoryIDs:    normalized.MemoryIDs,
+		MemoryIDs:    nil,
 	})
 	if err != nil {
 		return core.RunReceiptIDs{}, fmt.Errorf("marshal receipt summary: %w", err)
@@ -1962,7 +1533,7 @@ func (r *Repository) UpsertReceiptScope(ctx context.Context, input core.ReceiptS
 	if err != nil {
 		return fmt.Errorf("encode pointer_keys: %w", err)
 	}
-	memoryIDsJSON, err := encodeInt64List(normalized.MemoryIDs)
+	memoryIDsJSON, err := encodeInt64List(nil)
 	if err != nil {
 		return fmt.Errorf("encode memory_ids: %w", err)
 	}

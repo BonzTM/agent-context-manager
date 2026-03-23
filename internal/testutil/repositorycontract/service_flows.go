@@ -131,31 +131,6 @@ func RunServiceFlows(t *testing.T, cfg ServiceFlowConfig) {
 		t.Fatalf("save receipt scope summary: %v", err)
 	}
 
-	autoPromote := false
-	proposeResult, apiErr := svc.Memory(ctx, v1.MemoryCommandPayload{
-		ProjectID:   projectID,
-		ReceiptID:   receipt.Meta.ReceiptID,
-		AutoPromote: &autoPromote,
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             cfg.BackendLabel + " default backend enabled",
-			Content:             "Runtime defaults to " + cfg.BackendLabel + " when configured.",
-			RelatedPointerKeys:  []string{pointerKeys[0]},
-			Tags:                []string{"runtime", cfg.BackendLabel},
-			Confidence:          4,
-			EvidencePointerKeys: []string{pointerKeys[0]},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("memory API error: %+v", apiErr)
-	}
-	if proposeResult.CandidateID <= 0 || proposeResult.Status != "pending" {
-		t.Fatalf("unexpected memory result: %+v", proposeResult)
-	}
-	if !proposeResult.Validation.HardPassed || !proposeResult.Validation.SoftPassed {
-		t.Fatalf("unexpected propose validation: %+v", proposeResult.Validation)
-	}
-
 	reportResult, apiErr := svc.Done(ctx, v1.DonePayload{
 		ProjectID:    projectID,
 		ReceiptID:    receipt.Meta.ReceiptID,

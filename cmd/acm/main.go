@@ -199,7 +199,6 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "High-Signal Requirements:")
 	fmt.Fprintln(w, "  - `context` requires one of `--task-text` or `--task-file`.")
-	fmt.Fprintln(w, "  - `memory` requires `--receipt-id` or `--plan-key`, `--category`, `--subject`, `--confidence`, one of `--content` or `--content-file`, and at least one evidence key.")
 	fmt.Fprintln(w, "  - `done` requires `--receipt-id` or `--plan-key` and one of `--outcome` or `--outcome-file`.")
 	fmt.Fprintln(w, "  - `work` enforces exclusive payload groups such as `--plan-file|--plan-json` and `--tasks-file|--tasks-json`.")
 	fmt.Fprintln(w)

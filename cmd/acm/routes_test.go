@@ -38,7 +38,7 @@ func TestRouteCatalogCoversCanonicalCommands(t *testing.T) {
 	if _, ok := lookupRouteSpec("export"); ok {
 		t.Fatal("expected export convenience route to be absent")
 	}
-	for _, name := range []string{"get-context", "propose-memory", "report-completion", "bootstrap", "doctor", "health-check", "health-fix"} {
+	for _, name := range []string{"get-context", "report-completion", "bootstrap", "doctor", "health-check", "health-fix"} {
 		if _, ok := lookupRouteSpec(name); ok {
 			t.Fatalf("expected removed legacy route %q to be absent", name)
 		}

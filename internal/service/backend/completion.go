@@ -119,7 +119,6 @@ func (s *Service) Done(ctx context.Context, payload v1.DonePayload) (v1.DoneResu
 		Phase:                  scope.Phase,
 		ResolvedTags:           scope.ResolvedTags,
 		PointerKeys:            scope.PointerKeys,
-		MemoryIDs:              scope.MemoryIDs,
 		Status:                 runStatus,
 		FilesChanged:           filesChanged,
 		DefinitionOfDoneIssues: definitionOfDoneIssues,

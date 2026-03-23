@@ -14,9 +14,7 @@ import (
 var (
 	requestIDRe  = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
 	projectIDRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$`)
-	tagRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 	testIDRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-	pointerKeyRe = regexp.MustCompile(`^[^\s]+:[^\s#]+(?:#[^\s]+)?$`)
 	planKindRe   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 )
 
@@ -201,49 +199,6 @@ func validateExportPayload(p *ExportPayload, fields map[string]json.RawMessage) 
 	}
 	if selectorCount != 1 {
 		return fmt.Errorf("exactly one source selector is required")
-	}
-	return nil
-}
-
-func validateMemoryCommandPayload(p *MemoryCommandPayload) error {
-	if err := validateProjectID(p.ProjectID); err != nil {
-		return err
-	}
-	if err := validateReceiptOrPlanReference(p.ReceiptID, p.PlanKey); err != nil {
-		return err
-	}
-	if err := validateTagsFile(p.TagsFile); err != nil {
-		return err
-	}
-	if err := validateMemoryPayload(&p.Memory); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validateMemoryPayload(m *MemoryPayload) error {
-	switch m.Category {
-	case MemoryCategoryDecision, MemoryCategoryGotcha, MemoryCategoryPattern, MemoryCategoryPreference:
-	default:
-		return fmt.Errorf("memory.category is invalid")
-	}
-	if strings.TrimSpace(m.Subject) == "" || len(m.Subject) > 160 {
-		return fmt.Errorf("memory.subject must be 1..160 chars")
-	}
-	if strings.TrimSpace(m.Content) == "" || len(m.Content) > 600 {
-		return fmt.Errorf("memory.content must be 1..600 chars")
-	}
-	if m.Confidence < 1 || m.Confidence > 5 {
-		return fmt.Errorf("memory.confidence must be 1..5")
-	}
-	if err := validatePointerKeyList(m.RelatedPointerKeys, 0, 32, "memory.related_pointer_keys"); err != nil {
-		return err
-	}
-	if err := validatePointerKeyList(m.EvidencePointerKeys, 1, 16, "memory.evidence_pointer_keys"); err != nil {
-		return err
-	}
-	if err := validateTags(m.Tags); err != nil {
-		return err
 	}
 	return nil
 }
@@ -561,11 +516,10 @@ func validateHistorySearchPayload(p *HistorySearchPayload) error {
 	}
 	if p.Entity != "" &&
 		p.Entity != HistoryEntityAll &&
-		p.Entity != HistoryEntityMemory &&
 		p.Entity != HistoryEntityWork &&
 		p.Entity != HistoryEntityReceipt &&
 		p.Entity != HistoryEntityRun {
-		return fmt.Errorf("entity must be all|memory|work|receipt|run")
+		return fmt.Errorf("entity must be all|work|receipt|run")
 	}
 	if strings.TrimSpace(p.Query) != "" && len(strings.TrimSpace(p.Query)) > 4000 {
 		return fmt.Errorf("query must be 1..4000 chars when provided")
@@ -647,8 +601,6 @@ func normalizeHistoryEntityValue(raw HistoryEntity) HistoryEntity {
 	switch strings.TrimSpace(string(raw)) {
 	case string(HistoryEntityAll):
 		return HistoryEntityAll
-	case string(HistoryEntityMemory):
-		return HistoryEntityMemory
 	case string(HistoryEntityReceipt):
 		return HistoryEntityReceipt
 	case string(HistoryEntityRun):
@@ -903,21 +855,6 @@ func validateScopeMode(mode ScopeMode) error {
 	}
 }
 
-func validateTags(tags []string) error {
-	if len(tags) > 64 {
-		return fmt.Errorf("memory.tags may include at most 64 entries")
-	}
-	if err := validateUniqueStrings(tags, "memory.tags"); err != nil {
-		return err
-	}
-	for i, t := range tags {
-		if !tagRe.MatchString(t) {
-			return fmt.Errorf("memory.tags[%d] format is invalid", i)
-		}
-	}
-	return nil
-}
-
 func validateRelativePath(path string) error {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
@@ -990,27 +927,6 @@ func validateUniqueStrings(values []string, field string) error {
 			return fmt.Errorf("%s must not contain duplicates", field)
 		}
 		seen[value] = struct{}{}
-	}
-	return nil
-}
-
-func validatePointerKeyList(values []string, minItems, maxItems int, field string) error {
-	if len(values) < minItems {
-		return fmt.Errorf("%s must include at least %d entries", field, minItems)
-	}
-	if len(values) > maxItems {
-		return fmt.Errorf("%s may include at most %d entries", field, maxItems)
-	}
-	if err := validateUniqueStrings(values, field); err != nil {
-		return err
-	}
-	for i, value := range values {
-		if err := validateBoundedKey(value, 512); err != nil {
-			return fmt.Errorf("%s[%d] %w", field, i, err)
-		}
-		if !pointerKeyRe.MatchString(value) {
-			return fmt.Errorf("%s[%d] format is invalid", field, i)
-		}
 	}
 	return nil
 }

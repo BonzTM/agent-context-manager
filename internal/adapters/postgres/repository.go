@@ -143,65 +143,6 @@ func (r *Repository) FetchCandidatePointers(ctx context.Context, input core.Cand
 	return storagedomain.SortAndLimitCandidatePointers(results, input, defaultCandidateLimit), nil
 }
 
-func (r *Repository) FetchActiveMemories(ctx context.Context, input core.ActiveMemoryQuery) ([]core.ActiveMemory, error) {
-	if r == nil || r.pool == nil {
-		return nil, fmt.Errorf("postgres pool is required")
-	}
-
-	query, args, err := buildActiveMemoriesQuery(input)
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := r.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query active memories: %w", err)
-	}
-	defer rows.Close()
-
-	results := make([]core.ActiveMemory, 0)
-	for rows.Next() {
-		var row struct {
-			ID                 int64
-			Category           string
-			Subject            string
-			Content            string
-			Confidence         int
-			Tags               []string
-			RelatedPointerKeys []string
-			UpdatedAt          time.Time
-		}
-		if err := rows.Scan(
-			&row.ID,
-			&row.Category,
-			&row.Subject,
-			&row.Content,
-			&row.Confidence,
-			&row.Tags,
-			&row.RelatedPointerKeys,
-			&row.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan active memory: %w", err)
-		}
-
-		results = append(results, core.ActiveMemory{
-			ID:                 row.ID,
-			Category:           row.Category,
-			Subject:            row.Subject,
-			Content:            row.Content,
-			Confidence:         row.Confidence,
-			Tags:               row.Tags,
-			RelatedPointerKeys: row.RelatedPointerKeys,
-			UpdatedAt:          row.UpdatedAt,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate active memories: %w", err)
-	}
-
-	return results, nil
-}
-
 func (r *Repository) ListPointerInventory(ctx context.Context, projectID string) ([]core.PointerInventory, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("postgres pool is required")
@@ -376,7 +317,6 @@ func (r *Repository) FetchReceiptScope(ctx context.Context, input core.ReceiptSc
 		Phase:             strings.TrimSpace(row.Phase),
 		ResolvedTags:      normalizeStringList(row.ResolvedTags),
 		PointerKeys:       normalizeStringList(row.PointerKeys),
-		MemoryIDs:         normalizeInt64List(row.MemoryIDs),
 		InitialScopePaths: normalizeStringList(row.InitialScopePaths),
 		BaselineCaptured:  row.BaselineCaptured,
 		BaselinePaths:     baselinePaths,
@@ -478,54 +418,6 @@ func (r *Repository) LookupPointerByKey(ctx context.Context, input core.PointerL
 		IsRule:      row.IsRule,
 		IsStale:     row.IsStale,
 		UpdatedAt:   row.UpdatedAt.UTC(),
-	}, nil
-}
-
-func (r *Repository) LookupMemoryByID(ctx context.Context, input core.MemoryLookupQuery) (core.ActiveMemory, error) {
-	if r == nil || r.pool == nil {
-		return core.ActiveMemory{}, fmt.Errorf("postgres pool is required")
-	}
-
-	query, args, err := buildLookupMemoryByIDQuery(input)
-	if err != nil {
-		return core.ActiveMemory{}, err
-	}
-
-	var row struct {
-		ID                 int64
-		Category           string
-		Subject            string
-		Content            string
-		Confidence         int
-		Tags               []string
-		RelatedPointerKeys []string
-		UpdatedAt          time.Time
-	}
-	if err := r.pool.QueryRow(ctx, query, args...).Scan(
-		&row.ID,
-		&row.Category,
-		&row.Subject,
-		&row.Content,
-		&row.Confidence,
-		&row.Tags,
-		&row.RelatedPointerKeys,
-		&row.UpdatedAt,
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return core.ActiveMemory{}, core.ErrMemoryLookupNotFound
-		}
-		return core.ActiveMemory{}, fmt.Errorf("query memory lookup: %w", err)
-	}
-
-	return core.ActiveMemory{
-		ID:                 row.ID,
-		Category:           strings.TrimSpace(row.Category),
-		Subject:            strings.TrimSpace(row.Subject),
-		Content:            strings.TrimSpace(row.Content),
-		Confidence:         row.Confidence,
-		Tags:               normalizeStringList(row.Tags),
-		RelatedPointerKeys: normalizeStringList(row.RelatedPointerKeys),
-		UpdatedAt:          row.UpdatedAt.UTC(),
 	}, nil
 }
 
@@ -1061,99 +953,6 @@ ORDER BY updated_at DESC, r.receipt_id ASC
 	return out, nil
 }
 
-func (r *Repository) ListMemoryHistory(ctx context.Context, input core.MemoryHistoryListQuery) ([]core.MemoryHistorySummary, error) {
-	if r == nil || r.pool == nil {
-		return nil, fmt.Errorf("postgres pool is required")
-	}
-
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required")
-	}
-	limit := input.Limit
-	if !input.Unbounded && limit <= 0 {
-		limit = 20
-	}
-	if !input.Unbounded && limit > 100 {
-		limit = 100
-	}
-	searchPattern := workPlanListSearchPattern(input.Query)
-
-	var (
-		query strings.Builder
-		args  []any
-	)
-	query.WriteString(`
-SELECT
-	m.memory_id,
-	m.category,
-	m.subject,
-	m.content,
-	m.confidence,
-	m.updated_at
-FROM acm_memories m
-WHERE m.project_id = $1
-	AND m.active = TRUE
-`)
-	args = append(args, projectID)
-	argIndex := 2
-
-	if searchPattern != "" {
-		query.WriteString(fmt.Sprintf(`  AND (
-	LOWER(COALESCE(m.category, '')) LIKE $%d ESCAPE '\'
-	OR LOWER(COALESCE(m.subject, '')) LIKE $%d ESCAPE '\'
-	OR LOWER(COALESCE(m.content, '')) LIKE $%d ESCAPE '\'
-	OR LOWER(COALESCE(array_to_string(m.tags, ' '), '')) LIKE $%d ESCAPE '\'
-	OR LOWER(COALESCE(array_to_string(m.related_pointer_keys, ' '), '')) LIKE $%d ESCAPE '\'
-)
-`, argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4))
-		for i := 0; i < 5; i++ {
-			args = append(args, searchPattern)
-		}
-		argIndex += 5
-	}
-
-	query.WriteString(`
-ORDER BY m.updated_at DESC, m.confidence DESC, m.memory_id ASC
-`)
-	if !input.Unbounded {
-		query.WriteString(fmt.Sprintf("LIMIT $%d\n", argIndex))
-		args = append(args, limit)
-	}
-
-	rows, err := r.pool.Query(ctx, query.String(), args...)
-	if err != nil {
-		return nil, fmt.Errorf("query memory history: %w", err)
-	}
-	defer rows.Close()
-
-	out := make([]core.MemoryHistorySummary, 0)
-	for rows.Next() {
-		var row core.MemoryHistorySummary
-		if err := rows.Scan(
-			&row.MemoryID,
-			&row.Category,
-			&row.Subject,
-			&row.Content,
-			&row.Confidence,
-			&row.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan memory history: %w", err)
-		}
-		if row.MemoryID <= 0 {
-			continue
-		}
-		row.Category = strings.TrimSpace(row.Category)
-		row.Subject = strings.TrimSpace(row.Subject)
-		row.Content = strings.TrimSpace(row.Content)
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate memory history: %w", err)
-	}
-	return out, nil
-}
-
 func (r *Repository) ListRunHistory(ctx context.Context, input core.RunHistoryListQuery) ([]core.RunHistorySummary, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("postgres pool is required")
@@ -1368,85 +1167,6 @@ ORDER BY
 	return out, nil
 }
 
-func (r *Repository) PersistMemory(ctx context.Context, input core.MemoryPersistence) (core.MemoryPersistenceResult, error) {
-	if r == nil || r.pool == nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("postgres pool is required")
-	}
-
-	normalized, err := normalizeMemoryPersistence(input)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-	if normalized.Promotable && (!normalized.Validation.HardPassed || !normalized.Validation.SoftPassed) {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("promotable requires hard and soft validation pass")
-	}
-
-	initialStatus := candidateStatusPending
-	if !normalized.Validation.HardPassed {
-		initialStatus = candidateStatusRejected
-	}
-
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	insertCandidateSQL, insertCandidateArgs, err := buildInsertMemoryCandidateQuery(normalized, initialStatus)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-
-	var candidateID int64
-	if err := tx.QueryRow(ctx, insertCandidateSQL, insertCandidateArgs...).Scan(&candidateID); err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("insert memory candidate: %w", err)
-	}
-
-	out := core.MemoryPersistenceResult{
-		CandidateID: candidateID,
-		Status:      initialStatus,
-	}
-
-	if !normalized.Promotable {
-		if err := tx.Commit(ctx); err != nil {
-			return core.MemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
-		}
-		return out, nil
-	}
-
-	insertMemorySQL, insertMemoryArgs, err := buildInsertDurableMemoryQuery(normalized)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-
-	var promotedMemoryID int64
-	insertErr := tx.QueryRow(ctx, insertMemorySQL, insertMemoryArgs...).Scan(&promotedMemoryID)
-	if insertErr != nil && !errors.Is(insertErr, pgx.ErrNoRows) {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("insert durable memory: %w", insertErr)
-	}
-
-	finalStatus := candidateStatusRejected
-	if insertErr == nil {
-		finalStatus = candidateStatusPromoted
-		out.PromotedMemoryID = promotedMemoryID
-	}
-
-	updateCandidateSQL, updateCandidateArgs, err := buildUpdateMemoryCandidateStatusQuery(candidateID, finalStatus, out.PromotedMemoryID)
-	if err != nil {
-		return core.MemoryPersistenceResult{}, err
-	}
-	if _, err := tx.Exec(ctx, updateCandidateSQL, updateCandidateArgs...); err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("update memory candidate status: %w", err)
-	}
-
-	out.Status = finalStatus
-	if err := tx.Commit(ctx); err != nil {
-		return core.MemoryPersistenceResult{}, fmt.Errorf("commit tx: %w", err)
-	}
-
-	return out, nil
-}
-
 func (r *Repository) SaveRunReceiptSummary(ctx context.Context, input core.RunReceiptSummary) (core.RunReceiptIDs, error) {
 	if r == nil || r.pool == nil {
 		return core.RunReceiptIDs{}, fmt.Errorf("postgres pool is required")
@@ -1468,13 +1188,11 @@ func (r *Repository) SaveRunReceiptSummary(ctx context.Context, input core.RunRe
 		Phase        string   `json:"phase"`
 		ResolvedTags []string `json:"resolved_tags,omitempty"`
 		PointerKeys  []string `json:"pointer_keys,omitempty"`
-		MemoryIDs    []int64  `json:"memory_ids,omitempty"`
 	}{
 		TaskText:     normalized.TaskText,
 		Phase:        normalized.Phase,
 		ResolvedTags: normalized.ResolvedTags,
 		PointerKeys:  normalized.PointerKeys,
-		MemoryIDs:    normalized.MemoryIDs,
 	})
 	if err != nil {
 		return core.RunReceiptIDs{}, fmt.Errorf("marshal receipt summary: %w", err)
@@ -1523,7 +1241,7 @@ SET
 	pointer_keys = EXCLUDED.pointer_keys,
 	memory_ids = EXCLUDED.memory_ids,
 	summary_json = EXCLUDED.summary_json
-`, normalized.ReceiptID, normalized.ProjectID, normalized.TaskText, normalized.Phase, nonNilStringList(normalized.ResolvedTags), nonNilStringList(normalized.PointerKeys), nonNilInt64List(normalized.MemoryIDs), receiptJSON)
+`, normalized.ReceiptID, normalized.ProjectID, normalized.TaskText, normalized.Phase, nonNilStringList(normalized.ResolvedTags), nonNilStringList(normalized.PointerKeys), nonNilInt64List(nil), receiptJSON)
 	if err != nil {
 		return core.RunReceiptIDs{}, fmt.Errorf("upsert receipt summary: %w", err)
 	}
@@ -1595,7 +1313,7 @@ SET
 	initial_scope_paths = EXCLUDED.initial_scope_paths,
 	baseline_captured = EXCLUDED.baseline_captured,
 	baseline_paths_json = EXCLUDED.baseline_paths_json
-`, normalized.ReceiptID, normalized.ProjectID, normalized.TaskText, normalized.Phase, nonNilStringList(normalized.ResolvedTags), nonNilStringList(normalized.PointerKeys), nonNilInt64List(normalized.MemoryIDs), nonNilStringList(normalized.InitialScopePaths), normalized.BaselineCaptured, baselinePathsJSON)
+`, normalized.ReceiptID, normalized.ProjectID, normalized.TaskText, normalized.Phase, nonNilStringList(normalized.ResolvedTags), nonNilStringList(normalized.PointerKeys), nonNilInt64List(nil), nonNilStringList(normalized.InitialScopePaths), normalized.BaselineCaptured, baselinePathsJSON)
 	if err != nil {
 		return fmt.Errorf("upsert receipt scope: %w", err)
 	}

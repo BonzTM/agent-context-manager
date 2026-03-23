@@ -8,7 +8,6 @@ import (
 	"os"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -100,53 +99,6 @@ func TestRuntimePostgresIntegration_Step10Evidence(t *testing.T) {
 	}
 
 	upsertReceiptScope(t, ctx, pool, getResult.Receipt, nil)
-
-	autoPromote := false
-	proposeResult, apiErr := svc.Memory(ctx, v1.MemoryCommandPayload{
-		ProjectID:   projectID,
-		ReceiptID:   getResult.Receipt.Meta.ReceiptID,
-		AutoPromote: &autoPromote,
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "step-10 integration receipt scope",
-			Content:             "Live Postgres integration validates migration init and write paths.",
-			RelatedPointerKeys:  []string{pointerKeys[0]},
-			Tags:                []string{"postgres", "integration"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{pointerKeys[0]},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("memory API error: %+v", apiErr)
-	}
-	if proposeResult.CandidateID <= 0 {
-		t.Fatalf("expected candidate_id > 0, got %d", proposeResult.CandidateID)
-	}
-	if proposeResult.Status != "pending" {
-		t.Fatalf("expected memory status pending, got %q", proposeResult.Status)
-	}
-	if !proposeResult.Validation.HardPassed {
-		t.Fatalf("expected hard_passed=true, got false with errors: %v", proposeResult.Validation.Errors)
-	}
-	if !proposeResult.Validation.SoftPassed {
-		t.Fatalf("expected soft_passed=true, got false with warnings: %v", proposeResult.Validation.Warnings)
-	}
-
-	var candidateStatus string
-	var candidateReceiptID string
-	if err := pool.QueryRow(ctx, `
-SELECT status, receipt_id
-FROM acm_memory_candidates
-WHERE candidate_id = $1
-`, proposeResult.CandidateID).Scan(&candidateStatus, &candidateReceiptID); err != nil {
-		t.Fatalf("query persisted memory candidate: %v", err)
-	}
-	if candidateStatus != proposeResult.Status {
-		t.Fatalf("expected persisted candidate status %q, got %q", proposeResult.Status, candidateStatus)
-	}
-	if candidateReceiptID != getResult.Receipt.Meta.ReceiptID {
-		t.Fatalf("expected persisted candidate receipt_id %q, got %q", getResult.Receipt.Meta.ReceiptID, candidateReceiptID)
-	}
 
 	reportOutcome := "step-10 integration done accepted"
 	reportResult, apiErr := svc.Done(ctx, v1.DonePayload{
@@ -278,8 +230,6 @@ SET
 func upsertReceiptScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool, receipt *v1.ContextReceipt, pointerKeys []string) {
 	t.Helper()
 
-	memoryIDs := receiptMemoryIDs(receipt)
-
 	if _, err := pool.Exec(ctx, `
 INSERT INTO acm_receipts (
 	receipt_id,
@@ -300,7 +250,7 @@ SET
 	pointer_keys = EXCLUDED.pointer_keys,
 	memory_ids = EXCLUDED.memory_ids,
 	summary_json = EXCLUDED.summary_json
-`, receipt.Meta.ReceiptID, receipt.Meta.ProjectID, receipt.Meta.TaskText, string(receipt.Meta.Phase), receipt.Meta.ResolvedTags, pointerKeys, memoryIDs); err != nil {
+`, receipt.Meta.ReceiptID, receipt.Meta.ProjectID, receipt.Meta.TaskText, string(receipt.Meta.Phase), receipt.Meta.ResolvedTags, pointerKeys, []int64{}); err != nil {
 		t.Fatalf("upsert receipt scope: %v", err)
 	}
 }
@@ -358,35 +308,5 @@ ORDER BY path ASC
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate pointer paths by key: %v", err)
 	}
-	return out
-}
-
-func receiptMemoryIDs(receipt *v1.ContextReceipt) []int64 {
-	if receipt == nil {
-		return nil
-	}
-
-	seen := make(map[int64]struct{}, len(receipt.Memories))
-	out := make([]int64, 0, len(receipt.Memories))
-	for _, memory := range receipt.Memories {
-		key := strings.TrimSpace(memory.Key)
-		if !strings.HasPrefix(key, "mem:") {
-			continue
-		}
-		rawID := strings.TrimSpace(strings.TrimPrefix(key, "mem:"))
-		if rawID == "" {
-			continue
-		}
-		id, err := strconv.ParseInt(rawID, 10, 64)
-		if err != nil || id <= 0 {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
-	}
-	slices.Sort(out)
 	return out
 }

@@ -38,7 +38,7 @@ func TestCommandAndResultSchemasParseAndRejectRemovedLegacyNames(t *testing.T) {
 				t.Fatalf("unmarshal %s: %v", filename, err)
 			}
 
-			for _, removed := range []string{`"get_context"`, `"propose_memory"`, `"report_completion"`, `"history_search"`, `"bootstrapTemplateResult"`, `"bootstrapTemplateConflict"`} {
+			for _, removed := range []string{`"get_context"`, `"report_completion"`, `"history_search"`, `"bootstrapTemplateResult"`, `"bootstrapTemplateConflict"`} {
 				if strings.Contains(string(raw), removed) {
 					t.Fatalf("%s still contains removed legacy command %s", filename, removed)
 				}
@@ -47,7 +47,7 @@ func TestCommandAndResultSchemasParseAndRejectRemovedLegacyNames(t *testing.T) {
 	}
 }
 
-func TestCommandSchema_MemoryAndDoneRequireReceiptOrPlanSelection(t *testing.T) {
+func TestCommandSchema_DoneRequiresReceiptOrPlanSelection(t *testing.T) {
 	raw := readSchemaFixture(t, "cli.command.schema.json")
 
 	var doc struct {
@@ -124,7 +124,6 @@ func TestCommandSchema_MemoryAndDoneRequireReceiptOrPlanSelection(t *testing.T) 
 		}
 	}
 
-	assertReceiptOrPlanSelection("memoryPayload")
 	assertReceiptOrPlanSelection("donePayload")
 }
 
@@ -283,7 +282,6 @@ func TestResultSchema_ExportDefinitionsMatchRuntimeEnums(t *testing.T) {
 	}
 	if got, want := stringSliceFromAny(exportDocumentKind["enum"]), []string{
 		string(ExportDocumentKindContext),
-		string(ExportDocumentKindMemory),
 		string(ExportDocumentKindPlan),
 		string(ExportDocumentKindReceipt),
 		string(ExportDocumentKindTask),
@@ -300,7 +298,6 @@ func TestResultSchema_ExportDefinitionsMatchRuntimeEnums(t *testing.T) {
 		t.Fatal("missing exportBundleItemKind schema")
 	}
 	if got, want := stringSliceFromAny(exportBundleItemKind["enum"]), []string{
-		string(ExportBundleItemKindMemory),
 		string(ExportBundleItemKindPlan),
 		string(ExportBundleItemKindReceipt),
 		string(ExportBundleItemKindTask),

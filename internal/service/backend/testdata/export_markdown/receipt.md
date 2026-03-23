@@ -7,7 +7,6 @@ Continue implementing export
 - Phase: execute
 - Resolved Tags: `backend`, `export`
 - Pointer Keys: `project.alpha:internal/service/backend/export.go#renderer`
-- Memory Keys: `mem:7`
 - Initial Scope: `internal/service/backend/export.go`
 - Baseline Captured: true
 

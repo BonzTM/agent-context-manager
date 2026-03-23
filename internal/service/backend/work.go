@@ -2,7 +2,6 @@ package backend
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -284,18 +283,6 @@ func receiptForFetch(receiptID string, scope core.ReceiptScope, scopeFound bool,
 		}
 		if len(scope.PointerKeys) > 0 {
 			content["pointer_keys"] = normalizeValues(scope.PointerKeys)
-		}
-		if len(scope.MemoryIDs) > 0 {
-			memoryKeys := make([]string, 0, len(scope.MemoryIDs))
-			for _, memoryID := range scope.MemoryIDs {
-				if memoryID <= 0 {
-					continue
-				}
-				memoryKeys = append(memoryKeys, fmt.Sprintf("mem:%d", memoryID))
-			}
-			if len(memoryKeys) > 0 {
-				content["memory_keys"] = memoryKeys
-			}
 		}
 		if len(scope.InitialScopePaths) > 0 {
 			content["initial_scope_paths"] = normalizeValues(scope.InitialScopePaths)

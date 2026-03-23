@@ -594,25 +594,6 @@ func TestBuildHistorySearchEnvelope_ForGenericHistoryDefaultsToAllEntities(t *te
 	}
 }
 
-func TestBuildHistorySearchEnvelope_AllowsMemoryEntity(t *testing.T) {
-	env, err := buildConvenienceEnvelope("history", []string{
-		"--project", "myproject",
-		"--entity", "memory",
-		"--query", "bootstrap",
-	}, fixedNow)
-	if err != nil {
-		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
-	}
-
-	var payload v1.HistorySearchPayload
-	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		t.Fatalf("failed to decode payload: %v", err)
-	}
-	if payload.Entity != v1.HistoryEntityMemory || payload.Query != "bootstrap" {
-		t.Fatalf("unexpected payload: %+v", payload)
-	}
-}
-
 func TestBuildHistorySearchEnvelope_GenericHistoryRejectsWorkOnlyFlags(t *testing.T) {
 	_, err := buildConvenienceEnvelope("history", []string{
 		"--project", "myproject",
@@ -635,293 +616,6 @@ func TestBuildVerifyEnvelope_RequiresSelectionContext(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "verify requires --test-id or selection context") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestBuildMemoryEnvelope_ContentFile(t *testing.T) {
-	contentPath := filepath.Join(t.TempDir(), "memory-content.txt")
-	if err := os.WriteFile(contentPath, []byte("Prefer shared logger wrappers"), 0o644); err != nil {
-		t.Fatalf("write content fixture: %v", err)
-	}
-	memoryTagsPath := filepath.Join(t.TempDir(), "memory-tags.json")
-	if err := os.WriteFile(memoryTagsPath, []byte(`["go"]`), 0o644); err != nil {
-		t.Fatalf("write memory tags fixture: %v", err)
-	}
-
-	env, err := buildConvenienceEnvelope("memory", []string{
-		"--project", "myproject",
-		"--request-id", "req-12345678",
-		"--receipt-id", "req-87654321",
-		"--category", "decision",
-		"--subject", "Use shared logger",
-		"--content-file", contentPath,
-		"--confidence", "4",
-		"--tags-file", ".acm/acm-tags.yaml",
-		"--related-key", "rule:myproject/rule-1",
-		"--memory-tag", "logging",
-		"--memory-tags-file", memoryTagsPath,
-		"--evidence-key", "rule:myproject/rule-1",
-		"--auto-promote=false",
-	}, fixedNow)
-	if err != nil {
-		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
-	}
-	if env.Command != v1.CommandMemory {
-		t.Fatalf("unexpected command: %s", env.Command)
-	}
-
-	var payload v1.MemoryCommandPayload
-	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		t.Fatalf("failed to decode payload: %v", err)
-	}
-	if payload.Memory.Content != "Prefer shared logger wrappers" {
-		t.Fatalf("unexpected content: %q", payload.Memory.Content)
-	}
-	if len(payload.Memory.Tags) != 2 {
-		t.Fatalf("expected 2 memory tags, got %d", len(payload.Memory.Tags))
-	}
-	if payload.TagsFile != ".acm/acm-tags.yaml" {
-		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
-	}
-	if payload.AutoPromote == nil || *payload.AutoPromote {
-		t.Fatalf("expected auto_promote=false, got %+v", payload.AutoPromote)
-	}
-}
-
-func TestBuildMemoryEnvelope_LoadsInlineJSONArrays(t *testing.T) {
-	env, err := buildConvenienceEnvelope("memory", []string{
-		"--project", "myproject",
-		"--receipt-id", "req-87654321",
-		"--category", "decision",
-		"--subject", "Use shared logger",
-		"--content", "Prefer one logger wrapper",
-		"--confidence", "4",
-		"--related-keys-json", `["rule:myproject/rule-1","rule:myproject/rule-2"]`,
-		"--memory-tags-json", `["logging","go"]`,
-		"--evidence-keys-json", `["rule:myproject/rule-2"]`,
-	}, fixedNow)
-	if err != nil {
-		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
-	}
-
-	var payload v1.MemoryCommandPayload
-	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		t.Fatalf("failed to decode payload: %v", err)
-	}
-	if len(payload.Memory.RelatedPointerKeys) != 2 {
-		t.Fatalf("expected 2 related keys, got %d", len(payload.Memory.RelatedPointerKeys))
-	}
-	if len(payload.Memory.Tags) != 2 {
-		t.Fatalf("expected 2 tags, got %d", len(payload.Memory.Tags))
-	}
-	if len(payload.Memory.EvidencePointerKeys) != 1 {
-		t.Fatalf("expected 1 evidence key, got %d", len(payload.Memory.EvidencePointerKeys))
-	}
-}
-
-func TestBuildMemoryEnvelope_AcceptsPlanKeyWithoutReceiptID(t *testing.T) {
-	env, err := buildConvenienceEnvelope("memory", []string{
-		"--project", "myproject",
-		"--plan-key", "plan:req-87654321",
-		"--category", "decision",
-		"--subject", "Use shared logger",
-		"--content", "Prefer one logger wrapper",
-		"--confidence", "4",
-		"--evidence-key", "rule:myproject/rule-2",
-	}, fixedNow)
-	if err != nil {
-		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
-	}
-
-	var payload v1.MemoryCommandPayload
-	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		t.Fatalf("failed to decode payload: %v", err)
-	}
-	if payload.PlanKey != "plan:req-87654321" {
-		t.Fatalf("unexpected plan_key: %q", payload.PlanKey)
-	}
-	if payload.ReceiptID != "" {
-		t.Fatalf("expected empty receipt_id, got %q", payload.ReceiptID)
-	}
-}
-
-func TestBuildMemoryEnvelope_RequiresReceiptIDOrPlanKey(t *testing.T) {
-	_, err := buildConvenienceEnvelope("memory", []string{
-		"--project", "myproject",
-		"--category", "decision",
-		"--subject", "Use shared logger",
-		"--content", "Prefer one logger wrapper",
-		"--confidence", "4",
-		"--evidence-key", "rule:myproject/rule-2",
-	}, fixedNow)
-	if err == nil {
-		t.Fatal("expected error for missing selection context")
-	}
-	if !strings.Contains(err.Error(), "memory requires --receipt-id or --plan-key") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestBuildMemoryEnvelope_ConvertsEvidenceAndRelatedPathsToPointerKeys(t *testing.T) {
-	env, err := buildConvenienceEnvelope("memory", []string{
-		"--project", "myproject",
-		"--receipt-id", "req-87654321",
-		"--category", "decision",
-		"--subject", "Use shared logger",
-		"--content", "Prefer one logger wrapper",
-		"--confidence", "4",
-		"--related-path", "internal/core/repository.go",
-		"--evidence-path", "cmd/acm/convenience.go",
-		"--evidence-paths-json", `["internal/service/backend/memory.go"]`,
-	}, fixedNow)
-	if err != nil {
-		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
-	}
-
-	var payload v1.MemoryCommandPayload
-	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		t.Fatalf("failed to decode payload: %v", err)
-	}
-	if got, want := payload.Memory.RelatedPointerKeys, []string{"myproject:internal/core/repository.go"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected related pointer keys: got %v want %v", got, want)
-	}
-	if got, want := payload.Memory.EvidencePointerKeys, []string{"myproject:cmd/acm/convenience.go", "myproject:internal/service/backend/memory.go"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected evidence pointer keys: got %v want %v", got, want)
-	}
-}
-
-func TestBuildMemoryEnvelope_RejectsInvalidEvidencePath(t *testing.T) {
-	_, err := buildConvenienceEnvelope("memory", []string{
-		"--project", "myproject",
-		"--receipt-id", "req-87654321",
-		"--category", "decision",
-		"--subject", "Use shared logger",
-		"--content", "Prefer one logger wrapper",
-		"--confidence", "4",
-		"--evidence-path", "../outside.go",
-	}, fixedNow)
-	if err == nil {
-		t.Fatal("expected error for invalid evidence path")
-	}
-	if !strings.Contains(err.Error(), "repository-relative") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestBuildMemoryEnvelope_LoadsMemoryTagsFile(t *testing.T) {
-	memoryTagsPath := filepath.Join(t.TempDir(), "memory-tags.json")
-	if err := os.WriteFile(memoryTagsPath, []byte(`["logging","go"]`), 0o644); err != nil {
-		t.Fatalf("write memory tags fixture: %v", err)
-	}
-
-	env, err := buildConvenienceEnvelope("memory", []string{
-		"--project", "myproject",
-		"--receipt-id", "req-87654321",
-		"--category", "decision",
-		"--subject", "Use shared logger",
-		"--content", "Prefer one logger wrapper",
-		"--confidence", "4",
-		"--memory-tags-file", memoryTagsPath,
-		"--tags-file", ".acm/acm-tags.yaml",
-		"--evidence-key", "rule:myproject/rule-2",
-	}, fixedNow)
-	if err != nil {
-		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
-	}
-
-	var payload v1.MemoryCommandPayload
-	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		t.Fatalf("failed to decode payload: %v", err)
-	}
-	if payload.TagsFile != ".acm/acm-tags.yaml" {
-		t.Fatalf("unexpected tags_file: %q", payload.TagsFile)
-	}
-	if len(payload.Memory.Tags) != 2 {
-		t.Fatalf("expected 2 tags, got %d", len(payload.Memory.Tags))
-	}
-}
-
-func TestBuildMemoryEnvelope_ConvertsPathShorthandsUsingResolvedProjectID(t *testing.T) {
-	t.Setenv(runtime.ProjectIDEnvVar, "env-project")
-
-	env, err := buildConvenienceEnvelope("memory", []string{
-		"--receipt-id", "req-87654321",
-		"--category", "decision",
-		"--subject", "Use shared logger",
-		"--content", "Prefer one logger wrapper",
-		"--confidence", "4",
-		"--evidence-path", "internal/service/backend/memory.go",
-		"--related-path", "docs/getting-started.md",
-	}, fixedNow)
-	if err != nil {
-		t.Fatalf("buildConvenienceEnvelope returned error: %v", err)
-	}
-
-	var payload v1.MemoryCommandPayload
-	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		t.Fatalf("failed to decode payload: %v", err)
-	}
-	if got, want := payload.Memory.EvidencePointerKeys, []string{"env-project:internal/service/backend/memory.go"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected evidence pointer keys: got %v want %v", got, want)
-	}
-	if got, want := payload.Memory.RelatedPointerKeys, []string{"env-project:docs/getting-started.md"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected related pointer keys: got %v want %v", got, want)
-	}
-}
-
-func TestBuildMemoryEnvelope_RejectsLegacyTagFlags(t *testing.T) {
-	for _, legacyFlag := range []string{"--tag", "--tags-json"} {
-		t.Run(legacyFlag, func(t *testing.T) {
-			args := []string{
-				"--project", "myproject",
-				"--receipt-id", "req-87654321",
-				"--category", "decision",
-				"--subject", "Use shared logger",
-				"--content", "Prefer one logger wrapper",
-				"--confidence", "4",
-				"--evidence-key", "rule:myproject/rule-2",
-				legacyFlag,
-			}
-			if legacyFlag == "--tag" {
-				args = append(args, "logging")
-			} else {
-				args = append(args, `["logging"]`)
-			}
-			_, err := buildConvenienceEnvelope("memory", args, fixedNow)
-			if err == nil {
-				t.Fatal("expected flag parsing error, got nil")
-			}
-			if !strings.Contains(err.Error(), "flag provided but not defined") {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
-func TestRunConvenienceWithDeps_MemoryHelpShowsEvidenceFlags(t *testing.T) {
-	output := captureStderr(t, func() {
-		code := runConvenienceWithDeps(
-			context.Background(),
-			logging.NewRecorder(),
-			"memory",
-			[]string{"--help"},
-			&bytes.Buffer{},
-			fixedNow,
-			nil,
-			nil,
-		)
-		if code != 0 {
-			t.Fatalf("expected exit code 0, got %d", code)
-		}
-	})
-
-	if !strings.Contains(output, "--evidence-key") {
-		t.Fatalf("memory help should mention evidence keys: %q", output)
-	}
-	for _, required := range []string{"-evidence-key value", "-evidence-path value", "-evidence-keys-file string", "-evidence-keys-json string", "-evidence-paths-file string", "-evidence-paths-json string"} {
-		if !strings.Contains(output, required) {
-			t.Fatalf("memory help should include %q: %q", required, output)
-		}
 	}
 }
 
@@ -1284,7 +978,7 @@ func TestBuildHealthEnvelope_RejectsFixScopedFlagsWithoutFixMode(t *testing.T) {
 }
 
 func TestBuildConvenienceEnvelope_RejectsRemovedLegacySubcommands(t *testing.T) {
-	for _, subcommand := range []string{"get-context", "propose-memory", "report-completion", "bootstrap"} {
+	for _, subcommand := range []string{"get-context", "report-completion", "bootstrap"} {
 		t.Run(subcommand, func(t *testing.T) {
 			_, err := buildConvenienceEnvelope(subcommand, nil, fixedNow)
 			if err == nil {
@@ -1599,7 +1293,7 @@ func TestRunConvenienceWithDeps_HistoryHelpShowsWorkFilters(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]") {
+	if !strings.Contains(output, "acm history [--project <id>] [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]") {
 		t.Fatalf("unexpected help output: %q", output)
 	}
 	for _, required := range []string{"-entity string", "-scope string", "-kind string"} {
@@ -1709,10 +1403,6 @@ func (f *convenienceFakeService) Export(_ context.Context, payload v1.ExportPayl
 		}, nil
 	}
 	return f.exportResult, nil
-}
-
-func (f *convenienceFakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
-	return v1.MemoryResult{}, nil
 }
 
 func (f *convenienceFakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {

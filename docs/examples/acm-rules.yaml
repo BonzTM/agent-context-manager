@@ -40,12 +40,6 @@ rules:
     enforcement: hard
     tags: [completion, audit]
 
-  - id: rule_capture_durable_memory
-    summary: Persist reusable decisions and gotchas with memory.
-    content: Record stable architectural decisions, recurring setup pitfalls, or operator preferences when future tasks would benefit from seeing them in later context calls.
-    enforcement: soft
-    tags: [memory, learning]
-
   - id: rule_escalate_missing_decisions
     summary: Escalate when a task depends on a missing product or architectural decision.
     content: Do not invent product requirements, compatibility guarantees, migrations, or rollout behavior when the repo does not define them. Surface the decision and wait for direction.

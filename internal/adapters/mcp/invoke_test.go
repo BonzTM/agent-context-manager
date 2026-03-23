@@ -41,10 +41,6 @@ func (f fakeService) Export(_ context.Context, payload v1.ExportPayload) (v1.Exp
 	}, nil
 }
 
-func (f fakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
-	return v1.MemoryResult{CandidateID: 1, Status: "pending", Validation: v1.MemoryValidation{HardPassed: true, SoftPassed: true}}, nil
-}
-
 func (f fakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
 	return v1.ReviewResult{
 		PlanKey:      "plan:receipt-1234",
@@ -121,7 +117,7 @@ func TestToolDefinitions_MatchPublicCommandCatalog(t *testing.T) {
 }
 
 func TestInvoke_RemovedLegacyToolRejected(t *testing.T) {
-	for _, tool := range []string{"get_context", "propose_memory", "report_completion", "bootstrap"} {
+	for _, tool := range []string{"get_context", "report_completion", "bootstrap"} {
 		t.Run(tool, func(t *testing.T) {
 			_, err := Invoke(context.Background(), fakeService{}, tool, []byte(`{}`))
 			if err == nil {
@@ -241,7 +237,7 @@ func TestInvoke_RemainingTools(t *testing.T) {
 		{
 			name:    "history",
 			tool:    string(v1.CommandHistorySearch),
-			payload: []byte(`{"project_id":"my-cool-app","entity":"memory","query":"bootstrap"}`),
+			payload: []byte(`{"project_id":"my-cool-app","entity":"work","query":"bootstrap"}`),
 			assert: func(t *testing.T, result any) {
 				t.Helper()
 				if _, ok := result.(v1.HistorySearchResult); !ok {
@@ -323,15 +319,14 @@ func TestInvoke_RemainingTools(t *testing.T) {
 
 func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 	defs := ToolDefinitions()
-	if len(defs) != 13 {
-		t.Fatalf("unexpected tool count: got %d want 13", len(defs))
+	if len(defs) != 12 {
+		t.Fatalf("unexpected tool count: got %d want 12", len(defs))
 	}
 
 	expectedInputRefs := map[string]string{
 		"context": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/contextPayload",
 		"fetch":   "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/fetchPayload",
 		"export":  "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/exportPayload",
-		"memory":  "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/memoryPayload",
 		"done":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/donePayload",
 		"review":  "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/reviewPayload",
 		"work":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/workPayload",
@@ -346,7 +341,6 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"context": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/contextResult",
 		"fetch":   "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/fetchResult",
 		"export":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/exportResult",
-		"memory":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/memoryResult",
 		"done":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/doneResult",
 		"review":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reviewResult",
 		"work":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/workResult",

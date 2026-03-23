@@ -4,9 +4,8 @@ acm is a repo-owned control plane for AI coding agents. It gives Claude, Codex, 
 
 - **Rules and receipts replace giant always-loaded markdown** — hard rules are carried in task receipts, not left to best-effort prompt compliance.
 - **Work plans survive context loss and agent handoffs** — plans and tasks live in SQLite or Postgres, so a later `context` call can resume the real state of the work.
-- **Durable memory is shared across agents** — evidence-backed memory stays with the repo workflow instead of disappearing into vendor-local memory features.
 - **Closure is auditable** — `verify`, `review`, and `done` record what was checked, what was required, and what closed the task.
-- **`context` hydrates work without replacing native search** — acm frames the task with rules, active work, durable memory, and any explicitly known initial scope while the agent still uses its own file-reading tools.
+- **`context` hydrates work without replacing native search** — acm frames the task with rules, active work, and any explicitly known initial scope while the agent still uses its own file-reading tools.
 
 acm is intentionally modular. You can adopt only the pieces you need.
 
@@ -19,12 +18,11 @@ acm is intentionally modular. You can adopt only the pieces you need.
 ## Adoption Modes
 
 - **plans-only**: use `init`, `context`, and `work` when the main need is durable task state that survives compaction or cross-agent handoff.
-- **plans+memory**: add `memory` when you want repo-owned facts and decisions that Claude and Codex can both reuse.
 - **governed workflow**: add `verify`, `review`, and `done` when you want explicit completion gates and audit history.
 - **full brokered flow**: use `context`, explicit `fetch` / history hydration, and governed review/closeout when you also want compact always-loaded context and receipt-scoped execution.
 
 The repo you are reading uses a stricter dogfood workflow than many adopters need. `acm init` starts with the minimal core and lets you opt into heavier templates later.
-Prefer the current `init/context/work/memory/verify/done` story over older compatibility aliases when they disagree.
+Prefer the current `init/context/work/verify/done` story over older compatibility aliases when they disagree.
 
 ## Install
 
@@ -69,7 +67,7 @@ Init respects `.gitignore` by default. It also:
 - Seeds `.acm/acm-rules.yaml`, `.acm/acm-tags.yaml`, `.acm/acm-tests.yaml`, and `.acm/acm-workflows.yaml` when missing
 - Appends `.acm/context.db`, `.acm/context.db-shm`, and `.acm/context.db-wal` to `.gitignore`
 - Creates or extends `.env.example`
-- Auto-indexes discovered repo files into pointer stubs so `fetch`, health, memory evidence, and governed scope checks work immediately
+- Auto-indexes discovered repo files into pointer stubs so `fetch`, health, and governed scope checks work immediately
 
 Use `--persist-candidates` to save the enumerated file list to `.acm/init_candidates.json`.
 
@@ -145,7 +143,7 @@ acm sync --mode working_tree
 
 Wire agents to acm via slash commands, skill packs, or MCP tools — see [Getting Started](docs/getting-started.md) for adopter setup details.
 
-Once connected, most adopters mainly use `context`, `work`, `verify`, `done`, and `memory`, with `fetch`, `review`, and `history` as supporting surfaces. The advanced backend-only `export` surface is available through `acm run` or MCP when you need stable JSON or Markdown artifact rendering. You can test any operation manually via CLI (e.g., `acm context --task-text "fix the login bug" --phase execute`). See the [CLI Reference](#cli-reference) below.
+Once connected, most adopters mainly use `context`, `work`, `verify`, and `done`, with `fetch`, `review`, and `history` as supporting surfaces. The advanced backend-only `export` surface is available through `acm run` or MCP when you need stable JSON or Markdown artifact rendering. You can test any operation manually via CLI (e.g., `acm context --task-text "fix the login bug" --phase execute`). See the [CLI Reference](#cli-reference) below.
 
 If you are maintaining ACM itself rather than adopting it in another repo, use [AGENTS.md](AGENTS.md), [docs/maintainer-map.md](docs/maintainer-map.md), and [docs/maintainer-reference.md](docs/maintainer-reference.md) for the repo's maintainer workflow. This README stays product-facing.
 
@@ -157,7 +155,7 @@ If you are maintaining ACM itself rather than adopting it in another repo, use [
 bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude
 ```
 
-Run this from your project root. It installs `/acm-context`, `/acm-work`, `/acm-review`, `/acm-verify`, `/acm-done`, and `/acm-memory` slash commands into `.claude/commands/`.
+Run this from your project root. It installs `/acm-context`, `/acm-work`, `/acm-review`, `/acm-verify`, and `/acm-done` slash commands into `.claude/commands/`.
 
 If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude`.
 
@@ -167,7 +165,7 @@ If you already have this repo checked out locally, the equivalent command is `./
 bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --codex
 ```
 
-Installs the acm-broker skill to `~/.codex/skills/acm-broker` so Codex can share the same ACM plans, memory, verification state, and completion history used by Claude or MCP clients. The installed skill also includes `codex/README.md` and `codex/AGENTS.example.md` companion docs.
+Installs the acm-broker skill to `~/.codex/skills/acm-broker` so Codex can share the same ACM plans, verification state, and completion history used by Claude or MCP clients. The installed skill also includes `codex/README.md` and `codex/AGENTS.example.md` companion docs.
 
 If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --codex`.
 
@@ -187,7 +185,7 @@ acm init --apply-template codex-hooks
 
 That seeds `.codex/config.toml`, `.codex/hooks.json`, and `.codex/hooks/*`. The hook layer is opt-in and intentionally narrower than Claude's hook pack: it currently only covers startup guidance, prompt-time context nudges, and a one-time stop reminder, and it depends on Codex's current experimental hook support.
 
-Codex can drive the same core workflow directly: `context`, `work`, `verify`, `review`, `done`, and `memory`. The docs-only path still works with just the installed skill, repo-root `AGENTS.md`, and normal CLI/MCP access; `codex-hooks` is an additional experimental helper, not a parity claim.
+Codex can drive the same core workflow directly: `context`, `work`, `verify`, `review`, and `done`. The docs-only path still works with just the installed skill, repo-root `AGENTS.md`, and normal CLI/MCP access; `codex-hooks` is an additional experimental helper, not a parity claim.
 
 ### OpenCode (repo-local companion docs)
 
@@ -211,7 +209,7 @@ Use `opencode-pack` when you are bootstrapping a repo with `acm init` and want t
 
 That seeds `.opencode/acm-broker/README.md` and `.opencode/acm-broker/AGENTS.example.md`. Keep the repo-root `AGENTS.md` authoritative; the OpenCode companion path is intentionally explicit and repo-local until this repo documents a verified stronger native OpenCode integration surface.
 
-OpenCode can drive the same core workflow directly: `context`, `work`, `verify`, `review`, `done`, and `memory`. Use OpenCode's native repo search and edit tools normally; ACM supplies durable context, planning state, verification, review gates, completion reporting, and shared memory.
+OpenCode can drive the same core workflow directly: `context`, `work`, `verify`, `review`, and `done`. Use OpenCode's native repo search and edit tools normally; ACM supplies durable context, planning state, verification, review gates, and completion reporting.
 
 Minimal walkthrough:
 
@@ -220,7 +218,7 @@ Minimal walkthrough:
 3. In OpenCode, start real work with `acm context --project <id> --task-text "..." --phase plan|execute|review`.
 4. For multi-step work, persist plan/task state with `acm work` and declare `plan.discovered_paths` when governed scope expands.
 5. Before closing, run `acm verify`, then `acm review --run` when the workflow requires it, then `acm done`.
-6. If the task produced a reusable decision or pitfall, save it with `acm memory`.
+6. If the task produced a reusable decision or pitfall, save it with [Agent Memory Manager (AMM)](https://github.com/bonztm/agent-memory-manager).
 
 For already isolated hosts such as devcontainers, LXC containers, or similar outer sandboxes, prefer repo workflow review argv that use `--yolo` on `scripts/acm-cross-review.sh`. That keeps the review runner from fighting a second nested sandbox while still preserving the outer isolation boundary.
 
@@ -232,9 +230,9 @@ Unlike the Claude path, ACM does not currently ship an OpenCode hook pack. That 
 acm-mcp invoke --tool context --in payload.json
 ```
 
-Thirteen tools exposed:
+Twelve tools exposed:
 
-- **Core agent-facing** (5): `context`, `work`, `memory`, `verify`, `done`
+- **Core agent-facing** (4): `context`, `work`, `verify`, `done`
 - **Supporting agent-facing** (3): `fetch`, `review`, `history`
 - **Advanced backend-only** (1): `export`
 - **Maintenance** (4): `sync`, `health`, `status`, `init`
@@ -262,7 +260,6 @@ All commands support `--help` for full flag documentation.
 ```bash
 acm context        [--project <id>] (--task-text <text>|--task-file <path>) [--phase <plan|execute|review>] [--tags-file <path>] [--scope-path <path>]...
 acm work           [--project <id>] [--plan-key <key>|--receipt-id <id>] [--plan-title <text>] [--mode <merge|replace>] [--discovered-path <path>]... [--plan-file <path>|--plan-json <json>] [--tasks-file <path>|--tasks-json <json>]
-acm memory         [--project <id>] --receipt-id <id> --category <cat> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [--evidence-key <key>|--evidence-path <path>]... [--evidence-keys-file <path>|--evidence-keys-json <json>|--evidence-paths-file <path>|--evidence-paths-json <json>] [--related-key <key>|--related-path <path>]... [--related-keys-file <path>|--related-keys-json <json>|--related-paths-file <path>|--related-paths-json <json>] [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [--auto-promote]
 acm verify        [--project <id>] [--receipt-id <id>] [--plan-key <key>] [--phase <plan|execute|review>] [--test-id <id>]... [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] [--tests-file <path>] [--tags-file <path>] [--dry-run]
 acm done           [--project <id>] --receipt-id <id> [--file-changed <path>]... [--files-changed-file <path>|--files-changed-json <json>] (--outcome <text>|--outcome-file <path>) [--scope-mode <strict|warn>] [--tags-file <path>]
 ```
@@ -274,7 +271,7 @@ acm done           [--project <id>] --receipt-id <id> [--file-changed <path>]...
 ```bash
 acm fetch          [--project <id>] [--key <key>]... [--keys-file <path>|--keys-json <json>] [--expect <key=version>]... [--expected-versions-file <path>|--expected-versions-json <json>] [--receipt-id <id>]
 acm review         [--project <id>] (--receipt-id <id>|--plan-key <key>) [--run] [--key <task-key>] [--summary <text>] [--status <pending|in_progress|complete|blocked|superseded>] [--outcome <text>|--outcome-file <path>] [--blocked-reason <text>] [--evidence <text>]... [--evidence-file <path>|--evidence-json <json>] [--tags-file <path>]
-acm history        [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
+acm history        [--project <id>] [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded]
 ```
 
 If `--project` is omitted, convenience commands default to `ACM_PROJECT_ID` and otherwise infer the project from the effective repo root name. Explicit `--project` still wins.

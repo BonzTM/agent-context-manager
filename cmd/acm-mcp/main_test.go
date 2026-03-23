@@ -190,7 +190,7 @@ func TestInvokeWithDeps_HistoryDispatchesThroughWrapper(t *testing.T) {
 		context.Background(),
 		logging.NewRecorder(),
 		[]string{"--tool", "history"},
-		strings.NewReader(`{"project_id":"my-cool-app","entity":"memory","query":"bootstrap"}`),
+		strings.NewReader(`{"project_id":"my-cool-app","entity":"work","query":"bootstrap"}`),
 		&out,
 		fixedMCPNow,
 		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
@@ -404,7 +404,7 @@ func TestInvokeWithDeps_UnknownToolWritesStructuredError(t *testing.T) {
 }
 
 func TestInvokeWithDeps_RemovedLegacyToolsWriteStructuredError(t *testing.T) {
-	for _, tool := range []string{"get_context", "propose_memory", "report_completion", "bootstrap"} {
+	for _, tool := range []string{"get_context", "report_completion", "bootstrap"} {
 		t.Run(tool, func(t *testing.T) {
 			var out bytes.Buffer
 			code := invokeWithDeps(
@@ -547,10 +547,6 @@ func (mcpMainFakeService) Export(_ context.Context, payload v1.ExportPayload) (v
 			Kind: v1.ExportDocumentKindFetchBundle,
 		},
 	}, nil
-}
-
-func (mcpMainFakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
-	return v1.MemoryResult{}, nil
 }
 
 func (mcpMainFakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {

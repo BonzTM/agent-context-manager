@@ -41,9 +41,6 @@ func (m *mockService) Context(context.Context, v1.ContextPayload) (v1.ContextRes
 func (m *mockService) Fetch(context.Context, v1.FetchPayload) (v1.FetchResult, *core.APIError) {
 	panic("unexpected call to Fetch")
 }
-func (m *mockService) Memory(context.Context, v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
-	panic("unexpected call to Memory")
-}
 func (m *mockService) Review(context.Context, v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
 	panic("unexpected call to Review")
 }
@@ -179,86 +176,6 @@ func TestGetPlanWithFullKey(t *testing.T) {
 	}
 	if len(gotPayload.Fetch.Keys) != 1 || gotPayload.Fetch.Keys[0] != "plan:receipt-abc" {
 		t.Fatalf("Fetch.Keys = %v; want [plan:receipt-abc]", gotPayload.Fetch.Keys)
-	}
-}
-
-func TestListMemories(t *testing.T) {
-	want := v1.HistorySearchResult{
-		Entity: v1.HistoryEntityMemory,
-	}
-
-	var gotPayload v1.HistorySearchPayload
-	svc := &mockService{
-		historySearchFn: func(_ context.Context, p v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
-			gotPayload = p
-			return want, nil
-		},
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/memories", nil)
-	rec := httptest.NewRecorder()
-	newHandler(svc).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d; want %d", rec.Code, http.StatusOK)
-	}
-	if gotPayload.ProjectID != testProject {
-		t.Errorf("ProjectID = %q; want %q", gotPayload.ProjectID, testProject)
-	}
-	if gotPayload.Entity != v1.HistoryEntityMemory {
-		t.Errorf("Entity = %q; want %q", gotPayload.Entity, v1.HistoryEntityMemory)
-	}
-	if gotPayload.Limit != 100 {
-		t.Errorf("Limit = %d; want 100", gotPayload.Limit)
-	}
-}
-
-func TestGetMemory(t *testing.T) {
-	want := v1.ExportResult{
-		Format:  v1.ExportFormatJSON,
-		Content: `{"memory":"test"}`,
-	}
-
-	var gotPayload v1.ExportPayload
-	svc := &mockService{
-		exportFn: func(_ context.Context, p v1.ExportPayload) (v1.ExportResult, *core.APIError) {
-			gotPayload = p
-			return want, nil
-		},
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/memories/35", nil)
-	rec := httptest.NewRecorder()
-	newHandler(svc).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d; want %d", rec.Code, http.StatusOK)
-	}
-
-	// The handler must prepend "mem:" to a bare key.
-	if len(gotPayload.Fetch.Keys) != 1 || gotPayload.Fetch.Keys[0] != "mem:35" {
-		t.Fatalf("Fetch.Keys = %v; want [mem:35]", gotPayload.Fetch.Keys)
-	}
-}
-
-func TestGetMemoryWithFullKey(t *testing.T) {
-	var gotPayload v1.ExportPayload
-	svc := &mockService{
-		exportFn: func(_ context.Context, p v1.ExportPayload) (v1.ExportResult, *core.APIError) {
-			gotPayload = p
-			return v1.ExportResult{Format: v1.ExportFormatJSON}, nil
-		},
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/memories/mem:35", nil)
-	rec := httptest.NewRecorder()
-	newHandler(svc).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d; want %d", rec.Code, http.StatusOK)
-	}
-	if len(gotPayload.Fetch.Keys) != 1 || gotPayload.Fetch.Keys[0] != "mem:35" {
-		t.Fatalf("Fetch.Keys = %v; want [mem:35]", gotPayload.Fetch.Keys)
 	}
 }
 

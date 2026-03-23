@@ -25,7 +25,7 @@ When you call `context`, acm returns a receipt. A receipt is a scoped snapshot o
 - **Initial scope paths** — any file paths the caller already knew at task start
 - **Meta** — receipt ID, resolved tags, task metadata, and the context-time baseline used for later task-delta detection
 
-The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `review`, `verify`, `done`, `memory`). It ties everything back to the original context snapshot without letting later execution mutate that history.
+The receipt ID is used as a handle for all subsequent operations (`fetch`, `work`, `review`, `verify`, `done`). It ties everything back to the original context snapshot without letting later execution mutate that history.
 
 ## Rule
 
@@ -37,17 +37,6 @@ A rule is a pointer with `kind: rule` that represents a behavioral constraint fo
 Hard rules are always included with their full content in the receipt. Soft rules are summary-only and can be fetched on demand.
 
 You author rules in `.acm/acm-rules.yaml` and sync them into acm. acm delivers the right rules at the right time based on task tags and phase.
-
-## Memory
-
-A memory is a durable fact learned from completed work. Unlike model-specific memory (Claude's memory, ChatGPT's memory), acm memories are:
-
-- **Model-agnostic** — any agent on any model can read them
-- **Evidence-backed** — each memory links to the pointer(s) that prove it
-- **Categorized** — `decision`, `gotcha`, `pattern`, or `preference`
-- **Confidence-scored** — 1 to 5, used to express how reliable the memory is
-
-Memories are proposed via `memory`, validated, and either promoted to durable storage or held in quarantine for review.
 
 ## Plan
 
@@ -100,7 +89,7 @@ The `review` command lowers to a single `work.tasks[]` merge update. Defaults wh
 
 Tags are flat labels used to scope pointers, rules, memories, verification selectors, and workflow selectors. Examples: `backend`, `auth`, `test`, `frontend`.
 
-acm normalizes tags through a canonical dictionary that maps aliases to a single form (e.g., `api` and `server` both map to `backend`). In the simpler context model, tags help route rules, memory, verification, workflow selection, and init/onboarding guidance; they are no longer presented as a ranked retrieval engine.
+acm normalizes tags through a canonical dictionary that maps aliases to a single form (e.g., `api` and `server` both map to `backend`). In the simpler context model, tags help route rules, verification, workflow selection, and init/onboarding guidance; they are no longer presented as a ranked retrieval engine.
 
 The tag dictionary has two layers:
 - **Embedded base** — ships with acm (`internal/service/backend/canonical_tags.json`), covers common aliases
@@ -136,7 +125,7 @@ Effective scope is the union of:
 
 ## Canonical Ruleset
 
-The human-authored YAML file where you define your rules. acm discovers it automatically at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root. Use `--rules-file` on `sync`, `health --fix`, or `init` to override with an explicit path. If you maintain a repo-local tag dictionary separately, use `--tags-file` on `context`, `memory`, `done`, `sync`, `health --fix`, `verify`, or `init` to supply it explicitly for canonical tag normalization. Format:
+The human-authored YAML file where you define your rules. acm discovers it automatically at `.acm/acm-rules.yaml` (preferred) or `acm-rules.yaml` in the project root. Use `--rules-file` on `sync`, `health --fix`, or `init` to override with an explicit path. If you maintain a repo-local tag dictionary separately, use `--tags-file` on `context`, `done`, `sync`, `health --fix`, `verify`, or `init` to supply it explicitly for canonical tag normalization. Format:
 
 ```yaml
 version: acm.rules.v1
@@ -241,7 +230,6 @@ Most CLI commands that accept text or list values support inline flags and file-
 | `--evidence` (repeatable, review) | `--evidence-json` | `--evidence-file` | JSON string array |
 | `--related-key` (repeatable) | `--related-keys-json` | `--related-keys-file` | JSON string array |
 | `--related-path` (repeatable) | `--related-paths-json` | `--related-paths-file` | JSON string array |
-| `--memory-tag` (repeatable) | `--memory-tags-json` | `--memory-tags-file` | JSON string array |
 | `--expect` (repeatable) | `--expected-versions-json` | `--expected-versions-file` | JSON object (`{"key": "version"}`) |
 | - | `--plan-json` | `--plan-file` | JSON object (work plan metadata) |
 | - | `--tasks-json` | `--tasks-file` | JSON array of work tasks |

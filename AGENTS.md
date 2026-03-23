@@ -28,7 +28,6 @@ Read this file first, then use the linked maintainer docs when you need slower-p
 6. Run `acm verify` for code, config, contract, onboarding, or behavior changes.
 7. Run `acm review --run` when `.acm/acm-workflows.yaml` requires a runnable review gate.
 8. Run `acm done`.
-9. Record stable decisions or recurring pitfalls with `acm memory`.
 
 If `acm` is not on `PATH`, bootstrap the toolchain before continuing:
 

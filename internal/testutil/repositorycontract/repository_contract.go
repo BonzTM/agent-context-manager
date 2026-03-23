@@ -44,9 +44,6 @@ func RunRepositoryParity(t *testing.T, cfg ContractConfig) {
 	t.Run("lookup_round_trip", func(t *testing.T) {
 		runLookupRoundTrip(t, projectID+".lookup", cfg.Repo)
 	})
-	t.Run("active_memory_retrieval", func(t *testing.T) {
-		runActiveMemoryRetrieval(t, projectID+".memory", cfg.Repo)
-	})
 	t.Run("work_plan_round_trip", func(t *testing.T) {
 		runWorkPlanRoundTrip(t, projectID+".workplan", cfg.Repo)
 	})
@@ -233,8 +230,6 @@ func runLookupRoundTrip(t *testing.T, projectID string, repo ContractRepository)
 		t.Fatalf("seed lookup pointer: %v", err)
 	}
 
-	memory := persistPromotedMemory(t, ctx, repo, projectID, "pointer.lookup", "Lookup memory", "Fetch expansion should resolve memory by id.")
-
 	pointer, err := repo.LookupPointerByKey(ctx, core.PointerLookupQuery{
 		ProjectID:  " " + projectID + " ",
 		PointerKey: " pointer.lookup ",
@@ -249,54 +244,8 @@ func runLookupRoundTrip(t *testing.T, projectID string, repo ContractRepository)
 		t.Fatalf("unexpected pointer tags: %+v", pointer.Tags)
 	}
 
-	activeMemory, err := repo.LookupMemoryByID(ctx, core.MemoryLookupQuery{
-		ProjectID: " " + projectID + " ",
-		MemoryID:  memory.ID,
-	})
-	if err != nil {
-		t.Fatalf("lookup memory by id: %v", err)
-	}
-	if activeMemory.ID != memory.ID || activeMemory.Category != "decision" || activeMemory.Subject != "Lookup memory" {
-		t.Fatalf("unexpected memory lookup result: %+v", activeMemory)
-	}
-	if !reflect.DeepEqual(activeMemory.RelatedPointerKeys, []string{"pointer.lookup"}) {
-		t.Fatalf("unexpected memory related pointers: %+v", activeMemory.RelatedPointerKeys)
-	}
 }
 
-func runActiveMemoryRetrieval(t *testing.T, projectID string, repo ContractRepository) {
-	t.Helper()
-	ctx := context.Background()
-
-	if _, err := repo.UpsertPointerStubs(ctx, projectID, []core.PointerStub{{
-		PointerKey:  "pointer.memory",
-		Path:        "docs/memory.md",
-		Kind:        "doc",
-		Label:       "Memory pointer",
-		Description: "Pointer used for active memory lookup",
-		Tags:        []string{"memory", "lookup"},
-	}}); err != nil {
-		t.Fatalf("seed memory pointer: %v", err)
-	}
-
-	persistPromotedMemory(t, ctx, repo, projectID, "pointer.memory", "Backend parity", "Direct repository parity checks are required.")
-
-	rows, err := repo.FetchActiveMemories(ctx, core.ActiveMemoryQuery{
-		ProjectID:   projectID,
-		PointerKeys: []string{"pointer.memory"},
-		Tags:        []string{"memory"},
-		Limit:       10,
-	})
-	if err != nil {
-		t.Fatalf("fetch active memories: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("expected one active memory, got %+v", rows)
-	}
-	if rows[0].Subject != "Backend parity" || rows[0].Category != "decision" {
-		t.Fatalf("unexpected active memory: %+v", rows[0])
-	}
-}
 
 func runWorkPlanRoundTrip(t *testing.T, projectID string, repo ContractRepository) {
 	t.Helper()
@@ -656,43 +605,6 @@ func runRunSummaryRoundTrip(t *testing.T, projectID string, repo ContractReposit
 	}
 }
 
-func persistPromotedMemory(t *testing.T, ctx context.Context, repo ContractRepository, projectID, pointerKey, subject, content string) core.ActiveMemory {
-	t.Helper()
-
-	result, err := repo.PersistMemory(ctx, core.MemoryPersistence{
-		ProjectID:           projectID,
-		ReceiptID:           "receipt-memory-1234",
-		Category:            "decision",
-		Subject:             subject,
-		Content:             content,
-		Confidence:          4,
-		Tags:                []string{"memory", "parity"},
-		RelatedPointerKeys:  []string{pointerKey},
-		EvidencePointerKeys: []string{pointerKey},
-		DedupeKey:           projectID + ":" + pointerKey + ":" + subject,
-		Validation: core.MemoryValidation{
-			HardPassed: true,
-			SoftPassed: true,
-		},
-		AutoPromote: true,
-		Promotable:  true,
-	})
-	if err != nil {
-		t.Fatalf("persist proposed memory: %v", err)
-	}
-	if result.PromotedMemoryID <= 0 {
-		t.Fatalf("expected promoted memory id, got %+v", result)
-	}
-
-	activeMemory, err := repo.LookupMemoryByID(ctx, core.MemoryLookupQuery{
-		ProjectID: projectID,
-		MemoryID:  result.PromotedMemoryID,
-	})
-	if err != nil {
-		t.Fatalf("lookup promoted memory: %v", err)
-	}
-	return activeMemory
-}
 
 func candidateKeys(rows []core.CandidatePointer) []string {
 	keys := make([]string, 0, len(rows))

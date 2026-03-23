@@ -57,50 +57,6 @@
         }
       }
     },
-    "memoryPayload": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "memory"
-      ],
-      "properties": {
-        "project_id": {
-          "$ref": "shared.schema.json#/$defs/projectId"
-        },
-        "receipt_id": {
-          "$ref": "shared.schema.json#/$defs/requestId"
-        },
-        "plan_key": {
-          "$ref": "shared.schema.json#/$defs/planKey"
-        },
-        "tags_file": {
-          "$ref": "shared.schema.json#/$defs/overrideFilePath"
-        },
-        "memory": {
-          "$ref": "shared.schema.json#/$defs/memoryPayload"
-        },
-        "auto_promote": {
-          "type": "boolean",
-          "default": true
-        }
-      },
-      "allOf": [
-        {
-          "anyOf": [
-            {
-              "required": [
-                "receipt_id"
-              ]
-            },
-            {
-              "required": [
-                "plan_key"
-              ]
-            }
-          ]
-        }
-      ]
-    },
     "donePayload": {
       "type": "object",
       "additionalProperties": false,
@@ -705,7 +661,6 @@
           "enum": [
             "all",
             "work",
-            "memory",
             "receipt",
             "run"
           ],
@@ -748,7 +703,6 @@
               "entity": {
                 "enum": [
                   "all",
-                  "memory",
                   "receipt",
                   "run"
                 ]
@@ -908,7 +862,6 @@
           "enum": [
             "all",
             "work",
-            "memory",
             "receipt",
             "run"
           ],
@@ -949,7 +902,6 @@
               "entity": {
                 "enum": [
                   "all",
-                  "memory",
                   "receipt",
                   "run"
                 ]
@@ -1033,25 +985,6 @@
         "properties": {
           "payload": {
             "$ref": "#/$defs/exportPayload"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "command": {
-            "const": "memory"
-          }
-        },
-        "required": [
-          "command"
-        ]
-      },
-      "then": {
-        "properties": {
-          "payload": {
-            "$ref": "#/$defs/memoryPayload"
           }
         }
       }

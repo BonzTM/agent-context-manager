@@ -20,8 +20,6 @@ func New(svc core.Service, projectID string, static http.FileSystem) http.Handle
 	// API routes
 	mux.HandleFunc("GET /api/plans", h.listPlans)
 	mux.HandleFunc("GET /api/plans/{key}", h.getPlan)
-	mux.HandleFunc("GET /api/memories", h.listMemories)
-	mux.HandleFunc("GET /api/memories/{key}", h.getMemory)
 	mux.HandleFunc("GET /api/status", h.getStatus)
 
 	// Health check for k8s liveness/readiness probes.
@@ -95,44 +93,7 @@ func (h *handler) getPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (h *handler) listMemories(w http.ResponseWriter, r *http.Request) {
-	result, apiErr := h.svc.HistorySearch(r.Context(), v1.HistorySearchPayload{
-		ProjectID: h.projectID,
-		Entity:    v1.HistoryEntityMemory,
-		Limit:     100,
-	})
-	if apiErr != nil {
-		writeAPIError(w, apiErr)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
 
-func (h *handler) getMemory(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
-	if key == "" {
-		http.Error(w, `{"error":"missing memory key"}`, http.StatusBadRequest)
-		return
-	}
-
-	// Memory keys use "mem:" prefix; normalize bare IDs.
-	if !strings.HasPrefix(key, "mem:") {
-		key = "mem:" + key
-	}
-
-	result, apiErr := h.svc.Export(r.Context(), v1.ExportPayload{
-		ProjectID: h.projectID,
-		Format:    v1.ExportFormatJSON,
-		Fetch: &v1.ExportFetchSelector{
-			Keys: []string{key},
-		},
-	})
-	if apiErr != nil {
-		writeAPIError(w, apiErr)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
 
 func (h *handler) getStatus(w http.ResponseWriter, r *http.Request) {
 	result, apiErr := h.svc.Status(context.Background(), v1.StatusPayload{

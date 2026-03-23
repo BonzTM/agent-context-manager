@@ -83,70 +83,6 @@ func TestExportFetchPlanRendersStructuredJSON(t *testing.T) {
 	}
 }
 
-func TestExportFetchBundleMarkdownPreservesMemoryShapeAndOmitsPointerContent(t *testing.T) {
-	root := t.TempDir()
-	writeRepoFile(t, root, "docs/export.md", "render pointer content\nwith multiple lines\n")
-	withWorkingDir(t, root)
-
-	mem := memory(42, "Export renderer decision", "Keep the markdown output deterministic.", []string{"backend", "export"}, []string{"rule:export"})
-	mem.UpdatedAt = time.Date(2026, 3, 10, 15, 4, 5, 0, time.UTC)
-
-	repo := &fakeRepository{
-		memoryLookupResults: []core.ActiveMemory{mem, mem},
-		pointerLookupResults: []core.CandidatePointer{
-			candidate("project.alpha:docs/export.md#renderer", "docs/export.md", false, []string{"docs"}),
-		},
-	}
-
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Export(context.Background(), v1.ExportPayload{
-		ProjectID: "project.alpha",
-		Format:    v1.ExportFormatMarkdown,
-		Fetch: &v1.ExportFetchSelector{
-			Keys: []string{"mem:42", "project.alpha:docs/export.md#renderer"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Document == nil || result.Document.Kind != v1.ExportDocumentKindFetchBundle {
-		t.Fatalf("expected fetch bundle document, got %+v", result.Document)
-	}
-	if result.Document.Bundle == nil || len(result.Document.Bundle.Items) != 2 {
-		t.Fatalf("unexpected bundle payload: %+v", result.Document.Bundle)
-	}
-
-	first := result.Document.Bundle.Items[0]
-	if first.Kind != v1.ExportBundleItemKindMemory || first.Memory == nil {
-		t.Fatalf("expected first bundle item to be a memory, got %+v", first)
-	}
-	if got := first.Memory.Subject; got != "Export renderer decision" {
-		t.Fatalf("unexpected memory subject: %q", got)
-	}
-	if got := first.Memory.Category; got != v1.MemoryCategoryDecision {
-		t.Fatalf("unexpected memory category: %q", got)
-	}
-
-	second := result.Document.Bundle.Items[1]
-	if second.Kind != v1.ExportBundleItemKindPointer {
-		t.Fatalf("expected second bundle item to be a pointer, got %+v", second)
-	}
-	if !strings.Contains(second.Content, "render pointer content") {
-		t.Fatalf("expected raw pointer content in canonical document, got %q", second.Content)
-	}
-
-	if !strings.Contains(result.Content, "Markdown omits raw pointer or rule file content in v1.") {
-		t.Fatalf("expected markdown omission note, got:\n%s", result.Content)
-	}
-	if !strings.Contains(result.Content, "Export renderer decision") {
-		t.Fatalf("expected markdown to mention memory details, got:\n%s", result.Content)
-	}
-}
-
 func TestExportContextMarkdownIncludesReceiptSections(t *testing.T) {
 	root := t.TempDir()
 	writeRepoFile(t, root, ".acm/acm-rules.yaml", strings.Join([]string{
@@ -162,9 +98,6 @@ func TestExportContextMarkdownIncludesReceiptSections(t *testing.T) {
 	withWorkingDir(t, root)
 
 	repo := &fakeRepository{
-		memoryResults: [][]core.ActiveMemory{{
-			memory(101, "Renderer format", "Prefer stable markdown headings.", []string{"backend"}, []string{"rule:export"}),
-		}},
 		workPlanListResults: [][]core.WorkPlanSummary{{
 			{
 				PlanKey:   "plan:receipt-12345678",
@@ -267,9 +200,7 @@ func TestExportStatusMarkdownIncludesProjectAndContextPreview(t *testing.T) {
 	writeRepoFile(t, root, ".acm/acm-workflows.yaml", "version: acm.workflows.v1\ncompletion:\n  required_tasks:\n    - key: verify:tests\n")
 	withWorkingDir(t, root)
 
-	repo := &fakeRepository{
-		memoryResults: [][]core.ActiveMemory{{}},
-	}
+	repo := &fakeRepository{}
 	svc, err := NewWithRuntimeStatus(repo, root, RuntimeStatusSnapshot{
 		Backend:                "sqlite",
 		SQLitePath:             filepath.Join(root, ".acm", "context.db"),
@@ -312,26 +243,6 @@ func TestRenderExportMarkdown_Golden(t *testing.T) {
 		golden string
 		doc    *v1.ExportDocument
 	}{
-		{
-			name:   "memory",
-			golden: "memory.md",
-			doc: &v1.ExportDocument{
-				Kind:    v1.ExportDocumentKindMemory,
-				Title:   "Memory",
-				Summary: "Stable export guidance",
-				Memory: &v1.ExportMemoryDocument{
-					Key:                "mem:7",
-					Summary:            "Stable export guidance",
-					Category:           v1.MemoryCategoryDecision,
-					Subject:            "Renderer choice",
-					Content:            "Use one canonical export document.",
-					Confidence:         5,
-					Tags:               []string{"backend", "export"},
-					RelatedPointerKeys: []string{"internal/service/backend/export.go", "spec/v1/cli.result.schema.json"},
-					UpdatedAt:          "2026-03-11T13:00:00Z",
-				},
-			},
-		},
 		{
 			name:   "plan",
 			golden: "plan.md",
@@ -383,7 +294,6 @@ func TestRenderExportMarkdown_Golden(t *testing.T) {
 					Phase:             v1.PhaseExecute,
 					ResolvedTags:      []string{"backend", "export"},
 					PointerKeys:       []string{"project.alpha:internal/service/backend/export.go#renderer"},
-					MemoryKeys:        []string{"mem:7"},
 					InitialScopePaths: []string{"internal/service/backend/export.go"},
 					BaselineCaptured:  true,
 					BaselinePaths: []v1.ExportBaselinePath{{
@@ -410,23 +320,10 @@ func TestRenderExportMarkdown_Golden(t *testing.T) {
 			doc: &v1.ExportDocument{
 				Kind:    v1.ExportDocumentKindFetchBundle,
 				Title:   "Fetch bundle",
-				Summary: "2 item(s), 1 missing",
+				Summary: "1 item(s), 0 missing",
 				Bundle: &v1.ExportBundleDocument{
-					RequestedKeys: []string{"mem:7", "project.alpha:docs/export.md#renderer"},
+					RequestedKeys: []string{"project.alpha:docs/export.md#renderer"},
 					Items: []v1.ExportBundleItem{
-						{
-							Kind:    v1.ExportBundleItemKindMemory,
-							Key:     "mem:7",
-							Type:    "memory",
-							Summary: "Stable export guidance",
-							Status:  "active",
-							Version: "v1",
-							Memory: &v1.ExportMemoryDocument{
-								Key:     "mem:7",
-								Summary: "Stable export guidance",
-								Subject: "Renderer choice",
-							},
-						},
 						{
 							Kind:    v1.ExportBundleItemKindPointer,
 							Key:     "project.alpha:docs/export.md#renderer",
@@ -437,7 +334,7 @@ func TestRenderExportMarkdown_Golden(t *testing.T) {
 							Content: "raw pointer content",
 						},
 					},
-					NotFound: []string{"mem:999"},
+					NotFound: []string{},
 				},
 			},
 		},
@@ -521,7 +418,6 @@ func TestRenderExportMarkdown_Golden(t *testing.T) {
 						Status:                "ok",
 						ResolvedTags:          []string{"backend", "export"},
 						RuleCount:             3,
-						MemoryCount:           0,
 						PlanCount:             1,
 						InitialScopePathCount: 1,
 					},

@@ -23,14 +23,10 @@ import (
 type fakeRepository struct {
 	candidateResults       [][]core.CandidatePointer
 	candidateErrors        []error
-	memoryResults          [][]core.ActiveMemory
-	memoryErrors           []error
 	inventoryResults       []core.PointerInventory
 	inventoryErrors        []error
 	scopeResults           []core.ReceiptScope
 	scopeErrors            []error
-	proposeResults         []core.MemoryPersistenceResult
-	proposeErrors          []error
 	syncResults            []core.SyncApplyResult
 	syncErrors             []error
 	upsertStubResults      []int
@@ -39,8 +35,6 @@ type fakeRepository struct {
 	fetchLookupErrors      []error
 	pointerLookupResults   []core.CandidatePointer
 	pointerLookupErrors    []error
-	memoryLookupResults    []core.ActiveMemory
-	memoryLookupErrors     []error
 	workUpsertResults      []int
 	workUpsertErrors       []error
 	workListResults        [][]core.WorkItem
@@ -51,8 +45,6 @@ type fakeRepository struct {
 	workPlanLookupErrors   []error
 	workPlanListResults    [][]core.WorkPlanSummary
 	workPlanListErrors     []error
-	memoryHistoryResults   [][]core.MemoryHistorySummary
-	memoryHistoryErrors    []error
 	receiptHistoryResults  [][]core.ReceiptHistorySummary
 	receiptHistoryErrors   []error
 	runHistoryResults      [][]core.RunHistorySummary
@@ -64,24 +56,20 @@ type fakeRepository struct {
 	reviewAttemptErrors    []error
 
 	candidateCalls         []core.CandidatePointerQuery
-	memoryCalls            []core.ActiveMemoryQuery
 	inventoryCalls         []string
 	scopeCalls             []core.ReceiptScopeQuery
 	receiptUpsertCalls     []core.ReceiptScope
-	proposeCalls           []core.MemoryPersistence
 	saveCalls              []core.RunReceiptSummary
 	syncCalls              []core.SyncApplyInput
 	upsertStubProjectIDs   []string
 	upsertStubCalls        [][]core.PointerStub
 	fetchLookupCalls       []core.FetchLookupQuery
 	pointerLookupCalls     []core.PointerLookupQuery
-	memoryLookupCalls      []core.MemoryLookupQuery
 	workUpsertCalls        []core.WorkItemsUpsertInput
 	workListCalls          []core.FetchLookupQuery
 	workPlanUpsertCalls    []core.WorkPlanUpsertInput
 	workPlanLookupCalls    []core.WorkPlanLookupQuery
 	workPlanListCalls      []core.WorkPlanListQuery
-	memoryHistoryCalls     []core.MemoryHistoryListQuery
 	receiptHistoryCalls    []core.ReceiptHistoryListQuery
 	runHistoryCalls        []core.RunHistoryListQuery
 	runHistoryLookupCalls  []core.RunHistoryLookupQuery
@@ -105,18 +93,6 @@ func (f *fakeRepository) FetchCandidatePointers(_ context.Context, input core.Ca
 		return nil, nil
 	}
 	return append([]core.CandidatePointer(nil), f.candidateResults[idx]...), nil
-}
-
-func (f *fakeRepository) FetchActiveMemories(_ context.Context, input core.ActiveMemoryQuery) ([]core.ActiveMemory, error) {
-	f.memoryCalls = append(f.memoryCalls, input)
-	idx := len(f.memoryCalls) - 1
-	if idx < len(f.memoryErrors) && f.memoryErrors[idx] != nil {
-		return nil, f.memoryErrors[idx]
-	}
-	if idx >= len(f.memoryResults) {
-		return nil, nil
-	}
-	return append([]core.ActiveMemory(nil), f.memoryResults[idx]...), nil
 }
 
 func (f *fakeRepository) ListPointerInventory(_ context.Context, projectID string) ([]core.PointerInventory, error) {
@@ -168,7 +144,6 @@ func (f *fakeRepository) FetchReceiptScope(_ context.Context, input core.Receipt
 	scope := f.scopeResults[idx]
 	scope.ResolvedTags = append([]string(nil), scope.ResolvedTags...)
 	scope.PointerKeys = append([]string(nil), scope.PointerKeys...)
-	scope.MemoryIDs = append([]int64(nil), scope.MemoryIDs...)
 	scope.InitialScopePaths = append([]string(nil), scope.InitialScopePaths...)
 	scope.BaselinePaths = append([]core.SyncPath(nil), scope.BaselinePaths...)
 	return scope, nil
@@ -182,7 +157,6 @@ func (f *fakeRepository) UpsertReceiptScope(_ context.Context, input core.Receip
 		Phase:             strings.TrimSpace(input.Phase),
 		ResolvedTags:      append([]string(nil), input.ResolvedTags...),
 		PointerKeys:       append([]string(nil), input.PointerKeys...),
-		MemoryIDs:         append([]int64(nil), input.MemoryIDs...),
 		InitialScopePaths: append([]string(nil), input.InitialScopePaths...),
 		BaselineCaptured:  input.BaselineCaptured,
 		BaselinePaths:     append([]core.SyncPath(nil), input.BaselinePaths...),
@@ -222,22 +196,6 @@ func (f *fakeRepository) LookupPointerByKey(_ context.Context, input core.Pointe
 		return core.CandidatePointer{}, core.ErrPointerLookupNotFound
 	}
 	return f.pointerLookupResults[idx], nil
-}
-
-func (f *fakeRepository) LookupMemoryByID(_ context.Context, input core.MemoryLookupQuery) (core.ActiveMemory, error) {
-	f.memoryLookupCalls = append(f.memoryLookupCalls, core.MemoryLookupQuery{
-		ProjectID: strings.TrimSpace(input.ProjectID),
-		MemoryID:  input.MemoryID,
-	})
-
-	idx := len(f.memoryLookupCalls) - 1
-	if idx < len(f.memoryLookupErrors) && f.memoryLookupErrors[idx] != nil {
-		return core.ActiveMemory{}, f.memoryLookupErrors[idx]
-	}
-	if idx >= len(f.memoryLookupResults) {
-		return core.ActiveMemory{}, core.ErrMemoryLookupNotFound
-	}
-	return f.memoryLookupResults[idx], nil
 }
 
 func (f *fakeRepository) SaveReviewAttempt(_ context.Context, input core.ReviewAttempt) (int64, error) {
@@ -550,18 +508,6 @@ func (f *fakeRepository) ListReceiptHistory(_ context.Context, input core.Receip
 	return append([]core.ReceiptHistorySummary(nil), f.receiptHistoryResults[idx]...), nil
 }
 
-func (f *fakeRepository) ListMemoryHistory(_ context.Context, input core.MemoryHistoryListQuery) ([]core.MemoryHistorySummary, error) {
-	f.memoryHistoryCalls = append(f.memoryHistoryCalls, input)
-	idx := len(f.memoryHistoryCalls) - 1
-	if idx < len(f.memoryHistoryErrors) && f.memoryHistoryErrors[idx] != nil {
-		return nil, f.memoryHistoryErrors[idx]
-	}
-	if idx >= len(f.memoryHistoryResults) {
-		return nil, nil
-	}
-	return append([]core.MemoryHistorySummary(nil), f.memoryHistoryResults[idx]...), nil
-}
-
 func (f *fakeRepository) ListRunHistory(_ context.Context, input core.RunHistoryListQuery) ([]core.RunHistorySummary, error) {
 	f.runHistoryCalls = append(f.runHistoryCalls, input)
 	idx := len(f.runHistoryCalls) - 1
@@ -584,35 +530,6 @@ func (f *fakeRepository) LookupRunHistory(_ context.Context, input core.RunHisto
 		return core.RunHistorySummary{}, core.ErrFetchLookupNotFound
 	}
 	return f.runHistoryLookup[idx], nil
-}
-
-func (f *fakeRepository) PersistMemory(_ context.Context, input core.MemoryPersistence) (core.MemoryPersistenceResult, error) {
-	f.proposeCalls = append(f.proposeCalls, input)
-	idx := len(f.proposeCalls) - 1
-	if idx < len(f.proposeErrors) && f.proposeErrors[idx] != nil {
-		return core.MemoryPersistenceResult{}, f.proposeErrors[idx]
-	}
-	if idx < len(f.proposeResults) {
-		result := f.proposeResults[idx]
-		if result.CandidateID == 0 {
-			result.CandidateID = int64(idx + 1)
-		}
-		return result, nil
-	}
-
-	result := core.MemoryPersistenceResult{
-		CandidateID: int64(idx + 1),
-		Status:      "pending",
-	}
-	if !input.Validation.HardPassed {
-		result.Status = "rejected"
-		return result, nil
-	}
-	if input.Promotable {
-		result.Status = "promoted"
-		result.PromotedMemoryID = int64(100 + idx)
-	}
-	return result, nil
 }
 
 func (f *fakeRepository) SaveRunReceiptSummary(_ context.Context, input core.RunReceiptSummary) (core.RunReceiptIDs, error) {
@@ -695,11 +612,7 @@ func TestContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 	}, "\n"))
 	withWorkingDir(t, root)
 
-	repo := &fakeRepository{
-		memoryResults: [][]core.ActiveMemory{{
-			memory(101, "Default caps behavior", "schema defaults apply when caps omitted", []string{"backend"}, []string{"code:service"}),
-		}},
-	}
+	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -741,7 +654,7 @@ func TestContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 	}
 	memories := receiptIndexEntries(result.Receipt, "memories")
 	if len(memories) != 0 {
-		t.Fatalf("unexpected memory index count: got %d want 0", len(memories))
+		t.Fatalf("unexpected receipt memories index count: got %d want 0", len(memories))
 	}
 	plans := receiptIndexEntries(result.Receipt, "plans")
 	if len(plans) != 1 {
@@ -768,9 +681,6 @@ func TestContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 	if len(repo.candidateCalls) != 0 {
 		t.Fatalf("did not expect candidate queries, got %d", len(repo.candidateCalls))
 	}
-	if len(repo.memoryCalls) != 0 {
-		t.Fatalf("did not expect memory queries, got %d", len(repo.memoryCalls))
-	}
 	if len(repo.receiptUpsertCalls) != 1 {
 		t.Fatalf("expected 1 receipt scope upsert, got %d", len(repo.receiptUpsertCalls))
 	}
@@ -794,9 +704,7 @@ func TestContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 		t.Fatalf("unexpected persisted initial scope paths: got %v want %v", got, wantPersistedPaths)
 	}
 
-	repo2 := &fakeRepository{
-		memoryResults: repo.memoryResults,
-	}
+	repo2 := &fakeRepository{}
 	svc2, err := New(repo2)
 	if err != nil {
 		t.Fatalf("new service 2: %v", err)
@@ -879,7 +787,7 @@ func TestContext_AllowsCanonicalRulesFromManagedPaths(t *testing.T) {
 	}, "\n"))
 	withWorkingDir(t, root)
 
-	repo := &fakeRepository{memoryResults: [][]core.ActiveMemory{{}}}
+	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -905,7 +813,6 @@ func TestContext_AllowsCanonicalRulesFromManagedPaths(t *testing.T) {
 func TestContext_WithoutRulesStillReturnsReceipt(t *testing.T) {
 	repo := &fakeRepository{
 		candidateResults: [][]core.CandidatePointer{{}},
-		memoryResults:    [][]core.ActiveMemory{{}},
 	}
 	svc, err := New(repo)
 	if err != nil {
@@ -950,7 +857,6 @@ func TestContext_LoadsCanonicalRulesWithoutIndexedPointers(t *testing.T) {
 
 	repo := &fakeRepository{
 		candidateResults: [][]core.CandidatePointer{{}},
-		memoryResults:    [][]core.ActiveMemory{{}},
 	}
 	svc, err := New(repo)
 	if err != nil {
@@ -982,61 +888,7 @@ func TestContext_LoadsCanonicalRulesWithoutIndexedPointers(t *testing.T) {
 	}
 }
 
-func TestContext_DefaultMemoryLimitStillApplies(t *testing.T) {
-	repo := &fakeRepository{
-		memoryResults: [][]core.ActiveMemory{{
-			memory(7, "One", "first", []string{"backend"}, []string{"code:1"}),
-			memory(8, "Two", "second", []string{"docs"}, []string{"doc:1"}),
-			memory(9, "Three", "third", []string{"test"}, []string{"test:1"}),
-			memory(10, "Four", "fourth", []string{"infra"}, []string{"ops:1"}),
-			memory(11, "Five", "fifth", []string{"governance"}, []string{"rule:a"}),
-			memory(12, "Six", "sixth", []string{"release"}, []string{"ops:2"}),
-			memory(13, "Seven", "seventh", []string{"extra"}, []string{"ops:3"}),
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	payload := v1.ContextPayload{
-		ProjectID: "project.alpha",
-		TaskText:  "validate default memory handling",
-		Phase:     v1.PhaseExecute,
-	}
-
-	result, apiErr := svc.Context(context.Background(), payload)
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "ok" {
-		t.Fatalf("unexpected status: %q", result.Status)
-	}
-	if result.Receipt == nil {
-		t.Fatal("expected receipt")
-	}
-
-	if got := len(receiptIndexEntries(result.Receipt, "rules")); got != 0 {
-		t.Fatalf("expected no rules without canonical rules files, got %d", got)
-	}
-	memoryEntries := receiptIndexEntries(result.Receipt, "memories")
-	if len(memoryEntries) != 0 {
-		t.Fatalf("expected no memory index entries, got %d", len(memoryEntries))
-	}
-	planEntries := receiptIndexEntries(result.Receipt, "plans")
-	if len(planEntries) != 1 {
-		t.Fatalf("expected one plan entry, got %d", len(planEntries))
-	}
-	if got := entryString(planEntries[0], "status"); got != core.PlanStatusPending {
-		t.Fatalf("unexpected plan status: got %q want %q", got, core.PlanStatusPending)
-	}
-
-	if len(repo.memoryCalls) != 0 {
-		t.Fatalf("did not expect memory queries, got %d", len(repo.memoryCalls))
-	}
-}
-
-func TestContext_PersistsOnlyPositiveMemoryIDs(t *testing.T) {
+func TestContext_PersistsEmptyReceiptScope(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDir(t, root)
 
@@ -1048,7 +900,7 @@ func TestContext_PersistsOnlyPositiveMemoryIDs(t *testing.T) {
 
 	result, apiErr := svc.Context(context.Background(), v1.ContextPayload{
 		ProjectID: "project.alpha",
-		TaskText:  "persist only valid memory ids",
+		TaskText:  "persist empty receipt scope",
 		Phase:     v1.PhaseExecute,
 	})
 	if apiErr != nil {
@@ -1060,12 +912,9 @@ func TestContext_PersistsOnlyPositiveMemoryIDs(t *testing.T) {
 	if len(repo.receiptUpsertCalls) != 1 {
 		t.Fatalf("expected one receipt scope upsert, got %d", len(repo.receiptUpsertCalls))
 	}
-	if repo.receiptUpsertCalls[0].MemoryIDs != nil {
-		t.Fatalf("expected persisted memory ids to be nil, got %v", repo.receiptUpsertCalls[0].MemoryIDs)
-	}
 }
 
-func TestContext_PhaseAndCanonicalTagsThreadedToRuleAndMemoryQueries(t *testing.T) {
+func TestContext_PhaseAndCanonicalTagsThreadedToRuleQueries(t *testing.T) {
 	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
@@ -1086,9 +935,6 @@ func TestContext_PhaseAndCanonicalTagsThreadedToRuleAndMemoryQueries(t *testing.
 	wantQueryTags := []string{"backend", "governance", "review", "test"}
 	if len(repo.candidateCalls) != 0 {
 		t.Fatalf("did not expect candidate calls, got %d", len(repo.candidateCalls))
-	}
-	if len(repo.memoryCalls) != 0 {
-		t.Fatalf("did not expect memory queries, got %d", len(repo.memoryCalls))
 	}
 	if !containsAllStrings(result.Receipt.Meta.ResolvedTags, wantQueryTags) {
 		t.Fatalf("expected resolved tags to contain %v, got %v", wantQueryTags, result.Receipt.Meta.ResolvedTags)
@@ -1134,727 +980,6 @@ func TestContext_DefaultRepoTagsFileDiscoveryMergesCanonicalAliases(t *testing.T
 	if len(repo.candidateCalls) != 0 {
 		t.Fatalf("did not expect candidate queries, got %d", len(repo.candidateCalls))
 	}
-	if len(repo.memoryCalls) != 0 {
-		t.Fatalf("did not expect memory queries, got %d", len(repo.memoryCalls))
-	}
-}
-
-func TestMemory_AutoPromoteOmittedDefaultsTrue(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:   "project.alpha",
-			ReceiptID:   "receipt.abc123",
-			PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID: "project.alpha",
-		ReceiptID: "receipt.abc123",
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Deterministic persistence",
-			Content:             "Insert candidate first, then try durable promotion.",
-			RelatedPointerKeys:  []string{"ptr:scope-b"},
-			Tags:                []string{"backend"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "promoted" {
-		t.Fatalf("expected promoted status, got %+v", result)
-	}
-	if result.PromotedMemoryID == 0 {
-		t.Fatalf("expected promoted memory id, got %+v", result)
-	}
-	if len(repo.proposeCalls) != 1 {
-		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
-	}
-	if !repo.proposeCalls[0].AutoPromote || !repo.proposeCalls[0].Promotable {
-		t.Fatalf("expected auto-promote default true with promotable=true, got %+v", repo.proposeCalls[0])
-	}
-}
-
-func TestMemory_AutoPromoteFalseReturnsPending(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:   "project.alpha",
-			ReceiptID:   "receipt.abc123",
-			PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(false),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Deterministic persistence",
-			Content:             "Insert candidate first, then try durable promotion.",
-			RelatedPointerKeys:  []string{"ptr:scope-b"},
-			Tags:                []string{"backend"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "pending" {
-		t.Fatalf("expected pending status, got %+v", result)
-	}
-	if len(repo.proposeCalls) != 1 {
-		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
-	}
-	if repo.proposeCalls[0].AutoPromote || repo.proposeCalls[0].Promotable {
-		t.Fatalf("expected auto-promote disabled call, got %+v", repo.proposeCalls[0])
-	}
-}
-
-func TestMemory_AutoPromoteTrueHardAndSoftPassPromotes(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:   "project.alpha",
-			ReceiptID:   "receipt.abc123",
-			PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(true),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Scoped promotion",
-			Content:             "Promote when hard and soft validation pass.",
-			RelatedPointerKeys:  []string{"ptr:scope-b"},
-			Tags:                []string{"backend"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "promoted" || result.PromotedMemoryID == 0 {
-		t.Fatalf("expected promoted result, got %+v", result)
-	}
-}
-
-func TestMemory_HardFailEvidenceOutsideScopeRejected(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:   "project.alpha",
-			ReceiptID:   "receipt.abc123",
-			PointerKeys: []string{"ptr:scope-a"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(true),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Bad evidence",
-			Content:             "Evidence points outside receipt scope.",
-			RelatedPointerKeys:  []string{"ptr:scope-a"},
-			Tags:                []string{"backend"},
-			Confidence:          3,
-			EvidencePointerKeys: []string{"ptr:outside"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "rejected" {
-		t.Fatalf("expected rejected status, got %+v", result)
-	}
-	if result.Validation.HardPassed {
-		t.Fatalf("expected hard validation failure, got %+v", result.Validation)
-	}
-	if len(result.Validation.Errors) == 0 {
-		t.Fatalf("expected hard validation errors, got %+v", result.Validation)
-	}
-	if len(repo.proposeCalls) != 1 {
-		t.Fatalf("expected candidate persistence call even on hard fail, got %d", len(repo.proposeCalls))
-	}
-}
-
-func TestMemory_EffectiveScopeAllowsDiscoveredPathEvidenceKeys(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:         "project.alpha",
-			ReceiptID:         "receipt.abc123",
-			PointerKeys:       []string{"project.alpha:.acm/acm-rules.yaml#rule.scope"},
-			InitialScopePaths: []string{"src/initial.go"},
-		}},
-		pointerLookupResults: []core.CandidatePointer{
-			candidate("project.alpha:src/discovered.go#handler", "src/discovered.go", false, []string{"backend"}),
-			candidate("project.alpha:src/discovered.go", "src/discovered.go", false, []string{"backend"}),
-		},
-		workPlanLookupResult: []core.WorkPlan{{
-			ProjectID:       "project.alpha",
-			PlanKey:         "plan:receipt.abc123",
-			ReceiptID:       "receipt.abc123",
-			DiscoveredPaths: []string{"src/discovered.go"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(true),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Discovered path evidence",
-			Content:             "Evidence keys should be allowed when their paths are inside effective scope.",
-			RelatedPointerKeys:  []string{"project.alpha:src/discovered.go"},
-			Tags:                []string{"backend"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"project.alpha:src/discovered.go#handler"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "promoted" || !result.Validation.HardPassed || !result.Validation.SoftPassed {
-		t.Fatalf("expected clean promoted result, got %+v", result)
-	}
-	if len(repo.workPlanLookupCalls) != 1 {
-		t.Fatalf("expected one plan lookup call, got %d", len(repo.workPlanLookupCalls))
-	}
-	if len(repo.pointerLookupCalls) != 2 {
-		t.Fatalf("expected two pointer lookups, got %d", len(repo.pointerLookupCalls))
-	}
-	if len(repo.proposeCalls) != 1 {
-		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
-	}
-	if got := repo.proposeCalls[0].EvidencePointerKeys; !reflect.DeepEqual(got, []string{"project.alpha:src/discovered.go#handler"}) {
-		t.Fatalf("unexpected evidence pointer keys: %v", got)
-	}
-}
-
-func TestMemory_PlanKeyOnlyResolvesReceiptScopeAndDiscoveredPaths(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:         "project.alpha",
-			ReceiptID:         "receipt.abc123",
-			PointerKeys:       []string{"project.alpha:.acm/acm-rules.yaml#rule.scope"},
-			InitialScopePaths: []string{"src/initial.go"},
-		}},
-		pointerLookupResults: []core.CandidatePointer{
-			candidate("project.alpha:src/discovered.go#handler", "src/discovered.go", false, []string{"backend"}),
-		},
-		workPlanLookupResult: []core.WorkPlan{{
-			ProjectID:       "project.alpha",
-			PlanKey:         "plan:receipt.abc123",
-			ReceiptID:       "receipt.abc123",
-			DiscoveredPaths: []string{"src/discovered.go"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID: "project.alpha",
-		PlanKey:   "plan:receipt.abc123",
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Plan-only discovered scope",
-			Content:             "Memory should resolve the receipt from plan_key and honor discovered paths.",
-			RelatedPointerKeys:  []string{"project.alpha:.acm/acm-rules.yaml#rule.scope"},
-			Tags:                []string{"backend"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"project.alpha:src/discovered.go#handler"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "promoted" || !result.Validation.HardPassed {
-		t.Fatalf("expected promoted result, got %+v", result)
-	}
-	if len(repo.scopeCalls) != 1 || repo.scopeCalls[0].ReceiptID != "receipt.abc123" {
-		t.Fatalf("expected derived receipt scope lookup, got %+v", repo.scopeCalls)
-	}
-	if len(repo.workPlanLookupCalls) != 1 || repo.workPlanLookupCalls[0].PlanKey != "plan:receipt.abc123" {
-		t.Fatalf("unexpected plan lookup calls: %+v", repo.workPlanLookupCalls)
-	}
-	if len(repo.proposeCalls) != 1 || repo.proposeCalls[0].ReceiptID != "receipt.abc123" {
-		t.Fatalf("expected persisted memory to use derived receipt id, got %+v", repo.proposeCalls)
-	}
-}
-
-func TestMemory_EffectiveScopeRejectsOutOfScopePathEvidenceKeys(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:         "project.alpha",
-			ReceiptID:         "receipt.abc123",
-			PointerKeys:       []string{"project.alpha:.acm/acm-rules.yaml#rule.scope"},
-			InitialScopePaths: []string{"src/allowed.go"},
-		}},
-		pointerLookupResults: []core.CandidatePointer{
-			candidate("project.alpha:src/outside.go#handler", "src/outside.go", false, []string{"backend"}),
-			candidate("project.alpha:src/discovered.go", "src/discovered.go", false, []string{"backend"}),
-		},
-		workPlanLookupResult: []core.WorkPlan{{
-			ProjectID:       "project.alpha",
-			PlanKey:         "plan:receipt.abc123",
-			ReceiptID:       "receipt.abc123",
-			DiscoveredPaths: []string{"src/discovered.go"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(true),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Out of scope evidence",
-			Content:             "Evidence keys outside effective scope should be rejected.",
-			RelatedPointerKeys:  []string{"project.alpha:src/discovered.go"},
-			Tags:                []string{"backend"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"project.alpha:src/outside.go#handler"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "rejected" || result.Validation.HardPassed {
-		t.Fatalf("expected rejected hard-fail result, got %+v", result)
-	}
-	if len(result.Validation.Errors) == 0 || !strings.Contains(result.Validation.Errors[0], "outside effective scope") {
-		t.Fatalf("expected effective-scope validation error, got %+v", result.Validation)
-	}
-}
-
-func TestMemory_EffectiveScopeRejectsInventedPointerKeysEvenForAllowedPaths(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:         "project.alpha",
-			ReceiptID:         "receipt.abc123",
-			PointerKeys:       []string{"project.alpha:.acm/acm-rules.yaml#rule.scope"},
-			InitialScopePaths: []string{"src/allowed.go"},
-		}},
-		workPlanLookupResult: []core.WorkPlan{{
-			ProjectID:       "project.alpha",
-			PlanKey:         "plan:receipt.abc123",
-			ReceiptID:       "receipt.abc123",
-			DiscoveredPaths: []string{"src/discovered.go"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(true),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Invented pointer key",
-			Content:             "Allowed paths must still resolve to real indexed pointers.",
-			RelatedPointerKeys:  []string{"project.alpha:src/discovered.go#invented"},
-			Tags:                []string{"backend"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"project.alpha:src/allowed.go#invented"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "rejected" || result.Validation.HardPassed {
-		t.Fatalf("expected rejected hard-fail result, got %+v", result)
-	}
-	if len(result.Validation.Errors) == 0 || !strings.Contains(result.Validation.Errors[0], "outside effective scope") {
-		t.Fatalf("expected effective-scope validation error, got %+v", result.Validation)
-	}
-	if len(repo.pointerLookupCalls) != 2 {
-		t.Fatalf("expected two pointer lookups for invented keys, got %d", len(repo.pointerLookupCalls))
-	}
-}
-
-func TestMemory_SoftFailWithAutoPromoteTrueReturnsPending(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:   "project.alpha",
-			ReceiptID:   "receipt.abc123",
-			PointerKeys: []string{"ptr:scope-a"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(true),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Soft warning",
-			Content:             "Related pointer is out of scope.",
-			RelatedPointerKeys:  []string{"ptr:outside"},
-			Tags:                []string{"backend"},
-			Confidence:          3,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "pending" {
-		t.Fatalf("expected pending status, got %+v", result)
-	}
-	if !result.Validation.HardPassed || result.Validation.SoftPassed {
-		t.Fatalf("expected hard pass + soft fail, got %+v", result.Validation)
-	}
-	if len(result.Validation.Warnings) == 0 {
-		t.Fatalf("expected soft warnings, got %+v", result.Validation)
-	}
-	if len(repo.proposeCalls) != 1 || repo.proposeCalls[0].Promotable {
-		t.Fatalf("expected persisted non-promotable candidate, got %+v", repo.proposeCalls)
-	}
-}
-
-func TestMemory_DuplicateConflictReturnsRejected(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:   "project.alpha",
-			ReceiptID:   "receipt.abc123",
-			PointerKeys: []string{"ptr:scope-a"},
-		}},
-		proposeResults: []core.MemoryPersistenceResult{{
-			CandidateID:      17,
-			Status:           "rejected",
-			PromotedMemoryID: 0,
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(true),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Duplicate",
-			Content:             "Same durable memory already exists.",
-			RelatedPointerKeys:  []string{"ptr:scope-a"},
-			Tags:                []string{"backend"},
-			Confidence:          5,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "rejected" || result.CandidateID != 17 {
-		t.Fatalf("expected rejected duplicate result, got %+v", result)
-	}
-	if !result.Validation.HardPassed || !result.Validation.SoftPassed {
-		t.Fatalf("expected validation pass with duplicate rejection, got %+v", result.Validation)
-	}
-}
-
-func TestMemory_UnknownReceiptReturnsNotFound(t *testing.T) {
-	repo := &fakeRepository{
-		scopeErrors: []error{core.ErrReceiptScopeNotFound},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	_, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID: "project.alpha",
-		ReceiptID: "receipt.missing",
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "x",
-			Content:             "y",
-			Confidence:          3,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr == nil {
-		t.Fatal("expected API error")
-	}
-	if apiErr.Code != "NOT_FOUND" {
-		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "NOT_FOUND")
-	}
-	if len(repo.proposeCalls) != 0 {
-		t.Fatalf("did not expect persistence call, got %d", len(repo.proposeCalls))
-	}
-}
-
-func TestMemory_FetchScopeErrorReturnsInternalError(t *testing.T) {
-	repo := &fakeRepository{
-		scopeErrors: []error{errors.New("scope lookup failed")},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	_, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID: "project.alpha",
-		ReceiptID: "receipt.abc123",
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "x",
-			Content:             "y",
-			Confidence:          3,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr == nil {
-		t.Fatal("expected API error")
-	}
-	if apiErr.Code != "INTERNAL_ERROR" {
-		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "INTERNAL_ERROR")
-	}
-	if len(repo.proposeCalls) != 0 {
-		t.Fatalf("did not expect persistence call, got %d", len(repo.proposeCalls))
-	}
-}
-
-func TestMemory_PersistErrorReturnsInternalError(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:   "project.alpha",
-			ReceiptID:   "receipt.abc123",
-			PointerKeys: []string{"ptr:scope-a"},
-		}},
-		proposeErrors: []error{errors.New("insert failed")},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	_, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID: "project.alpha",
-		ReceiptID: "receipt.abc123",
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "x",
-			Content:             "y",
-			Confidence:          3,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr == nil {
-		t.Fatal("expected API error")
-	}
-	if apiErr.Code != "INTERNAL_ERROR" {
-		t.Fatalf("unexpected API error code: got %q want %q", apiErr.Code, "INTERNAL_ERROR")
-	}
-}
-
-func TestMemory_NormalizationAndDedupeKeyDeterministic(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{
-			{
-				ProjectID:   "project.alpha",
-				ReceiptID:   "receipt.abc123",
-				PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
-			},
-			{
-				ProjectID:   "project.alpha",
-				ReceiptID:   "receipt.abc123",
-				PointerKeys: []string{"ptr:scope-a", "ptr:scope-b"},
-			},
-		},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	payloadA := v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(false),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "  Deterministic subject  ",
-			Content:             "  Deterministic content  ",
-			RelatedPointerKeys:  []string{"ptr:scope-b", "ptr:scope-a", "ptr:scope-b"},
-			Tags:                []string{"ops", "backend", "ops", " "},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"ptr:scope-a", "ptr:scope-b", "ptr:scope-a"},
-		},
-	}
-	payloadB := v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(false),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Deterministic subject",
-			Content:             "Deterministic content",
-			RelatedPointerKeys:  []string{"ptr:scope-a", "ptr:scope-b"},
-			Tags:                []string{"backend", "ops"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"ptr:scope-b", "ptr:scope-a"},
-		},
-	}
-
-	if _, apiErr := svc.Memory(context.Background(), payloadA); apiErr != nil {
-		t.Fatalf("unexpected API error on payloadA: %+v", apiErr)
-	}
-	if _, apiErr := svc.Memory(context.Background(), payloadB); apiErr != nil {
-		t.Fatalf("unexpected API error on payloadB: %+v", apiErr)
-	}
-
-	if len(repo.proposeCalls) != 2 {
-		t.Fatalf("expected 2 persistence calls, got %d", len(repo.proposeCalls))
-	}
-
-	first := repo.proposeCalls[0]
-	second := repo.proposeCalls[1]
-	if first.DedupeKey != second.DedupeKey {
-		t.Fatalf("expected deterministic dedupe key, got %q and %q", first.DedupeKey, second.DedupeKey)
-	}
-	if first.Subject != "Deterministic subject" || first.Content != "Deterministic content" {
-		t.Fatalf("expected normalized subject/content, got %q / %q", first.Subject, first.Content)
-	}
-	if !reflect.DeepEqual(first.Tags, second.Tags) {
-		t.Fatalf("expected deterministic normalized tags, got %v and %v", first.Tags, second.Tags)
-	}
-	if !reflect.DeepEqual(first.RelatedPointerKeys, second.RelatedPointerKeys) {
-		t.Fatalf("expected deterministic normalized related keys, got %v and %v", first.RelatedPointerKeys, second.RelatedPointerKeys)
-	}
-	if !reflect.DeepEqual(first.EvidencePointerKeys, second.EvidencePointerKeys) {
-		t.Fatalf("expected deterministic normalized evidence keys, got %v and %v", first.EvidencePointerKeys, second.EvidencePointerKeys)
-	}
-}
-
-func TestMemory_CanonicalTagNormalization(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:   "project.alpha",
-			ReceiptID:   "receipt.abc123",
-			PointerKeys: []string{"ptr:scope-a"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	_, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID: "project.alpha",
-		ReceiptID: "receipt.abc123",
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Canonical tags",
-			Content:             "Ensure memory normalizes tags against canonical aliases.",
-			RelatedPointerKeys:  []string{"ptr:scope-a"},
-			Tags:                []string{"API", "backend", "Policies", "  "},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if len(repo.proposeCalls) != 1 {
-		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
-	}
-	wantTags := []string{"backend", "governance"}
-	if !reflect.DeepEqual(repo.proposeCalls[0].Tags, wantTags) {
-		t.Fatalf("unexpected canonical propose tags: got %v want %v", repo.proposeCalls[0].Tags, wantTags)
-	}
-}
-
-func TestMemory_TagsFileOverrideNormalizesCustomAliases(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".acm"), 0o755); err != nil {
-		t.Fatalf("mkdir .acm: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".acm", "acm-tags.yaml"), []byte("version: acm.tags.v1\ncanonical_tags:\n  backend:\n    - svc\n"), 0o644); err != nil {
-		t.Fatalf("write tags file: %v", err)
-	}
-	withWorkingDir(t, root)
-
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:   "project.alpha",
-			ReceiptID:   "receipt.abc123",
-			PointerKeys: []string{"ptr:scope-a"},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	_, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID: "project.alpha",
-		ReceiptID: "receipt.abc123",
-		TagsFile:  ".acm/acm-tags.yaml",
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Custom aliases",
-			Content:             "Ensure memory honors repo-local aliases.",
-			RelatedPointerKeys:  []string{"ptr:scope-a"},
-			Tags:                []string{"svc", "backend"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"ptr:scope-a"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if len(repo.proposeCalls) != 1 {
-		t.Fatalf("expected one persistence call, got %d", len(repo.proposeCalls))
-	}
-	wantTags := []string{"backend"}
-	if !reflect.DeepEqual(repo.proposeCalls[0].Tags, wantTags) {
-		t.Fatalf("unexpected canonical propose tags: got %v want %v", repo.proposeCalls[0].Tags, wantTags)
-	}
 }
 
 func TestDone_AcceptsInScopeAndPersistsSummary(t *testing.T) {
@@ -1866,7 +991,6 @@ func TestDone_AcceptsInScopeAndPersistsSummary(t *testing.T) {
 			Phase:             "execute",
 			ResolvedTags:      []string{"backend"},
 			PointerKeys:       []string{"code:repo"},
-			MemoryIDs:         []int64{7},
 			InitialScopePaths: []string{"internal/service/backend/service.go", "internal/core/repository.go"},
 		}},
 		saveResult: core.RunReceiptIDs{RunID: 42, ReceiptID: "receipt.abc123"},
@@ -3292,10 +2416,6 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 				Tags:        []string{"bad tag"},
 			},
 		}},
-		memoryResults: [][]core.ActiveMemory{{
-			{ID: 1, Confidence: 1, Tags: []string{"BadTag"}, RelatedPointerKeys: nil},
-			{ID: 2, Confidence: 4, Tags: []string{"backend"}, RelatedPointerKeys: []string{"ptr:one"}},
-		}},
 		inventoryResults: []core.PointerInventory{
 			{Path: "internal/a.go"},
 			{Path: "internal/b.go"},
@@ -3343,7 +2463,6 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 		"terminal_plan_status_drift",
 		"unindexed_files",
 		"unknown_tags",
-		"weak_memories",
 	}
 	gotOrder := make([]string, 0, len(result.Checks))
 	for _, check := range result.Checks {
@@ -3367,9 +2486,6 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 	}
 	if len(repo.candidateCalls) != 1 || !repo.candidateCalls[0].Unbounded {
 		t.Fatalf("expected unbounded candidate health query, got %+v", repo.candidateCalls)
-	}
-	if len(repo.memoryCalls) != 0 {
-		t.Fatalf("did not expect memory health query, got %+v", repo.memoryCalls)
 	}
 }
 
@@ -3444,7 +2560,6 @@ func TestStatus_PreviewsContextAndLoadedSources(t *testing.T) {
 			candidate("rule:tests", ".acm/acm-rules.yaml", true, []string{"governance"}),
 			candidate("code:status", "internal/service/backend/status.go", false, []string{"backend"}),
 		}},
-		memoryResults: [][]core.ActiveMemory{{}},
 	}
 	svc, err := NewWithRuntimeStatus(repo, root, RuntimeStatusSnapshot{
 		Backend:                "sqlite",
@@ -3572,28 +2687,27 @@ func TestStatus_WarnsAboutStaleAndAdministrativePlans(t *testing.T) {
 }
 
 func TestHealthCheck_IncludeDetailsFalseOmitsSamples(t *testing.T) {
-	repo := &fakeRepository{
-		candidateResults: [][]core.CandidatePointer{{
-			{
-				Key:         "ptr:one",
-				Path:        "internal/a.go",
-				Label:       "duplicate",
-				Description: "",
-				IsStale:     true,
+		repo := &fakeRepository{
+			candidateResults: [][]core.CandidatePointer{{
+				{
+					Key:         "ptr:one",
+					Path:        "internal/a.go",
+					Label:       "duplicate",
+					Description: "",
+					IsStale:     true,
+				},
+				{
+					Key:         "ptr:two",
+					Path:        "internal/b.go",
+					Label:       "duplicate",
+					Description: "",
+				},
+			}},
+			inventoryResults: []core.PointerInventory{
+				{Path: "internal/a.go"},
+				{Path: "internal/b.go"},
 			},
-			{
-				Key:         "ptr:two",
-				Path:        "internal/b.go",
-				Label:       "duplicate",
-				Description: "",
-			},
-		}},
-		inventoryResults: []core.PointerInventory{
-			{Path: "internal/a.go"},
-			{Path: "internal/b.go"},
-		},
-		memoryResults: [][]core.ActiveMemory{{}},
-	}
+		}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -3628,7 +2742,6 @@ func TestHealthCheck_IncludeDetailsFalseOmitsSamples(t *testing.T) {
 func TestHealthCheck_EmptyIndexFlagsUnindexedFiles(t *testing.T) {
 	repo := &fakeRepository{
 		candidateResults: [][]core.CandidatePointer{{}},
-		memoryResults:    [][]core.ActiveMemory{{}},
 		inventoryResults: []core.PointerInventory{},
 	}
 	svc, err := New(repo)
@@ -5299,15 +4412,15 @@ func TestInit_ApplyClaudeCommandPackIndexesCreatedFiles(t *testing.T) {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
 
-	if result.CandidateCount != 9 || result.IndexedStubs != 9 {
+	if result.CandidateCount != 8 || result.IndexedStubs != 8 {
 		t.Fatalf("unexpected bootstrap counts: %+v", result)
 	}
 	templateResult, ok := initTemplateResultByID(result.TemplateResults, "claude-command-pack")
 	if !ok {
 		t.Fatalf("expected claude-command-pack result, got %+v", result.TemplateResults)
 	}
-	if len(templateResult.Created) != 8 {
-		t.Fatalf("expected 8 created files, got %+v", templateResult.Created)
+	if len(templateResult.Created) != 7 {
+		t.Fatalf("expected 7 created files, got %+v", templateResult.Created)
 	}
 
 	gotPaths := make([]string, 0, len(repo.upsertStubCalls[0]))
@@ -5653,18 +4766,6 @@ func candidate(key, path string, isRule bool, tags []string) core.CandidatePoint
 		Description: "desc " + key,
 		Tags:        append([]string(nil), tags...),
 		IsRule:      isRule,
-	}
-}
-
-func memory(id int64, subject, content string, tags []string, related []string) core.ActiveMemory {
-	return core.ActiveMemory{
-		ID:                 id,
-		Category:           "decision",
-		Subject:            subject,
-		Content:            content,
-		Confidence:         4,
-		Tags:               append([]string(nil), tags...),
-		RelatedPointerKeys: append([]string(nil), related...),
 	}
 }
 
@@ -6257,7 +5358,6 @@ func TestFetch_ReceiptAndRunKeysReturnStructuredHistoryContent(t *testing.T) {
 			Phase:        string(v1.PhaseExecute),
 			ResolvedTags: []string{"backend"},
 			PointerKeys:  []string{"code:pointer"},
-			MemoryIDs:    []int64{42},
 		}},
 		fetchLookupResults: []core.FetchLookup{{
 			ProjectID:  "project.alpha",
@@ -6297,7 +5397,7 @@ func TestFetch_ReceiptAndRunKeysReturnStructuredHistoryContent(t *testing.T) {
 	if len(result.Items) != 2 {
 		t.Fatalf("expected two fetch items, got %+v", result)
 	}
-	if result.Items[0].Type != "receipt" || !strings.Contains(result.Items[0].Content, "\"receipt_id\":\"receipt.abc123\"") || !strings.Contains(result.Items[0].Content, "\"memory_keys\":[\"mem:42\"]") || !strings.Contains(result.Items[0].Content, "\"baseline_captured\":false") {
+	if result.Items[0].Type != "receipt" || !strings.Contains(result.Items[0].Content, "\"receipt_id\":\"receipt.abc123\"") || !strings.Contains(result.Items[0].Content, "\"baseline_captured\":false") {
 		t.Fatalf("unexpected receipt fetch item: %+v", result.Items[0])
 	}
 	if result.Items[1].Type != "run" || !strings.Contains(result.Items[1].Content, "\"run_id\":17") || !strings.Contains(result.Items[1].Content, "\"files_changed\":[\"internal/service/backend/service.go\"]") {
@@ -6483,52 +5583,6 @@ func TestFetch_PointerKeyReadsRelativePathFromServiceProjectRoot(t *testing.T) {
 	}
 	if result.Items[0].Content != pointerContent {
 		t.Fatalf("unexpected pointer content: got %q want %q", result.Items[0].Content, pointerContent)
-	}
-}
-
-func TestFetch_MemoryKeyReturnsFullContent(t *testing.T) {
-	repo := &fakeRepository{
-		memoryLookupResults: []core.ActiveMemory{
-			memory(42, "Persisted memory", "full memory body", []string{"backend"}, []string{"code:pointer"}),
-		},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	key := "mem:42"
-	result, apiErr := svc.Fetch(context.Background(), v1.FetchPayload{
-		ProjectID: "project.alpha",
-		Keys:      []string{key},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if len(result.Items) != 1 {
-		t.Fatalf("expected one fetch item, got %+v", result)
-	}
-	item := result.Items[0]
-	if item.Key != key || item.Type != "memory" {
-		t.Fatalf("unexpected memory fetch item identity: %+v", item)
-	}
-	if item.Content != "full memory body" {
-		t.Fatalf("unexpected memory content: got %q want %q", item.Content, "full memory body")
-	}
-	if item.Summary != "Persisted memory" {
-		t.Fatalf("unexpected memory summary: got %q want %q", item.Summary, "Persisted memory")
-	}
-	if strings.TrimSpace(item.Version) == "" {
-		t.Fatalf("expected non-empty memory version: %+v", item)
-	}
-	if len(result.NotFound) != 0 || len(result.VersionMismatches) != 0 {
-		t.Fatalf("unexpected fetch metadata: %+v", result)
-	}
-	if len(repo.memoryLookupCalls) != 1 {
-		t.Fatalf("expected one memory lookup call, got %d", len(repo.memoryLookupCalls))
-	}
-	if repo.memoryLookupCalls[0].ProjectID != "project.alpha" || repo.memoryLookupCalls[0].MemoryID != 42 {
-		t.Fatalf("unexpected memory lookup query: %+v", repo.memoryLookupCalls[0])
 	}
 }
 
@@ -7379,63 +6433,8 @@ func TestHistorySearch_UnboundedUsesAllScopeWithoutLimitCap(t *testing.T) {
 	}
 }
 
-func TestHistorySearch_MemoryEntityReturnsCompactMemoryItems(t *testing.T) {
+func TestHistorySearch_AllEntitiesReturnsReceiptsRunsAndWork(t *testing.T) {
 	repo := &fakeRepository{
-		memoryHistoryResults: [][]core.MemoryHistorySummary{{
-			{
-				MemoryID:   17,
-				Category:   "implementation",
-				Subject:    "Prefer history search for archived plans",
-				Content:    "Fallback content",
-				Confidence: 4,
-				UpdatedAt:  time.Date(2026, 3, 6, 13, 0, 0, 0, time.UTC),
-			},
-		}},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.HistorySearch(context.Background(), v1.HistorySearchPayload{
-		ProjectID: "project.alpha",
-		Entity:    v1.HistoryEntityMemory,
-		Query:     "archived plans",
-		Limit:     15,
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Entity != v1.HistoryEntityMemory || result.Count != 1 || len(result.Items) != 1 {
-		t.Fatalf("unexpected history result: %+v", result)
-	}
-	item := result.Items[0]
-	if item.Key != "mem:17" || item.Entity != v1.HistoryEntityMemory || item.Kind != "implementation" {
-		t.Fatalf("unexpected memory history item: %+v", item)
-	}
-	if !reflect.DeepEqual(item.FetchKeys, []string{"mem:17"}) {
-		t.Fatalf("unexpected memory fetch keys: %+v", item.FetchKeys)
-	}
-	if len(repo.memoryHistoryCalls) != 1 {
-		t.Fatalf("expected one memory history query, got %d", len(repo.memoryHistoryCalls))
-	}
-	if got := repo.memoryHistoryCalls[0]; got.ProjectID != "project.alpha" || got.Query != "archived plans" || got.Limit != 15 || got.Unbounded {
-		t.Fatalf("unexpected memory history query: %+v", got)
-	}
-}
-
-func TestHistorySearch_AllEntitiesReturnsMemoriesReceiptsRunsAndWork(t *testing.T) {
-	repo := &fakeRepository{
-		memoryHistoryResults: [][]core.MemoryHistorySummary{{
-			{
-				MemoryID:   17,
-				Category:   "implementation",
-				Subject:    "Memory history entry",
-				Content:    "Keep work items compact",
-				Confidence: 5,
-				UpdatedAt:  time.Date(2026, 3, 6, 13, 0, 0, 0, time.UTC),
-			},
-		}},
 		workPlanListResults: [][]core.WorkPlanSummary{{
 			{
 				PlanKey:   "plan:receipt.work123",
@@ -7480,26 +6479,23 @@ func TestHistorySearch_AllEntitiesReturnsMemoriesReceiptsRunsAndWork(t *testing.
 	if apiErr != nil {
 		t.Fatalf("unexpected API error: %+v", apiErr)
 	}
-	if result.Entity != v1.HistoryEntityAll || result.Count != 4 || len(result.Items) != 4 {
+	if result.Entity != v1.HistoryEntityAll || result.Count != 3 || len(result.Items) != 3 {
 		t.Fatalf("unexpected history result: %+v", result)
 	}
-	if result.Items[0].Entity != v1.HistoryEntityMemory || result.Items[0].Key != "mem:17" {
-		t.Fatalf("expected newest memory item first, got %+v", result.Items)
+	if result.Items[0].Entity != v1.HistoryEntityRun || result.Items[0].Key != "run:33" {
+		t.Fatalf("expected run item first, got %+v", result.Items)
 	}
-	if result.Items[1].Entity != v1.HistoryEntityRun || result.Items[1].Key != "run:33" {
-		t.Fatalf("expected run item second, got %+v", result.Items)
+	if result.Items[1].Entity != v1.HistoryEntityReceipt || result.Items[1].Key != "receipt:receipt.receipt123" {
+		t.Fatalf("expected receipt item second, got %+v", result.Items)
 	}
-	if result.Items[2].Entity != v1.HistoryEntityReceipt || result.Items[2].Key != "receipt:receipt.receipt123" {
-		t.Fatalf("expected receipt item third, got %+v", result.Items)
-	}
-	if result.Items[3].Entity != v1.HistoryEntityWork || result.Items[3].Key != "plan:receipt.work123" {
-		t.Fatalf("expected work item fourth, got %+v", result.Items)
+	if result.Items[2].Entity != v1.HistoryEntityWork || result.Items[2].Key != "plan:receipt.work123" {
+		t.Fatalf("expected work item third, got %+v", result.Items)
 	}
 	if len(repo.workPlanListCalls) != 1 || repo.workPlanListCalls[0].Scope != string(v1.HistoryScopeAll) {
 		t.Fatalf("unexpected work history query: %+v", repo.workPlanListCalls)
 	}
-	if len(repo.memoryHistoryCalls) != 1 || len(repo.receiptHistoryCalls) != 1 || len(repo.runHistoryCalls) != 1 {
-		t.Fatalf("expected one memory/receipt/run history query, got memories=%d receipts=%d runs=%d", len(repo.memoryHistoryCalls), len(repo.receiptHistoryCalls), len(repo.runHistoryCalls))
+	if len(repo.receiptHistoryCalls) != 1 || len(repo.runHistoryCalls) != 1 {
+		t.Fatalf("expected one receipt/run history query, got receipts=%d runs=%d", len(repo.receiptHistoryCalls), len(repo.runHistoryCalls))
 	}
 }
 
@@ -8333,47 +7329,6 @@ func TestContext_DoesNotFallbackToFilesystemBaselineWhenGitUnavailableInsideGitR
 	}
 	if len(repo.receiptUpsertCalls[0].BaselinePaths) != 0 {
 		t.Fatalf("expected no persisted baseline paths, got %+v", repo.receiptUpsertCalls[0].BaselinePaths)
-	}
-}
-
-func TestMemory_EffectiveScopeAcceptsDirectoryScopedEvidenceKeys(t *testing.T) {
-	repo := &fakeRepository{
-		scopeResults: []core.ReceiptScope{{
-			ProjectID:         "project.alpha",
-			ReceiptID:         "receipt.abc123",
-			PointerKeys:       []string{"project.alpha:.acm/acm-rules.yaml#rule.scope"},
-			InitialScopePaths: []string{"src"},
-		}},
-		pointerLookupResults: []core.CandidatePointer{
-			candidate("project.alpha:src/allowed.go#handler", "src/allowed.go", false, []string{"backend"}),
-		},
-	}
-	svc, err := New(repo)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	result, apiErr := svc.Memory(context.Background(), v1.MemoryCommandPayload{
-		ProjectID:   "project.alpha",
-		ReceiptID:   "receipt.abc123",
-		AutoPromote: boolPtr(true),
-		Memory: v1.MemoryPayload{
-			Category:            v1.MemoryCategoryDecision,
-			Subject:             "Directory scoped evidence",
-			Content:             "Evidence under a scoped directory should be accepted.",
-			Tags:                []string{"backend"},
-			Confidence:          4,
-			EvidencePointerKeys: []string{"project.alpha:src/allowed.go#handler"},
-		},
-	})
-	if apiErr != nil {
-		t.Fatalf("unexpected API error: %+v", apiErr)
-	}
-	if result.Status != "promoted" || !result.Validation.HardPassed {
-		t.Fatalf("expected promoted result, got %+v", result)
-	}
-	if len(repo.proposeCalls) != 1 {
-		t.Fatalf("expected persisted memory, got %+v", repo.proposeCalls)
 	}
 }
 

@@ -17,11 +17,9 @@ Claude companion for a repo whose primary contract is `AGENTS.md`.
 5. Use `/acm-verify ...` before `/acm-done ...` for any code, config, schema, or executable behavior change.
 6. Use `/acm-review <receipt_id-or-plan_key> {"run":true}` when `.acm/acm-workflows.yaml` requires a review task such as `review:cross-llm` and the task defines a `run` block; otherwise use manual review JSON or `/acm-work ...`.
 7. Use `/acm-done ...` to close the task; include changed files for file-backed work when you have them, or let ACM compute the task delta from the receipt baseline. When that detected delta is empty, the closeout is effectively no-file. ACM may enforce additional task keys from `.acm/acm-workflows.yaml` when file-backed work is detected.
-8. Use `/acm-memory ...` for durable decisions and gotchas, including evidence from effective scope and preferring governed `evidence_paths` unless exact fetched keys are already available.
-
 If the task changes rules, tags, tests, workflows, onboarding, or tool-surface behavior, run direct CLI `acm sync --mode working_tree --insert-new-candidates` and `acm health --include-details` before `/acm-done`.
 
-If you need historical discovery after compaction, use direct CLI `acm history` with `--entity work` for plan/task discovery or another entity for memories, receipts, and runs, then `acm fetch` the returned `fetch_keys`; the default slash-command pack does not add a dedicated `/acm-history` command.
+If you need historical discovery after compaction, use direct CLI `acm history` with `--entity work` for plan/task discovery or another entity for receipts and runs, then `acm fetch` the returned `fetch_keys`; the default slash-command pack does not add a dedicated `/acm-history` command.
 If you need runtime or setup diagnostics, use direct CLI `acm status`.
 
 ## Claude-Specific Notes

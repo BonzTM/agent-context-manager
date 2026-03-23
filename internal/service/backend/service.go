@@ -66,15 +66,12 @@ type fetchOperationError struct {
 
 type repositoryCore interface {
 	FetchCandidatePointers(context.Context, core.CandidatePointerQuery) ([]core.CandidatePointer, error)
-	FetchActiveMemories(context.Context, core.ActiveMemoryQuery) ([]core.ActiveMemory, error)
 	ListPointerInventory(context.Context, string) ([]core.PointerInventory, error)
 	UpsertPointerStubs(context.Context, string, []core.PointerStub) (int, error)
 	UpsertReceiptScope(context.Context, core.ReceiptScope) error
 	FetchReceiptScope(context.Context, core.ReceiptScopeQuery) (core.ReceiptScope, error)
 	LookupFetchState(context.Context, core.FetchLookupQuery) (core.FetchLookup, error)
 	LookupPointerByKey(context.Context, core.PointerLookupQuery) (core.CandidatePointer, error)
-	LookupMemoryByID(context.Context, core.MemoryLookupQuery) (core.ActiveMemory, error)
-	PersistMemory(context.Context, core.MemoryPersistence) (core.MemoryPersistenceResult, error)
 	SaveRunReceiptSummary(context.Context, core.RunReceiptSummary) (core.RunReceiptIDs, error)
 	SaveReviewAttempt(context.Context, core.ReviewAttempt) (int64, error)
 	ListReviewAttempts(context.Context, core.ReviewAttemptListQuery) ([]core.ReviewAttempt, error)
@@ -91,7 +88,6 @@ type workPlanStore interface {
 }
 
 type historyStore interface {
-	ListMemoryHistory(context.Context, core.MemoryHistoryListQuery) ([]core.MemoryHistorySummary, error)
 	ListReceiptHistory(context.Context, core.ReceiptHistoryListQuery) ([]core.ReceiptHistorySummary, error)
 	ListRunHistory(context.Context, core.RunHistoryListQuery) ([]core.RunHistorySummary, error)
 	LookupRunHistory(context.Context, core.RunHistoryLookupQuery) (core.RunHistorySummary, error)

@@ -27,7 +27,6 @@ type NormalizedRunSummary struct {
 	Status                 string
 	ResolvedTags           []string
 	PointerKeys            []string
-	MemoryIDs              []int64
 	FilesChanged           []string
 	DefinitionOfDoneIssues []string
 	Outcome                string
@@ -40,7 +39,6 @@ type NormalizedReceiptScope struct {
 	Phase             string
 	ResolvedTags      []string
 	PointerKeys       []string
-	MemoryIDs         []int64
 	InitialScopePaths []string
 	BaselineCaptured  bool
 	BaselinePaths     []core.SyncPath
@@ -480,7 +478,6 @@ func NormalizeRunReceiptSummary(input core.RunReceiptSummary) (NormalizedRunSumm
 		Status:                 status,
 		ResolvedTags:           NormalizeStringList(input.ResolvedTags),
 		PointerKeys:            NormalizeStringList(input.PointerKeys),
-		MemoryIDs:              NormalizeInt64List(input.MemoryIDs),
 		FilesChanged:           NormalizeStringList(input.FilesChanged),
 		DefinitionOfDoneIssues: NormalizeStringList(input.DefinitionOfDoneIssues),
 		Outcome:                strings.TrimSpace(input.Outcome),
@@ -507,7 +504,6 @@ func NormalizeReceiptScope(input core.ReceiptScope) (NormalizedReceiptScope, err
 		Phase:             phase,
 		ResolvedTags:      NormalizeStringList(input.ResolvedTags),
 		PointerKeys:       NormalizeStringList(input.PointerKeys),
-		MemoryIDs:         NormalizeInt64List(input.MemoryIDs),
 		InitialScopePaths: NormalizeRepoPathList(input.InitialScopePaths),
 		BaselineCaptured:  input.BaselineCaptured,
 		BaselinePaths:     NormalizeSyncPathList(input.BaselinePaths),
@@ -659,61 +655,6 @@ func NormalizeReviewAttempt(input core.ReviewAttempt) (NormalizedReviewAttempt, 
 		StdoutExcerpt:      strings.TrimSpace(input.StdoutExcerpt),
 		StderrExcerpt:      strings.TrimSpace(input.StderrExcerpt),
 		CreatedAt:          createdAt,
-	}, nil
-}
-
-func NormalizeMemoryPersistence(input core.MemoryPersistence) (core.MemoryPersistence, error) {
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return core.MemoryPersistence{}, fmt.Errorf("project_id is required")
-	}
-	receiptID := strings.TrimSpace(input.ReceiptID)
-	if receiptID == "" {
-		return core.MemoryPersistence{}, fmt.Errorf("receipt_id is required")
-	}
-	category := strings.TrimSpace(input.Category)
-	if category == "" {
-		return core.MemoryPersistence{}, fmt.Errorf("category is required")
-	}
-	subject := strings.TrimSpace(input.Subject)
-	if subject == "" {
-		return core.MemoryPersistence{}, fmt.Errorf("subject is required")
-	}
-	content := strings.TrimSpace(input.Content)
-	if content == "" {
-		return core.MemoryPersistence{}, fmt.Errorf("content is required")
-	}
-	if input.Confidence < 1 || input.Confidence > 5 {
-		return core.MemoryPersistence{}, fmt.Errorf("confidence must be 1..5")
-	}
-	evidencePointerKeys := NormalizeStringList(input.EvidencePointerKeys)
-	if len(evidencePointerKeys) == 0 {
-		return core.MemoryPersistence{}, fmt.Errorf("evidence_pointer_keys is required")
-	}
-	dedupeKey := strings.TrimSpace(input.DedupeKey)
-	if dedupeKey == "" {
-		return core.MemoryPersistence{}, fmt.Errorf("dedupe_key is required")
-	}
-
-	return core.MemoryPersistence{
-		ProjectID:           projectID,
-		ReceiptID:           receiptID,
-		Category:            category,
-		Subject:             subject,
-		Content:             content,
-		Confidence:          input.Confidence,
-		Tags:                NormalizeStringList(input.Tags),
-		RelatedPointerKeys:  NormalizeStringList(input.RelatedPointerKeys),
-		EvidencePointerKeys: evidencePointerKeys,
-		DedupeKey:           dedupeKey,
-		Validation: core.MemoryValidation{
-			HardPassed: input.Validation.HardPassed,
-			SoftPassed: input.Validation.SoftPassed,
-			Errors:     NormalizeStringList(input.Validation.Errors),
-			Warnings:   NormalizeStringList(input.Validation.Warnings),
-		},
-		AutoPromote: input.AutoPromote,
-		Promotable:  input.Promotable,
 	}, nil
 }
 

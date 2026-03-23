@@ -25,9 +25,6 @@ func (s *Service) Export(_ context.Context, _ v1.ExportPayload) (v1.ExportResult
 	return v1.ExportResult{}, notImplemented("export")
 }
 
-func (s *Service) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
-	return v1.MemoryResult{}, notImplemented("memory")
-}
 
 func (s *Service) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
 	return v1.ReviewResult{}, notImplemented("review")

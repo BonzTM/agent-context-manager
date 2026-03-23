@@ -16,8 +16,7 @@ For OpenCode-first repo setup, `scripts/install-skill-pack.sh --opencode` or `ac
 7. Run `verify` before `done` when code, config, contract, onboarding, or behavior changes need deterministic repo checks.
 8. Run `review` when you need one named workflow-gate outcome instead of assembling a broader `work` payload.
 9. Run `done` with changed files for file-backed work when you know them, or omit / leave `files_changed` empty to let ACM derive the real task delta from the receipt baseline.
-10. Run `memory` when the result should persist.
-11. When resuming or auditing prior work, use direct CLI `acm history`, setting `--entity work` when you need work-specific `--scope` or `--kind` filters, then `acm fetch` the returned `fetch_keys`.
+10. When resuming or auditing prior work, use direct CLI `acm history`, setting `--entity work` when you need work-specific `--scope` or `--kind` filters, then `acm fetch` the returned `fetch_keys`.
 
 Command boundary:
 - `verify` selects zero or more deterministic repo-defined checks from `.acm/acm-tests.yaml`.
@@ -477,90 +476,6 @@ When the detected task delta is empty, the closeout is effectively no-file:
 }
 ```
 
-## CLI `memory` request
-
-```json
-{
-  "version": "acm.v1",
-  "command": "memory",
-  "request_id": "req-memory-001",
-  "payload": {
-    "project_id": "customer-portal",
-    "receipt_id": "replace-from-context-receipt",
-    "memory": {
-      "category": "gotcha",
-      "subject": "profile save hook must ignore stale request completions",
-      "content": "Concurrent profile saves can resolve out of order. The save hook must treat the newest request as authoritative or stale responses will overwrite fresh form state.",
-      "related_pointer_keys": [
-        "customer-portal:web/src/features/profile/useSaveProfile.ts",
-        "customer-portal:web/src/features/profile/ProfileForm.tsx"
-      ],
-      "tags": [
-        "frontend",
-        "api",
-        "test"
-      ],
-      "confidence": 4,
-      "evidence_pointer_keys": [
-        "customer-portal:web/src/features/profile/useSaveProfile.ts",
-        "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
-      ]
-    },
-    "auto_promote": true
-  }
-}
-```
-
-Run directly:
-
-```bash
-acm memory --project customer-portal --receipt-id replace-from-context-receipt --category gotcha --subject "profile save hook must ignore stale request completions" --content "Concurrent profile saves can resolve out of order. The save hook must treat the newest request as authoritative or stale responses will overwrite fresh form state." --related-path web/src/features/profile/useSaveProfile.ts --related-path web/src/features/profile/ProfileForm.tsx --memory-tag frontend --memory-tag api --memory-tag test --confidence 4 --evidence-path web/src/features/profile/useSaveProfile.ts --evidence-path web/src/features/profile/useSaveProfile.test.tsx --auto-promote
-```
-
-For CLI calls, prefer `--evidence-path` / `--related-path` when you only know governed repo-relative files. JSON/MCP payloads still carry the explicit pointer-key arrays because the wire contract uses exact keys rather than path shorthands.
-
-Optional structured JSON automation:
-
-```bash
-acm validate --in assets/requests/memory.json
-acm run --in assets/requests/memory.json
-```
-
-## MCP `memory` input
-
-```json
-{
-  "project_id": "customer-portal",
-  "receipt_id": "replace-from-context-receipt",
-  "memory": {
-    "category": "gotcha",
-    "subject": "profile save hook must ignore stale request completions",
-    "content": "Concurrent profile saves can resolve out of order. The save hook must treat the newest request as authoritative or stale responses will overwrite fresh form state.",
-    "related_pointer_keys": [
-      "customer-portal:web/src/features/profile/useSaveProfile.ts",
-      "customer-portal:web/src/features/profile/ProfileForm.tsx"
-    ],
-    "tags": [
-      "frontend",
-      "api",
-      "test"
-    ],
-    "confidence": 4,
-    "evidence_pointer_keys": [
-      "customer-portal:web/src/features/profile/useSaveProfile.ts",
-      "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
-    ]
-  },
-  "auto_promote": true
-}
-```
-
-Run:
-
-```bash
-acm-mcp invoke --tool memory --in assets/requests/mcp_memory.json
-```
-
 ## CLI `acm history` request
 
 ```json
@@ -597,24 +512,6 @@ acm history --project customer-portal --entity work --scope current
 acm history --project customer-portal --entity work --query "profile save"
 acm history --project customer-portal --entity work --query "profile save" --scope completed --kind bugfix
 acm history --project customer-portal --entity all --query "profile save" --limit 20
-acm history --project customer-portal --entity memory --query "profile save"
-```
-
-## MCP `history` input
-
-```json
-{
-  "project_id": "customer-portal",
-  "entity": "memory",
-  "query": "profile save",
-  "limit": 10
-}
-```
-
-Run:
-
-```bash
-acm-mcp invoke --tool history --in assets/requests/mcp_history.json
 ```
 
 ## CLI `export` request

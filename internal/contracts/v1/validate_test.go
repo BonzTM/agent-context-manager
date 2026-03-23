@@ -54,23 +54,6 @@ func TestDecodeAndValidateCommand_CoreCommandAliasesSuccess(t *testing.T) {
 			}`,
 		},
 		{
-			name:    "memory",
-			command: CommandMemory,
-			body: `{
-				"project_id":"my-cool-app",
-				"receipt_id":"receipt-1234",
-				"memory":{
-					"category":"decision",
-					"subject":"Use context",
-					"content":"Prefer the core command names in docs.",
-					"related_pointer_keys":["project:file#one"],
-					"tags":["docs"],
-					"confidence":4,
-					"evidence_pointer_keys":["rule:project/rule-1"]
-				}
-			}`,
-		},
-		{
 			name:    "done",
 			command: CommandDone,
 			body: `{
@@ -110,7 +93,7 @@ func TestDecodeAndValidateCommand_CoreCommandAliasesSuccess(t *testing.T) {
 }
 
 func TestDecodeAndValidateCommand_RejectsRemovedLegacyCommands(t *testing.T) {
-	for _, command := range []string{"get_context", "propose_memory", "report_completion", "bootstrap"} {
+	for _, command := range []string{"get_context", "report_completion", "bootstrap"} {
 		t.Run(command, func(t *testing.T) {
 			json := fmt.Sprintf(`{
 				"version":"acm.v1",
@@ -563,7 +546,7 @@ func TestDecodeAndValidateCommand_HistorySearchRejectsWorkOnlyFiltersForNonWorkE
 		"request_id":"req-12345",
 		"payload":{
 			"project_id":"my-cool-app",
-			"entity":"memory",
+			"entity":"receipt",
 			"query":"bootstrap",
 			"scope":"completed",
 			"kind":"story"
@@ -1415,39 +1398,6 @@ func TestDecodeAndValidateCommand_InitRejectsEmptyApplyTemplates(t *testing.T) {
 	}
 }
 
-func TestDecodeAndValidateCommand_MemoryAcceptsTagsFile(t *testing.T) {
-	json := `{
-		"version":"acm.v1",
-		"command":"memory",
-		"request_id":"req-12345",
-		"payload":{
-			"project_id":"my-cool-app",
-			"receipt_id":"req-87654321",
-			"tags_file":".acm/acm-tags.yaml",
-			"memory":{
-				"category":"decision",
-				"subject":"Use shared logger",
-				"content":"Prefer one wrapper",
-				"related_pointer_keys":["rule:my-cool-app/rule-1"],
-				"tags":["logging"],
-				"confidence":4,
-				"evidence_pointer_keys":["rule:my-cool-app/rule-1"]
-			}
-		}
-	}`
-	_, payload, errp := DecodeAndValidateCommand([]byte(json))
-	if errp != nil {
-		t.Fatalf("unexpected error: %+v", errp)
-	}
-	p, ok := payload.(MemoryCommandPayload)
-	if !ok {
-		t.Fatalf("unexpected payload type: %T", payload)
-	}
-	if p.TagsFile != ".acm/acm-tags.yaml" {
-		t.Fatalf("unexpected tags_file: %q", p.TagsFile)
-	}
-}
-
 func TestDecodeAndValidateCommand_DoneAcceptsTagsFile(t *testing.T) {
 	json := `{
 		"version":"acm.v1",
@@ -1511,69 +1461,6 @@ func TestDecodeAndValidateCommand_FetchRejectsDuplicateKeys(t *testing.T) {
 	}
 	if errp.Code != "INVALID_PAYLOAD" {
 		t.Fatalf("unexpected code: %s", errp.Code)
-	}
-}
-
-func TestDecodeAndValidateCommand_MemoryRejectsDuplicateTags(t *testing.T) {
-	json := `{
-		"version":"acm.v1",
-		"command":"memory",
-		"request_id":"req-12345",
-		"payload":{
-			"project_id":"my-cool-app",
-			"receipt_id":"req-87654321",
-			"memory":{
-				"category":"decision",
-				"subject":"Use shared logger",
-				"content":"Prefer one wrapper",
-				"related_pointer_keys":["rule:my-cool-app/rule-1"],
-				"tags":["logging","logging"],
-				"confidence":4,
-				"evidence_pointer_keys":["rule:my-cool-app/rule-1"]
-			}
-		}
-	}`
-	_, _, errp := DecodeAndValidateCommand([]byte(json))
-	if errp == nil {
-		t.Fatal("expected validation error")
-	}
-	if errp.Code != "INVALID_PAYLOAD" {
-		t.Fatalf("unexpected code: %s", errp.Code)
-	}
-}
-
-func TestDecodeAndValidateCommand_MemoryAcceptsPlanKeyWithoutReceiptID(t *testing.T) {
-	json := `{
-		"version":"acm.v1",
-		"command":"memory",
-		"request_id":"req-12345",
-		"payload":{
-			"project_id":"my-cool-app",
-			"plan_key":"plan:receipt-1234",
-			"memory":{
-				"category":"decision",
-				"subject":"Use shared logger",
-				"content":"Prefer one wrapper",
-				"related_pointer_keys":["rule:my-cool-app/rule-1"],
-				"tags":["logging"],
-				"confidence":4,
-				"evidence_pointer_keys":["rule:my-cool-app/rule-1"]
-			}
-		}
-	}`
-	_, payload, errp := DecodeAndValidateCommand([]byte(json))
-	if errp != nil {
-		t.Fatalf("unexpected error: %+v", errp)
-	}
-	p, ok := payload.(MemoryCommandPayload)
-	if !ok {
-		t.Fatalf("unexpected payload type: %T", payload)
-	}
-	if p.PlanKey != "plan:receipt-1234" {
-		t.Fatalf("unexpected plan_key: %q", p.PlanKey)
-	}
-	if p.ReceiptID != "" {
-		t.Fatalf("expected empty receipt_id, got %q", p.ReceiptID)
 	}
 }
 

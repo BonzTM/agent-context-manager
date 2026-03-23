@@ -167,17 +167,6 @@ func (s *Service) resolveStatusExportDocument(ctx context.Context, projectID str
 
 func (s *Service) resolveTypedFetchExportDocument(ctx context.Context, projectID string, item v1.FetchItem) (*v1.ExportDocument, bool, *core.APIError) {
 	switch strings.TrimSpace(item.Type) {
-	case "memory":
-		document, apiErr := s.exportMemoryDocument(ctx, projectID, item)
-		if apiErr != nil {
-			return nil, false, apiErr
-		}
-		return &v1.ExportDocument{
-			Kind:    v1.ExportDocumentKindMemory,
-			Title:   firstNonEmpty(document.Subject, document.Summary, document.Key),
-			Summary: document.Summary,
-			Memory:  document,
-		}, true, nil
 	case "plan":
 		document, apiErr := exportPlanDocumentFromFetchItem(item)
 		if apiErr != nil {
@@ -268,13 +257,6 @@ func (s *Service) resolveExportBundleItem(ctx context.Context, projectID string,
 	}
 
 	switch strings.TrimSpace(item.Type) {
-	case "memory":
-		document, apiErr := s.exportMemoryDocument(ctx, projectID, item)
-		if apiErr != nil {
-			return v1.ExportBundleItem{}, apiErr
-		}
-		exportItem.Kind = v1.ExportBundleItemKindMemory
-		exportItem.Memory = document
 	case "plan":
 		document, apiErr := exportPlanDocumentFromFetchItem(item)
 		if apiErr != nil {
@@ -312,51 +294,6 @@ func (s *Service) resolveExportBundleItem(ctx context.Context, projectID string,
 	}
 
 	return exportItem, nil
-}
-
-func (s *Service) exportMemoryDocument(ctx context.Context, projectID string, item v1.FetchItem) (*v1.ExportMemoryDocument, *core.APIError) {
-	memoryID, ok := parseMemoryFetchKey(item.Key)
-	if !ok {
-		return nil, core.NewError("INTERNAL_ERROR", "memory export key is invalid", map[string]any{
-			"operation": "resolve_export_memory",
-			"key":       strings.TrimSpace(item.Key),
-		})
-	}
-
-	memory, err := s.repo.LookupMemoryByID(ctx, core.MemoryLookupQuery{
-		ProjectID: strings.TrimSpace(projectID),
-		MemoryID:  memoryID,
-	})
-	if err != nil {
-		return nil, core.NewError("INTERNAL_ERROR", "failed to lookup memory for export", map[string]any{
-			"operation": "lookup_memory_by_id",
-			"key":       strings.TrimSpace(item.Key),
-			"error":     err.Error(),
-		})
-	}
-
-	return exportMemoryDocument(memory), nil
-}
-
-func exportMemoryDocument(memory core.ActiveMemory) *v1.ExportMemoryDocument {
-	document := &v1.ExportMemoryDocument{
-		Key:        fmt.Sprintf("mem:%d", memory.ID),
-		Summary:    memorySummary(memory),
-		Category:   v1.MemoryCategory(strings.TrimSpace(memory.Category)),
-		Subject:    strings.TrimSpace(memory.Subject),
-		Content:    memory.Content,
-		Confidence: memory.Confidence,
-	}
-	if len(memory.Tags) > 0 {
-		document.Tags = normalizeValues(memory.Tags)
-	}
-	if len(memory.RelatedPointerKeys) > 0 {
-		document.RelatedPointerKeys = normalizeValues(memory.RelatedPointerKeys)
-	}
-	if !memory.UpdatedAt.IsZero() {
-		document.UpdatedAt = memory.UpdatedAt.UTC().Format(timeLayoutRFC3339)
-	}
-	return document
 }
 
 func exportPlanDocumentFromFetchItem(item v1.FetchItem) (*v1.ExportPlanDocument, *core.APIError) {
@@ -433,8 +370,6 @@ func renderExportMarkdown(document *v1.ExportDocument) string {
 	switch document.Kind {
 	case v1.ExportDocumentKindContext:
 		return renderContextMarkdown(document)
-	case v1.ExportDocumentKindMemory:
-		return renderMemoryMarkdown(document)
 	case v1.ExportDocumentKindPlan:
 		return renderPlanMarkdown(document)
 	case v1.ExportDocumentKindReceipt:
@@ -470,29 +405,8 @@ func renderContextMarkdown(document *v1.ExportDocument) string {
 	appendMarkdownKeyValue(&b, "Baseline Captured", markdownBool(document.Context.Meta.BaselineCaptured))
 
 	appendMarkdownRuleSection(&b, document.Context.Rules)
-	appendMarkdownContextMemorySection(&b, document.Context.Memories)
 	appendMarkdownContextPlanSection(&b, document.Context.Plans)
 	appendMarkdownStringListSection(&b, 2, "Initial Scope", document.Context.InitialScopePaths, true)
-
-	return strings.TrimSpace(b.String())
-}
-
-func renderMemoryMarkdown(document *v1.ExportDocument) string {
-	var b strings.Builder
-	appendMarkdownHeading(&b, 1, firstNonEmpty(document.Title, "Memory"))
-	appendMarkdownSummary(&b, document.Summary)
-	if document.Memory == nil {
-		return strings.TrimSpace(b.String())
-	}
-
-	appendMarkdownKeyValue(&b, "Memory Key", document.Memory.Key)
-	appendMarkdownKeyValue(&b, "Category", strings.TrimSpace(string(document.Memory.Category)))
-	appendMarkdownKeyValue(&b, "Subject", strings.TrimSpace(document.Memory.Subject))
-	appendMarkdownKeyValue(&b, "Confidence", markdownInt(document.Memory.Confidence))
-	appendMarkdownKeyValue(&b, "Updated At", strings.TrimSpace(document.Memory.UpdatedAt))
-	appendMarkdownStringListInline(&b, "Tags", document.Memory.Tags)
-	appendMarkdownStringListInline(&b, "Related Pointers", document.Memory.RelatedPointerKeys)
-	appendMarkdownCodeSection(&b, 2, "Content", document.Memory.Content)
 
 	return strings.TrimSpace(b.String())
 }
@@ -531,7 +445,6 @@ func renderReceiptMarkdown(document *v1.ExportDocument) string {
 	appendMarkdownKeyValue(&b, "Phase", strings.TrimSpace(string(document.Receipt.Phase)))
 	appendMarkdownStringListInline(&b, "Resolved Tags", document.Receipt.ResolvedTags)
 	appendMarkdownStringListInline(&b, "Pointer Keys", document.Receipt.PointerKeys)
-	appendMarkdownStringListInline(&b, "Memory Keys", document.Receipt.MemoryKeys)
 	appendMarkdownStringListInline(&b, "Initial Scope", document.Receipt.InitialScopePaths)
 	appendMarkdownKeyValue(&b, "Baseline Captured", markdownBool(document.Receipt.BaselineCaptured))
 
@@ -691,7 +604,6 @@ func renderStatusMarkdown(document *v1.ExportDocument) string {
 		appendMarkdownKeyValue(&b, "Status", strings.TrimSpace(document.Status.Context.Status))
 		appendMarkdownStringListInline(&b, "Resolved Tags", document.Status.Context.ResolvedTags)
 		appendMarkdownKeyValue(&b, "Rule Count", markdownInt(document.Status.Context.RuleCount))
-		appendMarkdownKeyValue(&b, "Memory Count", markdownInt(document.Status.Context.MemoryCount))
 		appendMarkdownKeyValue(&b, "Plan Count", markdownInt(document.Status.Context.PlanCount))
 		appendMarkdownKeyValue(&b, "Initial Scope Paths", markdownInt(document.Status.Context.InitialScopePathCount))
 		appendMarkdownKeyValue(&b, "Error", strings.TrimSpace(document.Status.Context.Error))
@@ -732,10 +644,6 @@ func renderBundleMarkdown(document *v1.ExportDocument) string {
 			appendMarkdownKeyValue(&b, "Status", strings.TrimSpace(item.Status))
 			appendMarkdownKeyValue(&b, "Version", strings.TrimSpace(item.Version))
 			switch item.Kind {
-			case v1.ExportBundleItemKindMemory:
-				if item.Memory != nil {
-					appendMarkdownKeyValue(&b, "Memory", firstNonEmpty(item.Memory.Subject, item.Memory.Summary, item.Memory.Key))
-				}
 			case v1.ExportBundleItemKindPlan:
 				if item.Plan != nil {
 					appendMarkdownKeyValue(&b, "Plan", firstNonEmpty(item.Plan.Title, item.Plan.PlanKey))
@@ -839,17 +747,6 @@ func appendMarkdownRuleSection(b *strings.Builder, rules []v1.ContextRule) {
 			line = fmt.Sprintf("%s. %s", line, content)
 		}
 		appendMarkdownListItem(b, line)
-	}
-	b.WriteString("\n")
-}
-
-func appendMarkdownContextMemorySection(b *strings.Builder, memories []v1.ContextMemory) {
-	if len(memories) == 0 {
-		return
-	}
-	appendMarkdownHeading(b, 2, "Memories")
-	for _, memory := range memories {
-		appendMarkdownListItem(b, fmt.Sprintf("`%s` %s", strings.TrimSpace(memory.Key), strings.TrimSpace(memory.Summary)))
 	}
 	b.WriteString("\n")
 }

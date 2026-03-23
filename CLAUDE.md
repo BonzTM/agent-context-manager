@@ -13,7 +13,6 @@ The ACM task loop from `AGENTS.md` maps to these slash commands:
 | `acm verify` | `/acm-verify` |
 | `acm review --run` | `/acm-review <id> {"run":true}` |
 | `acm done` | `/acm-done` |
-| `acm memory` | `/acm-memory` |
 
 Direct CLI (`acm sync`, `acm health`, `acm history`, `acm status`) has no slash-command wrappers — call those directly.
 

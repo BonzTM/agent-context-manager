@@ -4,7 +4,6 @@ const (
 	OperationContext       = "context"
 	OperationFetch         = "fetch"
 	OperationExport        = "export"
-	OperationMemory        = "memory"
 	OperationReview        = "review"
 	OperationWork          = "work"
 	OperationHistorySearch = "history"

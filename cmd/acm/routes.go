@@ -73,8 +73,6 @@ func canonicalRouteBuilder(name string) (routeBuilder, bool) {
 		return buildContextRequest, true
 	case "fetch":
 		return buildFetchRequest, true
-	case "memory":
-		return envelopeOnlyBuilder(buildMemoryEnvelope), true
 	case "work":
 		return envelopeOnlyBuilder(buildWorkEnvelope), true
 	case "history":

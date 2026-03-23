@@ -38,12 +38,12 @@ var commandCatalog = []CommandSpec{
 		CommandContext,
 		"context",
 		"acm context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--scope-path <path>]... [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
-		"Resolve a scoped receipt with rules, durable memory, active work, and optional known scope paths.",
+		"Resolve a scoped receipt with rules, active work, and optional known scope paths.",
 		CommandGroupWorkflow,
 		"contextPayload",
 		"contextResult",
 		"Get Task Context",
-		"Resolve task-scoped rules, durable memory, active plans, and optional known scope paths.",
+		"Resolve task-scoped rules, active plans, and optional known scope paths.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayload(raw, defaults,
 				func(p *ContextPayload, defaults ValidationDefaults) {
@@ -62,7 +62,7 @@ var commandCatalog = []CommandSpec{
 		"fetchPayload",
 		"fetchResult",
 		"Fetch Stored Artifacts",
-		"Fetch receipt, plan, memory, or indexed artifacts by key with optional expected versions.",
+		"Fetch receipt, plan, or indexed artifacts by key with optional expected versions.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayloadWithFields(raw, defaults,
 				func(p *FetchPayload, defaults ValidationDefaults) {
@@ -92,25 +92,6 @@ var commandCatalog = []CommandSpec{
 					p.ProjectID = defaultProjectID(p.ProjectID, defaults)
 				},
 				validateExportPayload,
-			)
-		},
-	),
-	newCommandSpec(
-		CommandMemory,
-		"memory",
-		"acm memory [--project <id>] [--receipt-id <id>|--plan-key <key>] --category <name> --subject <text> (--content <text>|--content-file <path>) --confidence <1-5> [--evidence-key <key>|--evidence-path <path>]... [--evidence-keys-file <path>|--evidence-keys-json <json>|--evidence-paths-file <path>|--evidence-paths-json <json>] [--related-key <key>|--related-path <path>]... [--related-keys-file <path>|--related-keys-json <json>|--related-paths-file <path>|--related-paths-json <json>] [--memory-tag <tag>]... [--memory-tags-file <path>|--memory-tags-json <json>] [--tags-file <path>] [--auto-promote]",
-		"Propose durable memory tied to a receipt or plan, evidence, and canonical tags.",
-		CommandGroupWorkflow,
-		"memoryPayload",
-		"memoryResult",
-		"Propose Durable Memory",
-		"Submit a memory candidate tied to evidence and the task's effective scope.",
-		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
-			return decodeValidatedCommandPayload(raw, defaults,
-				func(p *MemoryCommandPayload, defaults ValidationDefaults) {
-					p.ProjectID = defaultProjectID(p.ProjectID, defaults)
-				},
-				validateMemoryCommandPayload,
 			)
 		},
 	),
@@ -174,13 +155,13 @@ var commandCatalog = []CommandSpec{
 	newCommandSpec(
 		CommandHistorySearch,
 		"history",
-		"acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
-		"Search recent work, memory, receipt, and run history without direct database access.",
+		"acm history [--project <id>] [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]] [--format <json|markdown>] [--out-file <path>] [--force[=true|false]]",
+		"Search recent work, receipt, and run history without direct database access.",
 		CommandGroupWorkflow,
 		"historySearchPayload",
 		"historySearchResult",
 		"Search History",
-		"List or search work plans, memories, receipts, and runs without direct database access.",
+		"List or search work plans, receipts, and runs without direct database access.",
 		func(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 			return decodeValidatedCommandPayload(raw, defaults,
 				func(p *HistorySearchPayload, defaults ValidationDefaults) {
@@ -357,8 +338,6 @@ func ProjectIDFromPayload(payload any) string {
 	case FetchPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case ExportPayload:
-		return strings.TrimSpace(p.ProjectID)
-	case MemoryCommandPayload:
 		return strings.TrimSpace(p.ProjectID)
 	case DonePayload:
 		return strings.TrimSpace(p.ProjectID)

@@ -26,7 +26,7 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 		"Managed Repo Files:",
 		"First-Run Recovery:",
 		"acm context [--project <id>] [--task-text <text>|--task-file <path>] [--tags-file <path>] [--scope-path <path>]...",
-		"acm history [--project <id>] [--entity <all|work|memory|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
+		"acm history [--project <id>] [--entity <all|work|receipt|run>] [--query <text>|--query-file <path>] [--scope <current|deferred|completed|all>] [--kind <kind>] [--limit <n>] [--unbounded[=true|false]]",
 		"acm review [--project <id>] [--receipt-id <id>|--plan-key <key>] [--run] [--key <task-key>] [--summary <text>] [--status <pending|in_progress|complete|blocked|superseded>] [--outcome <text>|--outcome-file <path>] [--blocked-reason <text>] [--evidence <text>]... [--evidence-file <path>|--evidence-json <json>] [--tags-file <path>]",
 		"acm health [--project <id>] [--include-details[=true|false]] [--max-findings-per-check <n>] | [--fix <name>]... [--dry-run[=true|false]] [--apply[=true|false]] [--project-root <path>] [--rules-file <path>] [--tags-file <path>]",
 		"acm status [--project <id>] [--project-root <path>] [--rules-file <path>] [--tags-file <path>] [--tests-file <path>] [--workflows-file <path>] [--task-text <text>|--task-file <path>] [--phase <plan|execute|review>]",
@@ -42,7 +42,6 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 		"Convenience commands accept optional `--project`; explicit values override env and repo-root defaults.",
 		"Optional bool flags accept `--flag`, `--flag=true`, or `--flag=false`.",
 		"`context` requires one of `--task-text` or `--task-file`.",
-		"`memory` requires `--receipt-id` or `--plan-key`, `--category`, `--subject`, `--confidence`, one of `--content` or `--content-file`, and at least one evidence key.",
 		"`done` requires `--receipt-id` or `--plan-key` and one of `--outcome` or `--outcome-file`.",
 	}
 	for _, snippet := range requiredSnippets {
@@ -52,7 +51,6 @@ func TestPrintMainUsage_IncludesCommandDirectoryAndRecovery(t *testing.T) {
 	}
 	for _, hiddenSnippet := range []string{
 		"acm get-context",
-		"acm propose-memory",
 		"acm report-completion",
 		"acm bootstrap",
 		"acm doctor",

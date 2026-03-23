@@ -53,11 +53,6 @@ func (s *Service) Fetch(ctx context.Context, payload v1.FetchPayload) (v1.FetchR
 			if err != nil {
 				return v1.FetchResult{}, fetchInternalError(fetchOperationFromError(err), err)
 			}
-		} else if memoryID, ok := parseMemoryFetchKey(key); ok {
-			item, found, err = s.fetchMemoryItem(ctx, projectID, key, memoryID)
-			if err != nil {
-				return v1.FetchResult{}, fetchInternalError("lookup_memory_by_id", err)
-			}
 		} else {
 			item, found, err = s.fetchPointerItem(ctx, projectID, key)
 			if err != nil {
@@ -228,21 +223,7 @@ func runFetchKey(runID int64) string {
 	return fetchKey
 }
 
-func parseMemoryFetchKey(raw string) (int64, bool) {
-	key := strings.TrimSpace(raw)
-	if !strings.HasPrefix(strings.ToLower(key), "mem:") {
-		return 0, false
-	}
-	idText := strings.TrimSpace(key[len("mem:"):])
-	if idText == "" {
-		return 0, false
-	}
-	memoryID, err := strconv.ParseInt(idText, 10, 64)
-	if err != nil || memoryID <= 0 {
-		return 0, false
-	}
-	return memoryID, true
-}
+
 
 func (s *Service) fetchPlanItem(ctx context.Context, projectID, key, receiptID string) (v1.FetchItem, bool, error) {
 	lookupQuery := core.WorkPlanLookupQuery{
@@ -549,37 +530,7 @@ func (s *Service) readPointerFetchContent(pointerPath string) (string, bool) {
 	return string(content), true
 }
 
-func (s *Service) fetchMemoryItem(ctx context.Context, projectID, key string, memoryID int64) (v1.FetchItem, bool, error) {
-	if memoryID <= 0 {
-		return v1.FetchItem{}, false, nil
-	}
 
-	memory, err := s.repo.LookupMemoryByID(ctx, core.MemoryLookupQuery{
-		ProjectID: projectID,
-		MemoryID:  memoryID,
-	})
-	if err != nil {
-		if errors.Is(err, core.ErrMemoryLookupNotFound) {
-			return v1.FetchItem{}, false, nil
-		}
-		return v1.FetchItem{}, false, err
-	}
-
-	summary := memorySummary(memory)
-	return v1.FetchItem{
-		Key:     key,
-		Type:    "memory",
-		Summary: summary,
-		Content: memory.Content,
-		Version: indexEntryVersion(
-			fmt.Sprintf("%d", memory.ID),
-			memory.Subject,
-			memory.Content,
-			fmt.Sprintf("%d", memory.Confidence),
-			memory.UpdatedAt.UTC().String(),
-		),
-	}, true, nil
-}
 
 func fetchInternalError(operation string, err error) *core.APIError {
 	return core.NewError(

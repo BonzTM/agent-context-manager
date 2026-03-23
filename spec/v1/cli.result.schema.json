@@ -72,64 +72,6 @@
         }
       ]
     },
-    "memoryResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "candidate_id",
-        "status"
-      ],
-      "properties": {
-        "candidate_id": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "pending",
-            "promoted",
-            "rejected"
-          ]
-        },
-        "promoted_memory_id": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "validation": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "hard_passed",
-            "soft_passed",
-            "errors",
-            "warnings"
-          ],
-          "properties": {
-            "hard_passed": {
-              "type": "boolean"
-            },
-            "soft_passed": {
-              "type": "boolean"
-            },
-            "errors": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "maxLength": 300
-              }
-            },
-            "warnings": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "maxLength": 300
-              }
-            }
-          }
-        }
-      }
-    },
     "doneResult": {
       "type": "object",
       "additionalProperties": false,
@@ -1143,7 +1085,6 @@
       "type": "string",
       "enum": [
         "context",
-        "memory",
         "plan",
         "receipt",
         "task",
@@ -1576,7 +1517,6 @@
     "exportBundleItemKind": {
       "type": "string",
       "enum": [
-        "memory",
         "plan",
         "receipt",
         "task",
@@ -1622,9 +1562,6 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
-        },
-        "memory": {
-          "$ref": "#/$defs/exportMemoryDocument"
         },
         "plan": {
           "$ref": "#/$defs/exportPlanDocument"
@@ -1706,9 +1643,6 @@
         },
         "context": {
           "$ref": "shared.schema.json#/$defs/contextReceipt"
-        },
-        "memory": {
-          "$ref": "#/$defs/exportMemoryDocument"
         },
         "plan": {
           "$ref": "#/$defs/exportPlanDocument"
@@ -1811,7 +1745,6 @@
           "enum": [
             "all",
             "work",
-            "memory",
             "receipt",
             "run"
           ]
@@ -1921,7 +1854,6 @@
           "enum": [
             "all",
             "work",
-            "memory",
             "receipt",
             "run"
           ]
@@ -2045,29 +1977,6 @@
         "properties": {
           "result": {
             "$ref": "#/$defs/exportResult"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "command": {
-            "const": "memory"
-          },
-          "ok": {
-            "const": true
-          }
-        },
-        "required": [
-          "command",
-          "ok"
-        ]
-      },
-      "then": {
-        "properties": {
-          "result": {
-            "$ref": "#/$defs/memoryResult"
           }
         }
       }

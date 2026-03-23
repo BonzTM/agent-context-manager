@@ -41,10 +41,6 @@ func (f fakeService) Export(_ context.Context, payload v1.ExportPayload) (v1.Exp
 	}, nil
 }
 
-func (f fakeService) Memory(_ context.Context, _ v1.MemoryCommandPayload) (v1.MemoryResult, *core.APIError) {
-	return v1.MemoryResult{}, nil
-}
-
 func (f fakeService) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
 	return v1.ReviewResult{
 		PlanKey:      "plan.alpha",

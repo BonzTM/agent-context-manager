@@ -17,8 +17,8 @@
       "items": {
         "$ref": "#/$defs/toolContract"
       },
-      "minItems": 13,
-      "maxItems": 13
+      "minItems": 12,
+      "maxItems": 12
     }
   },
   "$defs": {
@@ -39,7 +39,6 @@
             "context",
             "fetch",
             "export",
-            "memory",
             "done",
             "review",
             "work",
@@ -86,12 +85,6 @@
     },
     "exportOutput": {
       "$ref": "cli.result.schema.json#/$defs/exportResult"
-    },
-    "memoryInput": {
-      "$ref": "cli.command.schema.json#/$defs/memoryPayload"
-    },
-    "memoryOutput": {
-      "$ref": "cli.result.schema.json#/$defs/memoryResult"
     },
     "doneInput": {
       "$ref": "cli.command.schema.json#/$defs/donePayload"
@@ -153,7 +146,7 @@
     {
       "name": "context",
       "title": "Get Task Context",
-      "description": "Resolve task-scoped rules, durable memory, active plans, and optional known scope paths.",
+      "description": "Resolve task-scoped rules, active plans, and optional known scope paths.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/contextPayload"
@@ -166,7 +159,7 @@
     {
       "name": "fetch",
       "title": "Fetch Stored Artifacts",
-      "description": "Fetch receipt, plan, memory, or indexed artifacts by key with optional expected versions.",
+      "description": "Fetch receipt, plan, or indexed artifacts by key with optional expected versions.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/fetchPayload"
@@ -187,19 +180,6 @@
       "output_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/exportResult"
-      }
-    },
-    {
-      "name": "memory",
-      "title": "Propose Durable Memory",
-      "description": "Submit a memory candidate tied to evidence and the task's effective scope.",
-      "input_schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/memoryPayload"
-      },
-      "output_schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$ref": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/memoryResult"
       }
     },
     {
@@ -244,7 +224,7 @@
     {
       "name": "history",
       "title": "Search History",
-      "description": "List or search work plans, memories, receipts, and runs without direct database access.",
+      "description": "List or search work plans, receipts, and runs without direct database access.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$ref": "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/historySearchPayload"

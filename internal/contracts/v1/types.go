@@ -10,7 +10,6 @@ const (
 	CommandContext       Command = "context"
 	CommandFetch         Command = "fetch"
 	CommandExport        Command = "export"
-	CommandMemory        Command = "memory"
 	CommandDone          Command = "done"
 	CommandReview        Command = "review"
 	CommandWork          Command = "work"
@@ -35,15 +34,6 @@ type ScopeMode string
 const (
 	ScopeModeStrict ScopeMode = "strict"
 	ScopeModeWarn   ScopeMode = "warn"
-)
-
-type MemoryCategory string
-
-const (
-	MemoryCategoryDecision   MemoryCategory = "decision"
-	MemoryCategoryGotcha     MemoryCategory = "gotcha"
-	MemoryCategoryPattern    MemoryCategory = "pattern"
-	MemoryCategoryPreference MemoryCategory = "preference"
 )
 
 type CommandEnvelope struct {
@@ -132,25 +122,6 @@ type ExportPayload struct {
 	Status    *ExportStatusSelector  `json:"status,omitempty"`
 }
 
-type MemoryPayload struct {
-	Category            MemoryCategory `json:"category"`
-	Subject             string         `json:"subject"`
-	Content             string         `json:"content"`
-	RelatedPointerKeys  []string       `json:"related_pointer_keys"`
-	Tags                []string       `json:"tags"`
-	Confidence          int            `json:"confidence"`
-	EvidencePointerKeys []string       `json:"evidence_pointer_keys"`
-}
-
-type MemoryCommandPayload struct {
-	ProjectID   string        `json:"project_id"`
-	ReceiptID   string        `json:"receipt_id,omitempty"`
-	PlanKey     string        `json:"plan_key,omitempty"`
-	TagsFile    string        `json:"tags_file,omitempty"`
-	Memory      MemoryPayload `json:"memory"`
-	AutoPromote *bool         `json:"auto_promote,omitempty"`
-}
-
 type DonePayload struct {
 	ProjectID     string    `json:"project_id"`
 	ReceiptID     string    `json:"receipt_id,omitempty"`
@@ -237,7 +208,6 @@ type HistoryEntity string
 
 const (
 	HistoryEntityAll     HistoryEntity = "all"
-	HistoryEntityMemory  HistoryEntity = "memory"
 	HistoryEntityWork    HistoryEntity = "work"
 	HistoryEntityReceipt HistoryEntity = "receipt"
 	HistoryEntityRun     HistoryEntity = "run"
@@ -325,11 +295,6 @@ type ContextRule struct {
 	Content     string `json:"content,omitempty"`
 }
 
-type ContextMemory struct {
-	Key     string `json:"key"`
-	Summary string `json:"summary"`
-}
-
 type ContextPlan struct {
 	Key       string         `json:"key"`
 	Summary   string         `json:"summary"`
@@ -356,7 +321,6 @@ type ContextReceiptMeta struct {
 
 type ContextReceipt struct {
 	Rules             []ContextRule      `json:"rules"`
-	Memories          []ContextMemory    `json:"memories"`
 	Plans             []ContextPlan      `json:"plans"`
 	InitialScopePaths []string           `json:"initial_scope_paths,omitempty"`
 	Meta              ContextReceiptMeta `json:"_meta"`
@@ -392,7 +356,6 @@ type ExportDocumentKind string
 
 const (
 	ExportDocumentKindContext     ExportDocumentKind = "context"
-	ExportDocumentKindMemory      ExportDocumentKind = "memory"
 	ExportDocumentKindPlan        ExportDocumentKind = "plan"
 	ExportDocumentKindReceipt     ExportDocumentKind = "receipt"
 	ExportDocumentKindTask        ExportDocumentKind = "task"
@@ -401,18 +364,6 @@ const (
 	ExportDocumentKindHistory     ExportDocumentKind = "history"
 	ExportDocumentKindStatus      ExportDocumentKind = "status"
 )
-
-type ExportMemoryDocument struct {
-	Key                string         `json:"key"`
-	Summary            string         `json:"summary"`
-	Category           MemoryCategory `json:"category,omitempty"`
-	Subject            string         `json:"subject,omitempty"`
-	Content            string         `json:"content,omitempty"`
-	Confidence         int            `json:"confidence,omitempty"`
-	Tags               []string       `json:"tags,omitempty"`
-	RelatedPointerKeys []string       `json:"related_pointer_keys,omitempty"`
-	UpdatedAt          string         `json:"updated_at,omitempty"`
-}
 
 type ExportPlanStages struct {
 	SpecOutline        WorkItemStatus `json:"spec_outline,omitempty"`
@@ -472,7 +423,6 @@ type ExportReceiptDocument struct {
 	Phase             Phase                     `json:"phase,omitempty"`
 	ResolvedTags      []string                  `json:"resolved_tags,omitempty"`
 	PointerKeys       []string                  `json:"pointer_keys,omitempty"`
-	MemoryKeys        []string                  `json:"memory_keys,omitempty"`
 	InitialScopePaths []string                  `json:"initial_scope_paths,omitempty"`
 	BaselineCaptured  bool                      `json:"baseline_captured"`
 	BaselinePaths     []ExportBaselinePath      `json:"baseline_paths,omitempty"`
@@ -494,7 +444,6 @@ type ExportRunDocument struct {
 type ExportBundleItemKind string
 
 const (
-	ExportBundleItemKindMemory  ExportBundleItemKind = "memory"
 	ExportBundleItemKindPlan    ExportBundleItemKind = "plan"
 	ExportBundleItemKindReceipt ExportBundleItemKind = "receipt"
 	ExportBundleItemKindTask    ExportBundleItemKind = "task"
@@ -510,7 +459,6 @@ type ExportBundleItem struct {
 	Summary string                 `json:"summary"`
 	Status  string                 `json:"status,omitempty"`
 	Version string                 `json:"version,omitempty"`
-	Memory  *ExportMemoryDocument  `json:"memory,omitempty"`
 	Plan    *ExportPlanDocument    `json:"plan,omitempty"`
 	Receipt *ExportReceiptDocument `json:"receipt,omitempty"`
 	Task    *ExportTaskDocument    `json:"task,omitempty"`
@@ -530,7 +478,6 @@ type ExportDocument struct {
 	Title   string                 `json:"title,omitempty"`
 	Summary string                 `json:"summary,omitempty"`
 	Context *ContextReceipt        `json:"context,omitempty"`
-	Memory  *ExportMemoryDocument  `json:"memory,omitempty"`
 	Plan    *ExportPlanDocument    `json:"plan,omitempty"`
 	Receipt *ExportReceiptDocument `json:"receipt,omitempty"`
 	Task    *ExportTaskDocument    `json:"task,omitempty"`
@@ -544,21 +491,6 @@ type ExportResult struct {
 	Format   ExportFormat    `json:"format"`
 	Document *ExportDocument `json:"document,omitempty"`
 	Content  string          `json:"content"`
-}
-
-type MemoryValidation struct {
-	HardPassed bool     `json:"hard_passed"`
-	SoftPassed bool     `json:"soft_passed"`
-	Errors     []string `json:"errors"`
-	Warnings   []string `json:"warnings"`
-}
-
-type MemoryResult struct {
-	DeprecationNotice string           `json:"deprecation_notice,omitempty"`
-	CandidateID      int              `json:"candidate_id"`
-	Status           string           `json:"status"`
-	PromotedMemoryID int              `json:"promoted_memory_id,omitempty"`
-	Validation       MemoryValidation `json:"validation"`
 }
 
 type CompletionViolation struct {
@@ -694,7 +626,6 @@ type StatusContextPreview struct {
 	Status                string   `json:"status"`
 	ResolvedTags          []string `json:"resolved_tags,omitempty"`
 	RuleCount             int      `json:"rule_count,omitempty"`
-	MemoryCount           int      `json:"memory_count,omitempty"`
 	PlanCount             int      `json:"plan_count,omitempty"`
 	InitialScopePathCount int      `json:"initial_scope_path_count,omitempty"`
 	Error                 string   `json:"error,omitempty"`

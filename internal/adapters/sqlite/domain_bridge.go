@@ -61,10 +61,6 @@ func normalizeReviewAttempt(input core.ReviewAttempt) (normalizedReviewAttempt, 
 	return storagedomain.NormalizeReviewAttempt(input)
 }
 
-func normalizeMemoryPersistence(input core.MemoryPersistence) (core.MemoryPersistence, error) {
-	return storagedomain.NormalizeMemoryPersistence(input)
-}
-
 func normalizeSyncApplyInput(input core.SyncApplyInput) (core.SyncApplyInput, error) {
 	return storagedomain.NormalizeSyncApplyInput(input)
 }

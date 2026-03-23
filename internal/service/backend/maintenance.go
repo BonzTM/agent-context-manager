@@ -49,8 +49,6 @@ func (s *Service) healthCheck(ctx context.Context, payload v1.HealthPayload) (v1
 		return v1.HealthCheckResult{}, healthCheckInternalError("fetch_candidate_pointers", err)
 	}
 
-	var memories []core.ActiveMemory
-
 	includeDetails := effectiveHealthIncludeDetails(payload.IncludeDetails)
 	maxFindings := effectiveMaxFindingsPerCheck(payload.MaxFindingsPerCheck)
 	inventory, apiErr := s.computeInventoryHealth(ctx, strings.TrimSpace(payload.ProjectID), "")
@@ -61,7 +59,7 @@ func (s *Service) healthCheck(ctx context.Context, payload v1.HealthPayload) (v1
 	if apiErr != nil {
 		return v1.HealthCheckResult{}, apiErr
 	}
-	checks := buildHealthChecks(candidates, memories, inventory.UnindexedPaths, planDiagnostics, includeDetails, maxFindings)
+	checks := buildHealthChecks(candidates, inventory.UnindexedPaths, planDiagnostics, includeDetails, maxFindings)
 
 	totalFindings := 0
 	for _, check := range checks {
@@ -168,7 +166,7 @@ func effectiveMaxFindingsPerCheck(maxFindings *int) int {
 	return *maxFindings
 }
 
-func buildHealthChecks(candidates []core.CandidatePointer, memories []core.ActiveMemory, unindexedPaths []string, plans planDiagnostics, includeDetails bool, maxFindings int) []v1.HealthCheckItem {
+func buildHealthChecks(candidates []core.CandidatePointer, unindexedPaths []string, plans planDiagnostics, includeDetails bool, maxFindings int) []v1.HealthCheckItem {
 	checks := []v1.HealthCheckItem{
 		healthCheckItem("administrative_closeout_plans", "warn", plans.administrativeCloseout, includeDetails, maxFindings),
 		healthCheckItem("duplicate_labels", "warn", duplicateLabelFindings(candidates), includeDetails, maxFindings),
@@ -179,8 +177,7 @@ func buildHealthChecks(candidates []core.CandidatePointer, memories []core.Activ
 		healthCheckItem("stale_pointers", "warn", stalePointerFindings(candidates), includeDetails, maxFindings),
 		healthCheckItem("terminal_plan_status_drift", "warn", plans.terminalStatusDrift, includeDetails, maxFindings),
 		healthCheckItem("unindexed_files", "warn", normalizeValues(unindexedPaths), includeDetails, maxFindings),
-		healthCheckItem("unknown_tags", "warn", unknownTagFindings(candidates, memories), includeDetails, maxFindings),
-		healthCheckItem("weak_memories", "warn", weakMemoryFindings(memories), includeDetails, maxFindings),
+		healthCheckItem("unknown_tags", "warn", unknownTagFindings(candidates), includeDetails, maxFindings),
 	}
 
 	sort.Slice(checks, func(i, j int) bool {
@@ -275,7 +272,7 @@ func duplicateLabelFindings(candidates []core.CandidatePointer) []string {
 	return out
 }
 
-func unknownTagFindings(candidates []core.CandidatePointer, memories []core.ActiveMemory) []string {
+func unknownTagFindings(candidates []core.CandidatePointer) []string {
 	out := make([]string, 0)
 	for _, candidate := range candidates {
 		key := strings.TrimSpace(candidate.Key)
@@ -291,28 +288,6 @@ func unknownTagFindings(candidates []core.CandidatePointer, memories []core.Acti
 				continue
 			}
 			out = append(out, fmt.Sprintf("pointer:%s:%s", key, tag))
-		}
-	}
-	for _, memory := range memories {
-		for _, tag := range memory.Tags {
-			tag = strings.TrimSpace(tag)
-			if tag == "" || healthTagPattern.MatchString(tag) {
-				continue
-			}
-			out = append(out, fmt.Sprintf("memory:%d:%s", memory.ID, tag))
-		}
-	}
-	return out
-}
-
-func weakMemoryFindings(memories []core.ActiveMemory) []string {
-	out := make([]string, 0)
-	for _, memory := range memories {
-		if memory.Confidence <= 2 {
-			out = append(out, fmt.Sprintf("memory:%d:low_confidence", memory.ID))
-		}
-		if len(normalizeValues(memory.RelatedPointerKeys)) == 0 {
-			out = append(out, fmt.Sprintf("memory:%d:no_related_pointer_keys", memory.ID))
 		}
 	}
 	return out

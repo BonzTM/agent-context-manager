@@ -31,7 +31,7 @@ func TestRepositoryParity(t *testing.T) {
 	})
 }
 
-func TestRepository_LookupPointerByKeyAndLookupMemoryByID(t *testing.T) {
+func TestRepository_LookupPointerByKey(t *testing.T) {
 	ctx := context.Background()
 	projectID := fmt.Sprintf("project.sqlite.lookup.%d", time.Now().UTC().UnixNano())
 
@@ -53,18 +53,6 @@ func TestRepository_LookupPointerByKeyAndLookupMemoryByID(t *testing.T) {
 		ContentHash: "lookup-hash",
 	})
 
-	memoryID := seedMemory(t, ctx, repo, seedMemoryRow{
-		ProjectID:           projectID,
-		Category:            "decision",
-		Subject:             "Lookup memory",
-		Content:             "Fetch expansion should resolve memory by id.",
-		Confidence:          4,
-		Tags:                []string{"memory", "fetch"},
-		RelatedPointerKeys:  []string{"pointer.lookup"},
-		EvidencePointerKeys: []string{"pointer.lookup"},
-		DedupeKey:           "lookup-memory-dedupe",
-	})
-
 	pointer, err := repo.LookupPointerByKey(ctx, core.PointerLookupQuery{
 		ProjectID:  " " + projectID + " ",
 		PointerKey: " pointer.lookup ",
@@ -79,25 +67,8 @@ func TestRepository_LookupPointerByKeyAndLookupMemoryByID(t *testing.T) {
 		t.Fatalf("unexpected pointer tags: %+v", pointer.Tags)
 	}
 
-	memory, err := repo.LookupMemoryByID(ctx, core.MemoryLookupQuery{
-		ProjectID: " " + projectID + " ",
-		MemoryID:  memoryID,
-	})
-	if err != nil {
-		t.Fatalf("lookup memory by id: %v", err)
-	}
-	if memory.ID != memoryID || memory.Category != "decision" || memory.Subject != "Lookup memory" {
-		t.Fatalf("unexpected memory lookup result: %+v", memory)
-	}
-	if !reflect.DeepEqual(memory.RelatedPointerKeys, []string{"pointer.lookup"}) {
-		t.Fatalf("unexpected memory related pointers: %+v", memory.RelatedPointerKeys)
-	}
-
 	if _, err := repo.LookupPointerByKey(ctx, core.PointerLookupQuery{ProjectID: projectID, PointerKey: "pointer.missing"}); !errors.Is(err, core.ErrPointerLookupNotFound) {
 		t.Fatalf("expected pointer lookup not found error, got %v", err)
-	}
-	if _, err := repo.LookupMemoryByID(ctx, core.MemoryLookupQuery{ProjectID: projectID, MemoryID: memoryID + 999}); !errors.Is(err, core.ErrMemoryLookupNotFound) {
-		t.Fatalf("expected memory lookup not found error, got %v", err)
 	}
 }
 
@@ -234,58 +205,4 @@ INSERT INTO acm_pointers (
 	if err != nil {
 		t.Fatalf("seed pointer %q: %v", row.PointerKey, err)
 	}
-}
-
-type seedMemoryRow struct {
-	ProjectID           string
-	Category            string
-	Subject             string
-	Content             string
-	Confidence          int
-	Tags                []string
-	RelatedPointerKeys  []string
-	EvidencePointerKeys []string
-	DedupeKey           string
-}
-
-func seedMemory(t *testing.T, ctx context.Context, repo *Repository, row seedMemoryRow) int64 {
-	t.Helper()
-
-	tagsJSON, err := encodeStringList(row.Tags)
-	if err != nil {
-		t.Fatalf("encode memory tags: %v", err)
-	}
-	relatedJSON, err := encodeStringList(row.RelatedPointerKeys)
-	if err != nil {
-		t.Fatalf("encode related pointers: %v", err)
-	}
-	evidenceJSON, err := encodeStringList(row.EvidencePointerKeys)
-	if err != nil {
-		t.Fatalf("encode evidence pointers: %v", err)
-	}
-
-	insertResult, err := repo.db.ExecContext(ctx, `
-INSERT INTO acm_memories (
-	project_id,
-	category,
-	subject,
-	content,
-	confidence,
-	tags_json,
-	related_pointer_keys_json,
-	evidence_pointer_keys_json,
-	dedupe_key,
-	active,
-	created_at,
-	updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), unixepoch())
-`, row.ProjectID, row.Category, row.Subject, row.Content, row.Confidence, tagsJSON, relatedJSON, evidenceJSON, row.DedupeKey)
-	if err != nil {
-		t.Fatalf("seed memory %q: %v", row.Subject, err)
-	}
-	memoryID, err := insertResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("read seeded memory id: %v", err)
-	}
-	return memoryID
 }

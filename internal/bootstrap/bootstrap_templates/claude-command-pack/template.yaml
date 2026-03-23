@@ -12,9 +12,6 @@ operations:
     target: .claude/commands/acm-context.md
     source: files/.claude/commands/acm-context.md
   - type: create_if_missing
-    target: .claude/commands/acm-memory.md
-    source: files/.claude/commands/acm-memory.md
-  - type: create_if_missing
     target: .claude/commands/acm-done.md
     source: files/.claude/commands/acm-done.md
   - type: create_if_missing

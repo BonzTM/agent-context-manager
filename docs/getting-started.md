@@ -15,7 +15,6 @@ This guide is for adopting ACM in another repository. If you are maintaining ACM
 You do not need the full ACM surface on day 1.
 
 - `plans-only`: `init`, `context`, and `work`
-- `plans+memory`: add `memory`
 - `governed workflow`: add `verify`, `review`, and `done`
 - `full brokered flow`: add `fetch`, optional review gates, and the richer template set
 
@@ -76,7 +75,7 @@ acm init \
 Swap in `--apply-template codex-pack` when you want repo-local Codex companion docs under `.codex/acm-broker/` instead of Claude-specific command assets.
 Use `--apply-template opencode-pack` when you want repo-local OpenCode companion docs under `.opencode/acm-broker/` without assuming a global OpenCode skill location.
 
-This scans your repo and creates auto-indexed pointer stubs for discovered files so `fetch`, health, memory evidence, and governed scope checks can work immediately. When `--project` is omitted, acm uses `ACM_PROJECT_ID` first and otherwise infers the project identifier from the effective repo root. Pass `--project` when you want a short stable namespace that differs from the folder name.
+This scans your repo and creates auto-indexed pointer stubs for discovered files so `fetch`, health, and governed scope checks can work immediately. When `--project` is omitted, acm uses `ACM_PROJECT_ID` first and otherwise infers the project identifier from the effective repo root. Pass `--project` when you want a short stable namespace that differs from the folder name.
 
 `init` automatically:
 
@@ -275,7 +274,7 @@ acm work --receipt-id <receipt-id> --mode merge \
 
 `tasks` are the canonical payload for tracking. If you only need to record a single review-gate outcome, use `review` instead.
 
-When governed file work expands beyond the receipt's initial scope, record the later-discovered files through `plan.discovered_paths` in `work` before expecting `review` to pass, and before relying on those paths for memory evidence. `done` also accepts path-like entries from `plan.in_scope`, but `discovered_paths` remains the right way to declare later-found concrete files.
+When governed file work expands beyond the receipt's initial scope, record the later-discovered files through `plan.discovered_paths` in `work` before expecting `review` to pass. `done` also accepts path-like entries from `plan.in_scope`, but `discovered_paths` remains the right way to declare later-found concrete files.
 
 #### Optional richer staged plans
 
@@ -341,13 +340,12 @@ acm history --entity work --scope current
 acm history --entity work --query "signup validation"
 acm history --entity work --query "bootstrap" --scope completed
 acm history --entity all --limit 20
-acm history --entity memory --query "postgres indexing"
 acm history --entity receipt --query "signup validation"
 ```
 
 One surface:
 
-- **`acm history`** — compact discovery across work, memories, receipts, and runs; set `--entity work` when you need work-specific `--scope` or `--kind` filters
+- **`acm history`** — compact discovery across work, receipts, and runs; set `--entity work` when you need work-specific `--scope` or `--kind` filters
 
 Results are compact and include `fetch_keys`, so agents can search first and then `fetch` the exact payloads they need.
 
@@ -403,30 +401,6 @@ acm done \
   --outcome "Drafted the feature plan and recorded follow-up tasks"
 ```
 
-### memory
-
-Agents call this when they discover something worth remembering for future tasks:
-
-```bash
-acm memory \
-  --receipt-id <receipt-id> \
-  --category gotcha \
-  --subject "signup form requires CSRF token" \
-  --content "The signup endpoint validates a CSRF token from the session cookie. Tests must set this header or they get 403." \
-  --confidence 4 \
-  --evidence-path src/signup.go \
-  --memory-tag backend \
-  --memory-tag auth
-```
-
-For longer memory content, use `--content-file`. The human-facing CLI accepts governed repo-relative `--evidence-path` / `--related-path` shorthands and converts them to deterministic pointer keys; JSON/MCP payloads still provide `memory.evidence_pointer_keys` and `memory.related_pointer_keys` directly. Memory tags, evidence keys, evidence paths, related keys, and related paths also accept `--memory-tags-json` / `--evidence-keys-json` / `--evidence-paths-json` / `--related-keys-json` / `--related-paths-json` and the corresponding `--*-file` JSON-array variants. Use `--tags-file` when you need to override the canonical tag dictionary used for runtime normalization. Add `--auto-promote` to skip quarantine and promote directly if validations pass.
-
-Evidence keys must stay inside the task's effective scope. In the simplified model that usually means exact rule pointer keys already present on the receipt, or indexed project pointer keys such as `<project>:src/signup.go` or `<project>:src/signup.go#validate` whose repo-relative path is covered by `initial_scope_paths` or `plan.discovered_paths`.
-
-If a file was discovered after `context`, record it through `work.plan.discovered_paths` before using its pointer key as memory evidence.
-
-Memories are available in future `context` calls when relevant tags match.
-
 ## Step 6: Wire agents to acm
 
 Once the index and rules are set up, connect your agents so they call acm operations automatically.
@@ -439,7 +413,7 @@ Install the slash command pack into your project:
 bash <(curl -fsSL https://raw.githubusercontent.com/bonztm/agent-context-manager/main/scripts/install-skill-pack.sh) --claude
 ```
 
-Run this from your project root. It installs `/acm-context`, `/acm-work`, `/acm-review`, `/acm-verify`, `/acm-done`, and `/acm-memory` slash commands into `.claude/commands/`. The default slash-command loop is `/acm-context`, `/acm-work`, `/acm-verify`, `/acm-done`, and `/acm-memory`.
+Run this from your project root. It installs `/acm-context`, `/acm-work`, `/acm-review`, `/acm-verify`, and `/acm-done` slash commands into `.claude/commands/`. The default slash-command loop is `/acm-context`, `/acm-work`, `/acm-verify`, and `/acm-done`.
 
 If you already have this repo checked out locally, the equivalent command is `./scripts/install-skill-pack.sh --claude`.
 
@@ -511,14 +485,13 @@ Codex is a primary ACM operator, not only a review backend. The normal loop is:
 3. `verify`
 4. `review`
 5. `done`
-6. `memory`
 
 Claude and Codex hand off through the same ACM state. A common pattern is:
 
 1. Start in one tool with `context`
 2. Record or update the durable plan with `work`
 3. Let the other tool resume from the same `receipt_id` or `plan_key`
-4. Close with shared `verify`, `review`, `done`, and `memory` history instead of vendor-local notes
+4. Close with shared `verify`, `review`, and `done` history instead of vendor-local notes
 
 There is intentionally no fake slash-command or Claude-equivalent hook parity here. The default Codex path still relies on the installed skill, the repo-root `AGENTS.md`, and normal CLI/MCP access; `codex-hooks` is an optional experimental helper layer.
 
@@ -556,7 +529,6 @@ OpenCode is a primary ACM operator, not only a review backend. The normal loop i
 3. `verify`
 4. `review`
 5. `done`
-6. `memory`
 
 Use OpenCode's native repo search and edit tools normally; ACM provides durable state, rules, verification, review, and governed closeout.
 
@@ -567,7 +539,6 @@ Short walkthrough:
 3. Start implementation or debugging work with `acm context --project <id> --task-text "..." --phase execute`.
 4. If the task spans multiple steps or files, persist it with `acm work`; add `plan.discovered_paths` before review/done when governed scope expands.
 5. Run `acm verify` before completion, then `acm review --run` when `.acm/acm-workflows.yaml` selects a runnable review gate, then `acm done`.
-6. Record stable operator decisions or pitfalls with `acm memory`.
 
 For already isolated/containerized hosts, prefer workflow `run.argv` that uses `scripts/acm-cross-review.sh --yolo`; the shared high-trust shortcut avoids nested sandbox conflicts while relying on the outer container boundary.
 
@@ -584,7 +555,7 @@ acm-mcp invoke --tool context --in payload.json
 
 The MCP adapter exposes the same 12 convenience-routed operations plus one backend-only export surface:
 
-- **Core** (5): `context`, `work`, `memory`, `verify`, `done`
+- **Core** (4): `context`, `work`, `verify`, `done`
 - **Supporting** (3): `fetch`, `review`, `history`
 - **Advanced backend-only** (1): `export`
 - **Maintenance** (4): `sync`, `health`, `status`, `init`

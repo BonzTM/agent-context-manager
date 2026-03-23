@@ -344,22 +344,18 @@ func (s *Service) statusContextPreview(ctx context.Context, payload v1.StatusPay
 		return result
 	}
 
-	var activeMemories []core.ActiveMemory
-
 	rules := makeContextRules(selectedRules)
-	memories := makeContextMemories(activeMemories)
-	resolvedTags := resolveTags(append(append([]string(nil), taskTags...), ruleTags...), activeMemories, tagNormalizer)
+	resolvedTags := resolveTags(append(append([]string(nil), taskTags...), ruleTags...), tagNormalizer)
 	receiptID := deterministicReceiptID(v1.ContextPayload{
 		ProjectID: payload.ProjectID,
 		TaskText:  taskText,
 		Phase:     phase,
-	}, resolvedTags, rules, memories, nil, nil)
+	}, resolvedTags, rules, nil, nil)
 	plans := s.makeContextPlans(ctx, payload.ProjectID, receiptID, false)
 
 	result.Status = "ok"
 	result.ResolvedTags = resolvedTags
 	result.RuleCount = len(rules)
-	result.MemoryCount = len(memories)
 	result.PlanCount = len(plans)
 	return result
 }

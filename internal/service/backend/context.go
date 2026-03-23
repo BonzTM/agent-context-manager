@@ -14,7 +14,7 @@ import (
 
 const (
 	contextVersion     = "backend.context.v1"
-	defaultMaxMemories = 6
+
 )
 
 func (s *Service) Context(ctx context.Context, payload v1.ContextPayload) (v1.ContextResult, *core.APIError) {
@@ -35,11 +35,8 @@ func (s *Service) Context(ctx context.Context, payload v1.ContextPayload) (v1.Co
 		return v1.ContextResult{}, internalError("load_canonical_rules", err)
 	}
 
-	var activeMemories []core.ActiveMemory
-
 	rules := makeContextRules(selectedRules)
-	memories := makeContextMemories(activeMemories)
-	resolvedTags := resolveTags(append(append([]string(nil), taskTags...), ruleTags...), activeMemories, tagNormalizer)
+	resolvedTags := resolveTags(append(append([]string(nil), taskTags...), ruleTags...), tagNormalizer)
 	initialScopePaths := normalizeCompletionPaths(payload.InitialScopePaths)
 
 	baselinePaths, baselineErr := s.captureWorkingTreeBaseline(ctx, projectRoot)
@@ -48,12 +45,11 @@ func (s *Service) Context(ctx context.Context, payload v1.ContextPayload) (v1.Co
 		baselinePaths = nil
 	}
 
-	receiptID := deterministicReceiptID(payload, resolvedTags, rules, memories, initialScopePaths, baselinePaths)
+	receiptID := deterministicReceiptID(payload, resolvedTags, rules, initialScopePaths, baselinePaths)
 	plans := s.makeContextPlans(ctx, payload.ProjectID, receiptID, false)
 
 	receipt := v1.ContextReceipt{
 		Rules:             rules,
-		Memories:          memories,
 		Plans:             plans,
 		InitialScopePaths: append([]string(nil), initialScopePaths...),
 		Meta: v1.ContextReceiptMeta{
@@ -73,7 +69,6 @@ func (s *Service) Context(ctx context.Context, payload v1.ContextPayload) (v1.Co
 		Phase:             strings.TrimSpace(string(payload.Phase)),
 		ResolvedTags:      append([]string(nil), resolvedTags...),
 		PointerKeys:       append([]string(nil), ruleKeys...),
-		MemoryIDs:         activeMemoryIDs(activeMemories),
 		InitialScopePaths: append([]string(nil), initialScopePaths...),
 		BaselineCaptured:  baselineCaptured,
 		BaselinePaths:     append([]core.SyncPath(nil), baselinePaths...),
@@ -122,41 +117,6 @@ func loadCanonicalContextRules(projectRoot, projectID string, tagNormalizer cano
 	return selected, normalizeValues(ruleKeys), mapKeysSorted(tagSet), nil
 }
 
-func (s *Service) fetchMemories(ctx context.Context, projectID string, tags []string, maxMemories int, unbounded bool) ([]core.ActiveMemory, error) {
-	if maxMemories <= 0 && !unbounded {
-		return nil, nil
-	}
-	memories, err := s.repo.FetchActiveMemories(ctx, core.ActiveMemoryQuery{
-		ProjectID: strings.TrimSpace(projectID),
-		Tags:      normalizeValues(tags),
-		Limit:     maxMemories,
-		Unbounded: unbounded,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if !unbounded && len(memories) > maxMemories {
-		memories = memories[:maxMemories]
-	}
-	return memories, nil
-}
-
-func activeMemoryIDs(memories []core.ActiveMemory) []int64 {
-	if len(memories) == 0 {
-		return nil
-	}
-	ids := make([]int64, 0, len(memories))
-	for _, memory := range memories {
-		if memory.ID <= 0 {
-			continue
-		}
-		ids = append(ids, memory.ID)
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	return ids
-}
 
 func makeContextRules(selected []core.CandidatePointer) []v1.ContextRule {
 	out := make([]v1.ContextRule, 0, len(selected))
@@ -216,16 +176,6 @@ func ruleEnforcementFromTags(tags []string) string {
 	return "required"
 }
 
-func makeContextMemories(memories []core.ActiveMemory) []v1.ContextMemory {
-	out := make([]v1.ContextMemory, 0, len(memories))
-	for _, memory := range memories {
-		out = append(out, v1.ContextMemory{
-			Key:     fmt.Sprintf("mem:%d", memory.ID),
-			Summary: memorySummary(memory),
-		})
-	}
-	return out
-}
 
 func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID string, unbounded bool) []v1.ContextPlan {
 	if s != nil && s.planRepo != nil {
@@ -281,20 +231,15 @@ func contextPlanFetchKeys(planKey string) []string {
 	return []string{normalizedPlanKey}
 }
 
-func resolveTags(pointerTags []string, memories []core.ActiveMemory, tagNormalizer canonicalTagNormalizer) []string {
-	resolved := make(map[string]struct{}, len(pointerTags)+len(memories))
+func resolveTags(pointerTags []string, tagNormalizer canonicalTagNormalizer) []string {
+	resolved := make(map[string]struct{}, len(pointerTags))
 	for _, tag := range tagNormalizer.normalizeTags(pointerTags) {
 		resolved[tag] = struct{}{}
-	}
-	for _, memory := range memories {
-		for _, tag := range tagNormalizer.normalizeTags(memory.Tags) {
-			resolved[tag] = struct{}{}
-		}
 	}
 	return mapKeysSorted(resolved)
 }
 
-func deterministicReceiptID(payload v1.ContextPayload, resolvedTags []string, rules []v1.ContextRule, memories []v1.ContextMemory, initialScopePaths []string, baselinePaths []core.SyncPath) string {
+func deterministicReceiptID(payload v1.ContextPayload, resolvedTags []string, rules []v1.ContextRule, initialScopePaths []string, baselinePaths []core.SyncPath) string {
 	var b strings.Builder
 	b.WriteString(contextVersion)
 	b.WriteString("\n")
@@ -319,13 +264,6 @@ func deterministicReceiptID(payload v1.ContextPayload, resolvedTags []string, ru
 		b.WriteString(rule.Enforcement)
 		b.WriteString("|")
 		b.WriteString(rule.Content)
-		b.WriteString("\n")
-	}
-	for _, memory := range memories {
-		b.WriteString("memory:")
-		b.WriteString(memory.Key)
-		b.WriteString("|")
-		b.WriteString(memory.Summary)
 		b.WriteString("\n")
 	}
 	for _, relativePath := range normalizeCompletionPaths(initialScopePaths) {
@@ -365,16 +303,6 @@ func pointerSummary(pointer core.CandidatePointer) string {
 	return description
 }
 
-func memorySummary(memory core.ActiveMemory) string {
-	summary := strings.TrimSpace(memory.Subject)
-	if summary == "" {
-		summary = strings.TrimSpace(memory.Content)
-	}
-	if summary == "" {
-		summary = fmt.Sprintf("Memory %d", memory.ID)
-	}
-	return summary
-}
 
 func mapKeysSorted(values map[string]struct{}) []string {
 	if len(values) == 0 {

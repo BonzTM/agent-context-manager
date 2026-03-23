@@ -39,7 +39,6 @@ func TestClaudeCommandPackTemplateMatchesSkillPack(t *testing.T) {
 		"bootstrap_templates/claude-command-pack/files/.claude/acm-broker/CLAUDE.md":    "../../skills/acm-broker/claude/CLAUDE.md",
 		"bootstrap_templates/claude-command-pack/files/.claude/acm-broker/README.md":    "../../skills/acm-broker/claude/README.md",
 		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-context.md": "../../skills/acm-broker/claude/commands/acm-context.md",
-		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-memory.md":  "../../skills/acm-broker/claude/commands/acm-memory.md",
 		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-done.md":    "../../skills/acm-broker/claude/commands/acm-done.md",
 		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-review.md":  "../../skills/acm-broker/claude/commands/acm-review.md",
 		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-verify.md":  "../../skills/acm-broker/claude/commands/acm-verify.md",
@@ -160,7 +159,6 @@ func TestRepoClaudeCommandPackMatchesSkillPack(t *testing.T) {
 		"../../.claude/acm-broker/CLAUDE.md":    "../../skills/acm-broker/claude/CLAUDE.md",
 		"../../.claude/acm-broker/README.md":    "../../skills/acm-broker/claude/README.md",
 		"../../.claude/commands/acm-context.md": "../../skills/acm-broker/claude/commands/acm-context.md",
-		"../../.claude/commands/acm-memory.md":  "../../skills/acm-broker/claude/commands/acm-memory.md",
 		"../../.claude/commands/acm-done.md":    "../../skills/acm-broker/claude/commands/acm-done.md",
 		"../../.claude/commands/acm-review.md":  "../../skills/acm-broker/claude/commands/acm-review.md",
 		"../../.claude/commands/acm-verify.md":  "../../skills/acm-broker/claude/commands/acm-verify.md",
@@ -234,24 +232,6 @@ func TestRepoOpenCodeCompanionMatchesSkillPack(t *testing.T) {
 	}
 }
 
-func TestClaudeCommandPackMemoryPromptRequiresEvidenceInputs(t *testing.T) {
-	t.Parallel()
-
-	raw, err := initTemplateFS.ReadFile("bootstrap_templates/claude-command-pack/files/.claude/commands/acm-memory.md")
-	if err != nil {
-		t.Fatalf("read embedded memory command: %v", err)
-	}
-	content := string(raw)
-	for _, required := range []string{`"evidence_keys"`, "--evidence-key", "outside effective scope"} {
-		if !strings.Contains(content, required) {
-			t.Fatalf("memory command prompt is missing snippet %q", required)
-		}
-	}
-	if strings.Contains(content, "outside receipt scope") {
-		t.Fatalf("memory command prompt must not retain receipt-scope wording")
-	}
-}
-
 func TestClaudeHooksReceiptMarkHookCoversContextJSONFlow(t *testing.T) {
 	t.Parallel()
 
@@ -282,34 +262,6 @@ func TestClaudeHooksReceiptMarkHookCoversContextJSONFlow(t *testing.T) {
 	for _, forbidden := range []string{"get_context", "report_completion", "report-completion"} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("receipt mark hook must not retain legacy command snippet %q", forbidden)
-		}
-	}
-}
-
-func TestClaudeMemoryCommandRequiresStructuredEvidenceKeys(t *testing.T) {
-	t.Parallel()
-
-	raw, err := initTemplateFS.ReadFile("bootstrap_templates/claude-command-pack/files/.claude/commands/acm-memory.md")
-	if err != nil {
-		t.Fatalf("read memory command asset: %v", err)
-	}
-	content := string(raw)
-	requiredSnippets := []string{
-		`"evidence_keys"`,
-		"--evidence-key",
-		"exact fetched keys",
-	}
-	for _, snippet := range requiredSnippets {
-		if !strings.Contains(content, snippet) {
-			t.Fatalf("memory command asset is missing snippet %q", snippet)
-		}
-	}
-	for _, forbidden := range []string{
-		"outside receipt scope",
-		"<receipt_id> <category> <subject> <content>",
-	} {
-		if strings.Contains(content, forbidden) {
-			t.Fatalf("memory command asset must not retain stale guidance snippet %q", forbidden)
 		}
 	}
 }
@@ -356,7 +308,6 @@ func TestClaudeProcessHooksTrackWorkflowState(t *testing.T) {
 			"AGENTS.md",
 			"/acm-context",
 			"/acm-done",
-			"/acm-memory",
 		},
 		"bootstrap_templates/claude-hooks/files/.claude/hooks/acm-stop-guard.sh": {
 			`"Stop"`,
@@ -591,7 +542,6 @@ func TestCodexCompanionCoversPrimaryWorkflowWithoutFakeClaudeParity(t *testing.T
 		"`acm work`",
 		"`acm verify`",
 		"`acm done`",
-		"`acm memory`",
 	} {
 		if !strings.Contains(content, snippet) {
 			t.Fatalf("Codex companion is missing snippet %q", snippet)
@@ -617,7 +567,6 @@ func TestCodexCompanionExampleTreatsCodexAsPrimaryOperator(t *testing.T) {
 		"acm context",
 		"acm verify",
 		"acm done",
-		"acm memory",
 		"work.plan.discovered_paths",
 	} {
 		if !strings.Contains(content, snippet) {
@@ -643,7 +592,6 @@ func TestOpenCodeCompanionCoversPrimaryWorkflowWithoutInventedGlobalHooks(t *tes
 		"`acm work`",
 		"`acm verify`",
 		"`acm done`",
-		"`acm memory`",
 		"documentation only",
 	} {
 		if !strings.Contains(content, snippet) {
@@ -670,7 +618,6 @@ func TestOpenCodeCompanionExampleTreatsOpenCodeAsPrimaryOperator(t *testing.T) {
 		"acm context",
 		"acm verify",
 		"acm done",
-		"acm memory",
 		"work.plan.discovered_paths",
 		".opencode/acm-broker/",
 	} {

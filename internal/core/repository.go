@@ -10,7 +10,6 @@ var (
 	ErrReceiptScopeNotFound  = errors.New("receipt scope not found")
 	ErrFetchLookupNotFound   = errors.New("fetch lookup not found")
 	ErrPointerLookupNotFound = errors.New("pointer lookup not found")
-	ErrMemoryLookupNotFound  = errors.New("memory lookup not found")
 	ErrWorkPlanNotFound      = errors.New("work plan not found")
 )
 
@@ -55,25 +54,6 @@ type CandidatePointer struct {
 	UpdatedAt   time.Time
 }
 
-type ActiveMemoryQuery struct {
-	ProjectID   string
-	PointerKeys []string
-	Tags        []string
-	Limit       int
-	Unbounded   bool
-}
-
-type ActiveMemory struct {
-	ID                 int64
-	Category           string
-	Subject            string
-	Content            string
-	Confidence         int
-	Tags               []string
-	RelatedPointerKeys []string
-	UpdatedAt          time.Time
-}
-
 type PointerInventory struct {
 	Path    string
 	IsStale bool
@@ -97,7 +77,6 @@ type RunReceiptSummary struct {
 	Status                 string
 	ResolvedTags           []string
 	PointerKeys            []string
-	MemoryIDs              []int64
 	FilesChanged           []string
 	DefinitionOfDoneIssues []string
 	Outcome                string
@@ -120,7 +99,6 @@ type ReceiptScope struct {
 	Phase             string
 	ResolvedTags      []string
 	PointerKeys       []string
-	MemoryIDs         []int64
 	InitialScopePaths []string
 	BaselineCaptured  bool
 	BaselinePaths     []SyncPath
@@ -134,11 +112,6 @@ type FetchLookupQuery struct {
 type PointerLookupQuery struct {
 	ProjectID  string
 	PointerKey string
-}
-
-type MemoryLookupQuery struct {
-	ProjectID string
-	MemoryID  int64
 }
 
 type WorkItem struct {
@@ -164,35 +137,6 @@ type FetchLookup struct {
 	PlanStatus string
 	WorkItems  []WorkItem
 	UpdatedAt  time.Time
-}
-
-type MemoryValidation struct {
-	HardPassed bool
-	SoftPassed bool
-	Errors     []string
-	Warnings   []string
-}
-
-type MemoryPersistence struct {
-	ProjectID           string
-	ReceiptID           string
-	Category            string
-	Subject             string
-	Content             string
-	Confidence          int
-	Tags                []string
-	RelatedPointerKeys  []string
-	EvidencePointerKeys []string
-	DedupeKey           string
-	Validation          MemoryValidation
-	AutoPromote         bool
-	Promotable          bool
-}
-
-type MemoryPersistenceResult struct {
-	CandidateID      int64
-	Status           string
-	PromotedMemoryID int64
 }
 
 type SyncPath struct {
@@ -349,22 +293,6 @@ type ReceiptHistorySummary struct {
 	UpdatedAt       time.Time
 }
 
-type MemoryHistoryListQuery struct {
-	ProjectID string
-	Query     string
-	Limit     int
-	Unbounded bool
-}
-
-type MemoryHistorySummary struct {
-	MemoryID   int64
-	Category   string
-	Subject    string
-	Content    string
-	Confidence int
-	UpdatedAt  time.Time
-}
-
 type RunHistoryListQuery struct {
 	ProjectID string
 	Query     string
@@ -453,15 +381,12 @@ type VerificationTestRun struct {
 
 type Repository interface {
 	FetchCandidatePointers(context.Context, CandidatePointerQuery) ([]CandidatePointer, error)
-	FetchActiveMemories(context.Context, ActiveMemoryQuery) ([]ActiveMemory, error)
 	ListPointerInventory(context.Context, string) ([]PointerInventory, error)
 	UpsertPointerStubs(context.Context, string, []PointerStub) (int, error)
 	UpsertReceiptScope(context.Context, ReceiptScope) error
 	FetchReceiptScope(context.Context, ReceiptScopeQuery) (ReceiptScope, error)
 	LookupFetchState(context.Context, FetchLookupQuery) (FetchLookup, error)
 	LookupPointerByKey(context.Context, PointerLookupQuery) (CandidatePointer, error)
-	LookupMemoryByID(context.Context, MemoryLookupQuery) (ActiveMemory, error)
-	PersistMemory(context.Context, MemoryPersistence) (MemoryPersistenceResult, error)
 	SaveRunReceiptSummary(context.Context, RunReceiptSummary) (RunReceiptIDs, error)
 	SaveReviewAttempt(context.Context, ReviewAttempt) (int64, error)
 	ListReviewAttempts(context.Context, ReviewAttemptListQuery) ([]ReviewAttempt, error)
@@ -480,7 +405,6 @@ type WorkPlanRepository interface {
 }
 
 type HistoryRepository interface {
-	ListMemoryHistory(context.Context, MemoryHistoryListQuery) ([]MemoryHistorySummary, error)
 	ListReceiptHistory(context.Context, ReceiptHistoryListQuery) ([]ReceiptHistorySummary, error)
 	ListRunHistory(context.Context, RunHistoryListQuery) ([]RunHistorySummary, error)
 	LookupRunHistory(context.Context, RunHistoryLookupQuery) (RunHistorySummary, error)

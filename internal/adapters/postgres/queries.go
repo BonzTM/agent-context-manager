@@ -12,7 +12,6 @@ import (
 
 const (
 	defaultCandidateLimit = 32
-	defaultMemoryLimit    = 16
 	maxQueryLimit         = 512
 	defaultPhase          = "execute"
 
@@ -77,61 +76,6 @@ WHERE p.project_id = `)
 
 	sb.WriteString(`
 ORDER BY p.pointer_key ASC`)
-
-	return sb.String(), args.values, nil
-}
-
-func buildActiveMemoriesQuery(input core.ActiveMemoryQuery) (string, []any, error) {
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return "", nil, fmt.Errorf("project_id is required")
-	}
-
-	pointerKeys := normalizeStringList(input.PointerKeys)
-	tags := normalizeStringList(input.Tags)
-	limit := normalizeLimit(input.Limit, defaultMemoryLimit)
-
-	args := &sqlArgs{}
-	projectIDArg := args.add(projectID)
-
-	filters := []string{"m.active = TRUE"}
-	matchers := make([]string, 0, 2)
-	if len(pointerKeys) > 0 {
-		pointerKeysArg := args.add(pointerKeys)
-		matchers = append(matchers, fmt.Sprintf("m.related_pointer_keys && %s::text[]", pointerKeysArg))
-	}
-	if len(tags) > 0 {
-		tagsArg := args.add(tags)
-		matchers = append(matchers, fmt.Sprintf("m.tags && %s::text[]", tagsArg))
-	}
-	if len(matchers) > 0 {
-		filters = append(filters, "("+strings.Join(matchers, " OR ")+")")
-	}
-
-	var sb strings.Builder
-	sb.WriteString(`
-SELECT
-	m.memory_id,
-	m.category,
-	m.subject,
-	m.content,
-	m.confidence,
-	m.tags,
-	m.related_pointer_keys,
-	m.updated_at
-FROM acm_memories m
-WHERE m.project_id = `)
-	sb.WriteString(projectIDArg)
-	sb.WriteString(" AND ")
-	sb.WriteString(strings.Join(filters, " AND "))
-	sb.WriteString(`
-ORDER BY m.confidence DESC, m.updated_at DESC, m.memory_id ASC
-`)
-	if !input.Unbounded {
-		limitArg := args.add(limit)
-		sb.WriteString("LIMIT ")
-		sb.WriteString(limitArg)
-	}
 
 	return sb.String(), args.values, nil
 }
@@ -221,31 +165,6 @@ WHERE project_id = $1
 `, []any{projectID, pointerKey}, nil
 }
 
-func buildLookupMemoryByIDQuery(input core.MemoryLookupQuery) (string, []any, error) {
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return "", nil, fmt.Errorf("project_id is required")
-	}
-	if input.MemoryID <= 0 {
-		return "", nil, fmt.Errorf("memory_id must be positive")
-	}
-
-	return `
-SELECT
-	memory_id,
-	category,
-	subject,
-	content,
-	confidence,
-	tags,
-	related_pointer_keys,
-	updated_at
-FROM acm_memories
-WHERE project_id = $1
-	AND memory_id = $2
-`, []any{projectID, input.MemoryID}, nil
-}
-
 func buildListWorkItemsQuery(input core.FetchLookupQuery) (string, []any, error) {
 	projectID := strings.TrimSpace(input.ProjectID)
 	if projectID == "" {
@@ -324,163 +243,6 @@ SET
 `
 
 	return query, args.values, nil
-}
-
-func buildInsertMemoryCandidateQuery(input core.MemoryPersistence, status string) (string, []any, error) {
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return "", nil, fmt.Errorf("project_id is required")
-	}
-	receiptID := strings.TrimSpace(input.ReceiptID)
-	if receiptID == "" {
-		return "", nil, fmt.Errorf("receipt_id is required")
-	}
-
-	status = strings.TrimSpace(status)
-	if !isValidCandidateStatus(status) {
-		return "", nil, fmt.Errorf("candidate status is invalid")
-	}
-
-	category := strings.TrimSpace(input.Category)
-	if category == "" {
-		return "", nil, fmt.Errorf("category is required")
-	}
-	subject := strings.TrimSpace(input.Subject)
-	if subject == "" {
-		return "", nil, fmt.Errorf("subject is required")
-	}
-	content := strings.TrimSpace(input.Content)
-	if content == "" {
-		return "", nil, fmt.Errorf("content is required")
-	}
-	if input.Confidence < 1 || input.Confidence > 5 {
-		return "", nil, fmt.Errorf("confidence must be 1..5")
-	}
-
-	evidencePointerKeys := normalizeStringList(input.EvidencePointerKeys)
-	if len(evidencePointerKeys) == 0 {
-		return "", nil, fmt.Errorf("evidence_pointer_keys is required")
-	}
-	dedupeKey := strings.TrimSpace(input.DedupeKey)
-	if dedupeKey == "" {
-		return "", nil, fmt.Errorf("dedupe_key is required")
-	}
-
-	return `
-INSERT INTO acm_memory_candidates (
-	project_id,
-	receipt_id,
-	category,
-	subject,
-	content,
-	confidence,
-	tags,
-	related_pointer_keys,
-	evidence_pointer_keys,
-	dedupe_key,
-	status,
-	hard_passed,
-	soft_passed,
-	validation_errors,
-	validation_warnings,
-	auto_promote,
-	promotable
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-RETURNING candidate_id
-`, []any{
-			projectID,
-			receiptID,
-			category,
-			subject,
-			content,
-			input.Confidence,
-			nonNilStringList(normalizeStringList(input.Tags)),
-			nonNilStringList(normalizeStringList(input.RelatedPointerKeys)),
-			evidencePointerKeys,
-			dedupeKey,
-			status,
-			input.Validation.HardPassed,
-			input.Validation.SoftPassed,
-			nonNilStringList(normalizeStringList(input.Validation.Errors)),
-			nonNilStringList(normalizeStringList(input.Validation.Warnings)),
-			input.AutoPromote,
-			input.Promotable,
-		}, nil
-}
-
-func buildInsertDurableMemoryQuery(input core.MemoryPersistence) (string, []any, error) {
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return "", nil, fmt.Errorf("project_id is required")
-	}
-	category := strings.TrimSpace(input.Category)
-	if category == "" {
-		return "", nil, fmt.Errorf("category is required")
-	}
-	subject := strings.TrimSpace(input.Subject)
-	if subject == "" {
-		return "", nil, fmt.Errorf("subject is required")
-	}
-	content := strings.TrimSpace(input.Content)
-	if content == "" {
-		return "", nil, fmt.Errorf("content is required")
-	}
-	if input.Confidence < 1 || input.Confidence > 5 {
-		return "", nil, fmt.Errorf("confidence must be 1..5")
-	}
-	evidencePointerKeys := normalizeStringList(input.EvidencePointerKeys)
-	if len(evidencePointerKeys) == 0 {
-		return "", nil, fmt.Errorf("evidence_pointer_keys is required")
-	}
-	dedupeKey := strings.TrimSpace(input.DedupeKey)
-	if dedupeKey == "" {
-		return "", nil, fmt.Errorf("dedupe_key is required")
-	}
-
-	return `
-INSERT INTO acm_memories (
-	project_id,
-	category,
-	subject,
-	content,
-	confidence,
-	tags,
-	related_pointer_keys,
-	evidence_pointer_keys,
-	dedupe_key
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT DO NOTHING
-RETURNING memory_id
-`, []any{
-			projectID,
-			category,
-			subject,
-			content,
-			input.Confidence,
-			nonNilStringList(normalizeStringList(input.Tags)),
-			nonNilStringList(normalizeStringList(input.RelatedPointerKeys)),
-			evidencePointerKeys,
-			dedupeKey,
-		}, nil
-}
-
-func buildUpdateMemoryCandidateStatusQuery(candidateID int64, status string, promotedMemoryID int64) (string, []any, error) {
-	if candidateID <= 0 {
-		return "", nil, fmt.Errorf("candidate_id must be positive")
-	}
-	status = strings.TrimSpace(status)
-	if !isValidCandidateStatus(status) {
-		return "", nil, fmt.Errorf("candidate status is invalid")
-	}
-
-	return `
-UPDATE acm_memory_candidates
-SET
-	status = $2,
-	promoted_memory_id = CASE WHEN $3::bigint > 0 THEN $3 ELSE NULL END,
-	updated_at = NOW()
-WHERE candidate_id = $1
-`, []any{candidateID, status, promotedMemoryID}, nil
 }
 
 func buildMarkDeletedPointersStaleQuery(projectID string, deletedPaths []string) (string, []any, error) {
