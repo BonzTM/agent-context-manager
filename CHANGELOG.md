@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-03-23
+
+Post-release cleanup: completes memory surface removal, improves Claude/Codex hooks, adds architecture diagrams, and hardens docs and init templates.
+
+### Added
+
+- Architecture diagrams — Excalidraw source files and PNG exports for layer and flow diagrams (`docs/architecture/`)
+- `docs/maintainer-reference.md` — architecture diagram pointers
+- `codex-hooks` init template — Codex-compatible hooks with receipt guard, session-context injection, prompt guard, and stop guard (`.codex/hooks/`)
+- Schema file parity tests (`schema_files_test.go`) and web embed tests (`embed_test.go`)
+
+### Changed
+
+- Claude hooks (`acm-receipt-guard.sh`, `acm-session-context.sh`, `acm-stop-guard.sh`) — improved error handling and robustness
+- `AGENTS.md` and `CLAUDE.md` — updated for post-memory workflow; AMM integration notes added
+- Init templates (`starter-contract`, `detailed-planning-enforcement`) — updated `AGENTS.md`, `CLAUDE.md`, and `acm-rules.yaml` to reflect memory removal and hook improvements
+- Skill-pack docs (`SKILL.md`, Claude/Codex/OpenCode READMEs) — AMM migration notes added
+- `acm health` — `unknown_tags` check now only inspects pointer tags; stale memory tag references removed from canonical tags
+- `acm fetch` — cleaned up dead memory-key code paths
+- `spec/v1/README.md` — updated tool count and surface descriptions
+- Web dashboard — removed Memories nav link from all pages; removed memory-related CSS and JS
+
+### Removed
+
+- `web/memories.html` — Memories page fully removed from web dashboard
+- `spec/v1/shared.schema.json` — remaining memory-era schema definitions removed
+- `spec/v1/cli.result.schema.json` — remaining memory result definitions removed
+- `skills/acm-broker/assets/requests/mcp_memory.json` and `memory.json` — request templates removed
+- `canonical_tags.json` — `memory` tag removed from embedded tag dictionary
+
+See [docs/release-notes/RELEASE_NOTES_1.1.1.md](docs/release-notes/RELEASE_NOTES_1.1.1.md) for the full release notes.
+
 ## [1.1.0] - 2026-03-23
 
 Memory subsystem removed in favor of [Agent Memory Manager (AMM)](https://github.com/bonztm/agent-memory-manager).
@@ -60,5 +92,6 @@ Initial public release of acm (agent-context-manager).
 
 See [docs/release-notes/RELEASE_NOTES_1.0.0.md](docs/release-notes/RELEASE_NOTES_1.0.0.md) for the full release notes.
 
-[1.1.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.1.0
-[1.0.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.0.0
+[1.1.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.1.1
+[1.1.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.1.0
+[1.0.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.0.0

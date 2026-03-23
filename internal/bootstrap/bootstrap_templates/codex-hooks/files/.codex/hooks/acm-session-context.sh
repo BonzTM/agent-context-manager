@@ -20,7 +20,7 @@ MESSAGE=""
 append_line "Repo contract reminder: read AGENTS.md first. The repo-root AGENTS.md stays authoritative over Codex companion files."
 append_line "Before implementation or debugging work, start with acm context for the current task so ACM can return the active rules, memories, and plan state."
 append_line "When work becomes multi-step or governed scope expands, update acm work and declare plan.discovered_paths before expecting review or done to pass."
-append_line "Before closing verify-sensitive work, run acm verify, then acm review --run when the workflow requires it, then acm done. Save reusable decisions with acm memory."
+append_line "Before closing verify-sensitive work, run acm verify, then acm review --run when the workflow requires it, then acm done."
 
 if has_state change_prompt_seen && ! has_state done_prompt_seen; then
   append_line "This session has seen implementation-style prompts without an explicit acm done closeout marker yet."

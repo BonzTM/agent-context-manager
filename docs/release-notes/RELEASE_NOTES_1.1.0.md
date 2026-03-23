@@ -111,5 +111,5 @@ go install github.com/bonztm/agent-context-manager/cmd/acm-web@v1.1.0
 
 ## Full Changelog
 
-- Compare changes: https://github.com/BonzTM/agent-context-manager/compare/v1.0.0...v1.1.0
-- Full changelog: https://github.com/BonzTM/agent-context-manager/commits/v1.1.0
+- Compare changes: https://github.com/BonzTM/agent-context-manager/compare/1.0.0...1.1.0
+- Full changelog: https://github.com/BonzTM/agent-context-manager/commits/1.1.0

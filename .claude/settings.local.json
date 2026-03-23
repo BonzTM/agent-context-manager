@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__amm__amm_remember"
+    ]
+  }
+}
