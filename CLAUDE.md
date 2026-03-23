@@ -4,7 +4,7 @@ Everything in `AGENTS.md` applies. This file only adds Claude-specific mappings.
 
 ## Slash-Command Workflow
 
-The ACM task loop from `AGENTS.md` maps to these slash commands:
+For non-trivial work sessions (multi-step, multi-file, or governed), the ACM task loop from `AGENTS.md` maps to these slash commands:
 
 | AGENTS.md step | Claude command |
 |---|---|
@@ -15,6 +15,14 @@ The ACM task loop from `AGENTS.md` maps to these slash commands:
 | `acm done` | `/acm-done` |
 
 Direct CLI (`acm sync`, `acm health`, `acm history`, `acm status`) has no slash-command wrappers — call those directly.
+
+## Memory (AMM)
+
+AMM is available via MCP tools in this session. Use it per `AGENTS.md` § Memory:
+
+- `amm_recall` — check for relevant prior knowledge at task start or decision points.
+- `amm_remember` — commit stable decisions or lessons learned.
+- `amm_expand` — expand thin recall items when you need more detail.
 
 ## Claude-Only Notes
 

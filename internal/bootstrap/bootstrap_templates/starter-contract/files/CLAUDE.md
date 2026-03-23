@@ -10,6 +10,8 @@ Claude companion for a repo whose primary contract is `AGENTS.md`.
 
 ## Claude Workflow
 
+For non-trivial work (multi-step, multi-file, or governed), follow this loop. Trivial single-file fixes can skip the ACM ceremony.
+
 1. Start with `/acm-context ...`.
 2. Read the returned hard rules before touching files.
 3. Use `/acm-work ...` when the task is multi-step, spans multiple files, or needs durable state.

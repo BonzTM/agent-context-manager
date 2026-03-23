@@ -42,6 +42,8 @@ OpenCode can drive the same ACM workflow directly:
 5. `acm review` when a workflow gate needs one review record or runnable signoff gate
 6. `acm done`
 
+If the repo also uses [AMM](https://github.com/bonztm/agent-memory-manager), use AMM for durable memory.
+
 Quick walkthrough:
 
 1. Install the companion docs with `--opencode`, or seed them during `acm init` with `opencode-pack`.

@@ -5,8 +5,8 @@
 version: acm.rules.v1
 rules:
   - id: rule_startup_context
-    summary: Start every task with context.
-    content: Retrieve context before reading or editing repo files, then follow every hard rule returned in the receipt.
+    summary: Start non-trivial work with context.
+    content: For multi-step, multi-file, or governed work, retrieve context before editing repo files, then follow every hard rule returned in the receipt. Trivial single-file fixes can skip the ACM ceremony.
     enforcement: hard
     tags: [startup, context]
 
@@ -40,11 +40,11 @@ rules:
     enforcement: hard
     tags: [completion, audit]
 
-  - id: rule_capture_durable_memory
-    summary: Persist reusable decisions and gotchas with memory.
-    content: Record stable architectural decisions, recurring setup pitfalls, or operator preferences when future tasks would benefit from retrieving them automatically.
+  - id: rule_capture_durable_decisions
+    summary: Persist stable architectural decisions for future reference.
+    content: Record durable decisions, recurring setup pitfalls, or operator preferences when future tasks would benefit from retrieving them automatically.
     enforcement: soft
-    tags: [memory, learning]
+    tags: [architecture, learning]
 
   - id: rule_escalate_missing_decisions
     summary: Escalate when a task depends on a missing product or architectural decision.

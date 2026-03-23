@@ -1,10 +1,11 @@
 version: acm.rules.v1
 rules:
   - id: rule_start_with_context
-    summary: Start each task with context and fetch only what is needed.
+    summary: Start non-trivial work with context and fetch only what is needed.
     content: >-
-      Run `acm context` first, then fetch specific keys for the current step
-      instead of broad retrieval.
+      For multi-step, multi-file, or governed work, run `acm context` first,
+      then fetch specific keys for the current step instead of broad retrieval.
+      Trivial single-file fixes can skip the ACM ceremony.
     enforcement: hard
     tags: [context, workflow]
 

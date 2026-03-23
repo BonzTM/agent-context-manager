@@ -218,7 +218,7 @@ Minimal walkthrough:
 3. In OpenCode, start real work with `acm context --project <id> --task-text "..." --phase plan|execute|review`.
 4. For multi-step work, persist plan/task state with `acm work` and declare `plan.discovered_paths` when governed scope expands.
 5. Before closing, run `acm verify`, then `acm review --run` when the workflow requires it, then `acm done`.
-6. If the task produced a reusable decision or pitfall, save it with [Agent Memory Manager (AMM)](https://github.com/bonztm/agent-memory-manager).
+6. If the task produced a reusable decision or pitfall, record it for future reference.
 
 For already isolated hosts such as devcontainers, LXC containers, or similar outer sandboxes, prefer repo workflow review argv that use `--yolo` on `scripts/acm-cross-review.sh`. That keeps the review runner from fighting a second nested sandbox while still preserving the outer isolation boundary.
 

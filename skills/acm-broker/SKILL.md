@@ -7,6 +7,8 @@ description: Use the agent-context-manager broker (CLI or MCP) to load repo-owne
 
 Use this skill when a task needs repo-owned agent state, hard rule compliance, durable planning, or deterministic completion reporting through `agent-context-manager`.
 
+If the repo also uses [Agent Memory Manager (AMM)](https://github.com/bonztm/agent-memory-manager), use AMM for durable memory.
+
 ## Required Flow
 
 1. Call `context` first.

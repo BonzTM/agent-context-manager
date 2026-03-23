@@ -46,6 +46,8 @@ Codex can drive the full ACM workflow directly:
 5. `acm review` when a workflow gate needs one review record or runnable signoff gate
 6. `acm done`
 
+If the repo also uses [AMM](https://github.com/bonztm/agent-memory-manager), use AMM for durable memory.
+
 Keep the command boundary explicit:
 
 - `verify` answers "which repo-defined checks apply to this task and current diff?"

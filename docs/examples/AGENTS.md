@@ -11,16 +11,16 @@ Keep this file as the fast path, then move heavier architecture, checklist, or t
 - Keep canonical completion workflow gates in `.acm/acm-workflows.yaml` (preferred) or `acm-workflows.yaml`.
 - If tool-specific instructions conflict with this file, this file wins unless a human explicitly says otherwise.
 
-## Required Task Loop
+## Task Loop
 
 1. Read this file and the human task.
-2. Run `acm context` before opening or editing project files.
+2. For non-trivial work (multi-step, multi-file, or governed), run `acm context` to get a scoped receipt. Trivial single-file fixes can skip this.
 3. Follow all hard rules returned in the receipt.
 4. Use `fetch` only for the pointers, plans, and task keys needed for the current step.
 5. When a task spans multiple steps, multiple files, or a likely handoff, create or update `work`.
 6. If code, config, schema, or other executable behavior changes, run `verify` before `done`.
 7. If `.acm/acm-workflows.yaml` requires review task keys such as `review:cross-llm`, prefer `review --run` when the task defines a `run` block; otherwise use manual `review` fields or `work` before `done`.
-8. End every task with `done`, including every changed file for file-backed work when you know them, or letting ACM derive the task delta from the receipt baseline. When that detected delta is empty, the closeout is effectively no-file.
+8. End non-trivial tasks with `done`, including every changed file for file-backed work when you know them, or letting ACM derive the task delta from the receipt baseline. When that detected delta is empty, the closeout is effectively no-file.
    Built-in governance files such as repo-root `AGENTS.md`, `CLAUDE.md`, and canonical `.acm/**` contract files are already treated as managed completion scope.
 When the task changes rules, tags, tests, workflows, onboarding, or tool-surface behavior, refresh broker state with `acm sync --mode working_tree --insert-new-candidates` and then run `acm health --include-details` before `done`.
 
@@ -34,6 +34,7 @@ If you need to debug project setup, loaded ACM files, integrations, or what `con
 - Do not invent product requirements, compatibility guarantees, or migration behavior when the repo does not define them.
 - If verification fails, either fix the issue or report the failure clearly. Do not claim the task is complete as if checks passed.
 - Keep work state current when you pause, hand off, or hit a blocker.
+- If the repo also uses AMM, use AMM for durable memory.
 
 ## When To Use work
 

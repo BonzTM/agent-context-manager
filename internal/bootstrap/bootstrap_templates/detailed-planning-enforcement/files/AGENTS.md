@@ -11,17 +11,17 @@ Keep this file as the fast path, then move heavier architecture, checklist, or t
 - Keep canonical completion workflow gates in `.acm/acm-workflows.yaml` (preferred) or `acm-workflows.yaml`.
 - If tool-specific instructions conflict with this file, this file wins unless a human explicitly says otherwise.
 
-## Required Task Loop
+## Task Loop
 
 1. Read this file and the human task.
-2. Run `acm context` before opening or editing project files.
+2. For non-trivial work (multi-step, multi-file, or governed), run `acm context` to get a scoped receipt. Trivial single-file fixes can skip this.
 3. Follow all hard rules returned in the receipt.
 4. Use `fetch` only for the pointers, plans, and task keys needed for the current step.
 5. When a task spans multiple steps, multiple files, or a likely handoff, create or update `work`.
 6. For net-new feature work or large capability expansions, create the repo's detailed feature plan before implementation.
 7. If code, config, schema, or other executable behavior changes, run `verify` before `done`.
 8. If `.acm/acm-workflows.yaml` requires review task keys such as `review:cross-llm`, prefer `review --run` when the task defines a `run` block; otherwise use manual `review` fields or `work` before `done`.
-9. End every task with `done`, including every changed file for file-backed work when you know them, or letting ACM derive the task delta from the receipt baseline. When that detected delta is empty, the closeout is effectively no-file.
+9. End non-trivial tasks with `done`, including every changed file for file-backed work when you know them, or letting ACM derive the task delta from the receipt baseline. When that detected delta is empty, the closeout is effectively no-file.
 When the task changes rules, tags, tests, workflows, onboarding, or tool-surface behavior, refresh broker state with `acm sync --mode working_tree --insert-new-candidates` and then run `acm health --include-details` before `done`.
 
 If you need to resume after compaction or inspect archived work, use direct CLI `acm history` with `--entity work` for plan/task discovery or another entity for receipts and runs, then `acm fetch` the returned `fetch_keys`.

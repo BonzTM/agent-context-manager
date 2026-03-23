@@ -22,12 +22,12 @@ Read this file first, then use the linked maintainer docs when you need slower-p
 
 1. Read this file. If Claude, also read `CLAUDE.md`.
 2. If you need orientation before reading code, run `acm status --project agent-context-manager --task-text "<task>" --phase <plan|execute|review>`.
-3. Run `acm context --project agent-context-manager --task-text "<task>" --phase <plan|execute|review>`.
+3. For non-trivial work (multi-step, multi-file, or governed), run `acm context --project agent-context-manager --task-text "<task>" --phase <plan|execute|review>`. Trivial single-file fixes can skip the ACM ceremony.
 4. Follow the returned hard rules. Use `acm fetch` only for keys you need.
 5. Run `acm work` for multi-step, multi-file, handoff-prone, or governed-scope-expanding work.
 6. Run `acm verify` for code, config, contract, onboarding, or behavior changes.
 7. Run `acm review --run` when `.acm/acm-workflows.yaml` requires a runnable review gate.
-8. Run `acm done`.
+8. Run `acm done` for non-trivial work.
 
 If `acm` is not on `PATH`, bootstrap the toolchain before continuing:
 
@@ -70,6 +70,14 @@ When changing rules, tags, tests, workflows, onboarding, or tool-surface behavio
 | Review, verify, done, or workflow gates | `.acm/acm-workflows.yaml`, `internal/service/backend/{review,verify,completion,work}.go` | repo-local scripts, docs, examples, skill-pack assets | [docs/maintainer-map.md](docs/maintainer-map.md) |
 | Init, sync, health, onboarding, or templates | `internal/bootstrap/`, `README.md`, `docs/getting-started.md` | `docs/examples/*`, template files, `skills/acm-broker/**` | [docs/maintainer-map.md](docs/maintainer-map.md) |
 | Feature-planning contract | `docs/feature-plans.md`, `.acm/acm-tests.yaml`, `scripts/acm-feature-plan-validate.py` | maintainer docs, examples, workflow guidance | [docs/maintainer-map.md](docs/maintainer-map.md) |
+
+## Memory (AMM)
+
+This repo uses [Agent Memory Manager (AMM)](https://github.com/bonztm/agent-memory-manager) for durable memory. AMM is installed globally and available via MCP tools (`amm_recall`, `amm_remember`, `amm_expand`) and CLI (`amm`).
+
+- Use `amm_recall` at task start or when prior context would help a decision.
+- Use `amm_remember` to commit stable decisions, preferences, or constraints that should survive this session.
+- Do not use AMM for transient task state — that belongs in ACM `work` plans.
 
 ## Working Norms
 
