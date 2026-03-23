@@ -35,10 +35,7 @@ func (s *Service) Context(ctx context.Context, payload v1.ContextPayload) (v1.Co
 		return v1.ContextResult{}, internalError("load_canonical_rules", err)
 	}
 
-	activeMemories, err := s.fetchMemories(ctx, payload.ProjectID, taskTags, defaultMaxMemories, false)
-	if err != nil {
-		return v1.ContextResult{}, internalError("fetch_active_memories", err)
-	}
+	var activeMemories []core.ActiveMemory
 
 	rules := makeContextRules(selectedRules)
 	memories := makeContextMemories(activeMemories)

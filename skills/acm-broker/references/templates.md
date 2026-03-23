@@ -4,7 +4,7 @@
 
 These examples assume installed `acm` and `acm-mcp` binaries are available on `PATH`.
 Example payloads show explicit `project_id` values for clarity. In live usage you may omit `project_id` when `ACM_PROJECT_ID` is set or acm can infer the project from the effective repo root.
-For Codex-first repo setup, the installed skill also ships `codex/README.md` and `codex/AGENTS.example.md`, and `acm init --apply-template codex-pack` seeds repo-local copies under `.codex/acm-broker/`.
+For Codex-first repo setup, the installed skill also ships `codex/README.md` and `codex/AGENTS.example.md`, `acm init --apply-template codex-pack` seeds repo-local companion copies under `.codex/acm-broker/`, and `acm init --apply-template codex-hooks` can additionally seed the current experimental Codex hook layer under `.codex/`.
 For OpenCode-first repo setup, `scripts/install-skill-pack.sh --opencode` or `acm init --apply-template opencode-pack` seeds repo-local companion docs under `.opencode/acm-broker/`.
 
 1. Run `acm context`.

@@ -1,0 +1,26 @@
+version: acm.init-template.v1
+id: codex-hooks
+summary: Seed experimental Codex hooks that reinforce the ACM task loop.
+operations:
+  - type: create_if_missing
+    target: .codex/config.toml
+    source: files/.codex/config.toml
+  - type: create_if_missing
+    target: .codex/hooks.json
+    source: files/.codex/hooks.json
+  - type: create_if_missing
+    target: .codex/hooks/acm-common.sh
+    source: files/.codex/hooks/acm-common.sh
+    mode: "0755"
+  - type: create_if_missing
+    target: .codex/hooks/acm-session-context.sh
+    source: files/.codex/hooks/acm-session-context.sh
+    mode: "0755"
+  - type: create_if_missing
+    target: .codex/hooks/acm-prompt-guard.sh
+    source: files/.codex/hooks/acm-prompt-guard.sh
+    mode: "0755"
+  - type: create_if_missing
+    target: .codex/hooks/acm-stop-guard.sh
+    source: files/.codex/hooks/acm-stop-guard.sh
+    mode: "0755"

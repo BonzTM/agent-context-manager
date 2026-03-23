@@ -49,13 +49,7 @@ func (s *Service) healthCheck(ctx context.Context, payload v1.HealthPayload) (v1
 		return v1.HealthCheckResult{}, healthCheckInternalError("fetch_candidate_pointers", err)
 	}
 
-	memories, err := s.repo.FetchActiveMemories(ctx, core.ActiveMemoryQuery{
-		ProjectID: strings.TrimSpace(payload.ProjectID),
-		Unbounded: true,
-	})
-	if err != nil {
-		return v1.HealthCheckResult{}, healthCheckInternalError("fetch_active_memories", err)
-	}
+	var memories []core.ActiveMemory
 
 	includeDetails := effectiveHealthIncludeDetails(payload.IncludeDetails)
 	maxFindings := effectiveMaxFindingsPerCheck(payload.MaxFindingsPerCheck)

@@ -554,6 +554,7 @@ type MemoryValidation struct {
 }
 
 type MemoryResult struct {
+	DeprecationNotice string           `json:"deprecation_notice,omitempty"`
 	CandidateID      int              `json:"candidate_id"`
 	Status           string           `json:"status"`
 	PromotedMemoryID int              `json:"promoted_memory_id,omitempty"`

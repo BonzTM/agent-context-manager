@@ -85,6 +85,7 @@ func (s *Service) Memory(ctx context.Context, payload v1.MemoryCommandPayload) (
 	}
 
 	result := v1.MemoryResult{
+		DeprecationNotice: "acm memory is deprecated and will be removed in a future release. Use agent-memory-manager (AMM) for durable agent memory. See docs/deprecation/memory-removal.md for the migration path.",
 		CandidateID: int(persisted.CandidateID),
 		Status:      strings.TrimSpace(persisted.Status),
 		Validation:  validation,

@@ -12,6 +12,7 @@ acm init \
 ```
 
 Swap in `--apply-template codex-pack` when you want repo-local Codex companion docs under `.codex/acm-broker/` instead of Claude-specific command assets.
+Add `--apply-template codex-hooks` when you want the current experimental repo-local Codex hook layer under `.codex/`.
 Use `--apply-template opencode-pack` when you want repo-local OpenCode companion docs under `.opencode/acm-broker/`.
 Use `scripts/install-skill-pack.sh --opencode` when you want to add those same docs to an existing repo without rerunning `init`.
 
@@ -39,6 +40,11 @@ Current built-ins:
 - `codex-pack`
   - seeds `.codex/acm-broker/README.md` and `.codex/acm-broker/AGENTS.example.md`
   - adds repo-local Codex companion docs without pretending slash-command or hook parity
+- `codex-hooks`
+  - seeds `.codex/config.toml`, `.codex/hooks.json`, and `.codex/hooks/*`
+  - includes `.codex/hooks/acm-session-context.sh`, `.codex/hooks/acm-prompt-guard.sh`, and `.codex/hooks/acm-stop-guard.sh`
+  - enables Codex's current experimental lifecycle hooks for startup reminders, prompt-time context nudges, and a one-time closeout guard
+  - stays narrower than Claude's hook pack and depends on current upstream experimental hook support
 - `opencode-pack`
   - seeds `.opencode/acm-broker/README.md` and `.opencode/acm-broker/AGENTS.example.md`
   - adds repo-local OpenCode companion docs without claiming undocumented runtime integration behavior

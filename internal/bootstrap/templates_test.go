@@ -88,6 +88,46 @@ func TestCodexPackTemplateMatchesSkillPack(t *testing.T) {
 	}
 }
 
+func TestCodexHooksTemplateEnablesExperimentalFeature(t *testing.T) {
+	t.Parallel()
+
+	raw, err := initTemplateFS.ReadFile("bootstrap_templates/codex-hooks/files/.codex/config.toml")
+	if err != nil {
+		t.Fatalf("read embedded Codex hooks config: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{"[features]", "codex_hooks = true"} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("Codex hooks config is missing snippet %q", snippet)
+		}
+	}
+	for _, forbidden := range []string{"claude-hooks", "PreToolUse", "PostToolUse"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("Codex hooks config must not imply unsupported snippet %q", forbidden)
+		}
+	}
+}
+
+func TestCodexHooksTemplateSeedsOnlyCurrentLifecycleEvents(t *testing.T) {
+	t.Parallel()
+
+	raw, err := initTemplateFS.ReadFile("bootstrap_templates/codex-hooks/files/.codex/hooks.json")
+	if err != nil {
+		t.Fatalf("read embedded Codex hooks manifest: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{"SessionStart", "UserPromptSubmit", "Stop", "acm-session-context.sh", "acm-prompt-guard.sh", "acm-stop-guard.sh", "statusMessage"} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("Codex hooks manifest is missing snippet %q", snippet)
+		}
+	}
+	for _, forbidden := range []string{"SessionStop", "PreToolUse", "PostToolUse", "acm-receipt-mark.sh", "acm-edit-state.sh"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("Codex hooks manifest must not imply unsupported snippet %q", forbidden)
+		}
+	}
+}
+
 func TestOpenCodePackTemplateMatchesSkillPack(t *testing.T) {
 	t.Parallel()
 
@@ -543,6 +583,7 @@ func TestCodexCompanionCoversPrimaryWorkflowWithoutFakeClaudeParity(t *testing.T
 	content := string(raw)
 	for _, snippet := range []string{
 		"acm init --apply-template codex-pack",
+		"acm init --apply-template codex-hooks",
 		"work.plan.discovered_paths",
 		"acm sync --mode working_tree --insert-new-candidates",
 		"acm health --include-details",
@@ -680,6 +721,21 @@ func TestInitTemplateDocsListCodexPack(t *testing.T) {
 	}
 }
 
+func TestInitTemplateDocsListCodexHooks(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(filepath.Clean("../../docs/examples/init-templates.md"))
+	if err != nil {
+		t.Fatalf("read init-template docs: %v", err)
+	}
+	content := string(raw)
+	for _, snippet := range []string{"`codex-hooks`", ".codex/config.toml", ".codex/hooks.json", ".codex/hooks/acm-prompt-guard.sh"} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("init-template docs are missing snippet %q", snippet)
+		}
+	}
+}
+
 func TestInitTemplateDocsListOpenCodePack(t *testing.T) {
 	t.Parallel()
 
@@ -707,6 +763,9 @@ func TestInstallSkillPackMentionsCodexCompanionDocs(t *testing.T) {
 		if !strings.Contains(content, snippet) {
 			t.Fatalf("install script is missing snippet %q", snippet)
 		}
+	}
+	if !strings.Contains(content, "codex-hooks") {
+		t.Fatalf("install script should mention the optional codex-hooks template")
 	}
 }
 

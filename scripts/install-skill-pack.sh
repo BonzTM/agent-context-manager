@@ -190,7 +190,8 @@ if [[ "${install_codex}" == true ]]; then
     echo "Installed Codex companion docs: ${codex_target}/codex"
   fi
   echo "Optional repo-local Codex companion: acm init --apply-template codex-pack"
-fi
+  echo "Optional experimental Codex hooks: acm init --apply-template codex-hooks"
+ fi
 
 if [[ "${install_claude}" == true ]]; then
   claude_target="$(cd "${claude_target}" && pwd)"

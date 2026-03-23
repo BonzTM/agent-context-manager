@@ -740,14 +740,8 @@ func TestContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 		t.Fatalf("unexpected stable rule_id: got %q want %q", got, want)
 	}
 	memories := receiptIndexEntries(result.Receipt, "memories")
-	if len(memories) != 1 {
-		t.Fatalf("unexpected memory index count: got %d want 1", len(memories))
-	}
-	if got := entryString(memories[0], "key"); got != "mem:101" {
-		t.Fatalf("unexpected memory key: got %q want %q", got, "mem:101")
-	}
-	if got := strings.TrimSpace(entryString(memories[0], "summary")); got == "" {
-		t.Fatalf("expected non-empty memory summary entry: %+v", memories[0])
+	if len(memories) != 0 {
+		t.Fatalf("unexpected memory index count: got %d want 0", len(memories))
 	}
 	plans := receiptIndexEntries(result.Receipt, "plans")
 	if len(plans) != 1 {
@@ -774,8 +768,8 @@ func TestContext_NormalPathReturnsOKAndReceipt(t *testing.T) {
 	if len(repo.candidateCalls) != 0 {
 		t.Fatalf("did not expect candidate queries, got %d", len(repo.candidateCalls))
 	}
-	if len(repo.memoryCalls) != 1 {
-		t.Fatalf("expected 1 memory query, got %d", len(repo.memoryCalls))
+	if len(repo.memoryCalls) != 0 {
+		t.Fatalf("did not expect memory queries, got %d", len(repo.memoryCalls))
 	}
 	if len(repo.receiptUpsertCalls) != 1 {
 		t.Fatalf("expected 1 receipt scope upsert, got %d", len(repo.receiptUpsertCalls))
@@ -1026,8 +1020,8 @@ func TestContext_DefaultMemoryLimitStillApplies(t *testing.T) {
 		t.Fatalf("expected no rules without canonical rules files, got %d", got)
 	}
 	memoryEntries := receiptIndexEntries(result.Receipt, "memories")
-	if len(memoryEntries) != defaultMaxMemories {
-		t.Fatalf("unexpected memory index count: got %d want %d", len(memoryEntries), defaultMaxMemories)
+	if len(memoryEntries) != 0 {
+		t.Fatalf("expected no memory index entries, got %d", len(memoryEntries))
 	}
 	planEntries := receiptIndexEntries(result.Receipt, "plans")
 	if len(planEntries) != 1 {
@@ -1037,11 +1031,8 @@ func TestContext_DefaultMemoryLimitStillApplies(t *testing.T) {
 		t.Fatalf("unexpected plan status: got %q want %q", got, core.PlanStatusPending)
 	}
 
-	if len(repo.memoryCalls) != 1 {
-		t.Fatalf("expected one memory query, got %d", len(repo.memoryCalls))
-	}
-	if repo.memoryCalls[0].Limit != defaultMaxMemories {
-		t.Fatalf("expected memory query limit %d, got %d", defaultMaxMemories, repo.memoryCalls[0].Limit)
+	if len(repo.memoryCalls) != 0 {
+		t.Fatalf("did not expect memory queries, got %d", len(repo.memoryCalls))
 	}
 }
 
@@ -1049,13 +1040,7 @@ func TestContext_PersistsOnlyPositiveMemoryIDs(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDir(t, root)
 
-	repo := &fakeRepository{
-		memoryResults: [][]core.ActiveMemory{{
-			memory(0, "Zero", "placeholder memory should not persist an id", []string{"backend"}, []string{"code:zero"}),
-			memory(-9, "Negative", "invalid memory should not persist an id", []string{"backend"}, []string{"code:negative"}),
-			memory(42, "Real", "valid memory id should be persisted", []string{"backend"}, []string{"code:real"}),
-		}},
-	}
+	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -1075,15 +1060,13 @@ func TestContext_PersistsOnlyPositiveMemoryIDs(t *testing.T) {
 	if len(repo.receiptUpsertCalls) != 1 {
 		t.Fatalf("expected one receipt scope upsert, got %d", len(repo.receiptUpsertCalls))
 	}
-	if got, want := repo.receiptUpsertCalls[0].MemoryIDs, []int64{42}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected persisted memory ids: got %v want %v", got, want)
+	if repo.receiptUpsertCalls[0].MemoryIDs != nil {
+		t.Fatalf("expected persisted memory ids to be nil, got %v", repo.receiptUpsertCalls[0].MemoryIDs)
 	}
 }
 
 func TestContext_PhaseAndCanonicalTagsThreadedToRuleAndMemoryQueries(t *testing.T) {
-	repo := &fakeRepository{
-		memoryResults: [][]core.ActiveMemory{{}},
-	}
+	repo := &fakeRepository{}
 	svc, err := New(repo)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -1104,15 +1087,11 @@ func TestContext_PhaseAndCanonicalTagsThreadedToRuleAndMemoryQueries(t *testing.
 	if len(repo.candidateCalls) != 0 {
 		t.Fatalf("did not expect candidate calls, got %d", len(repo.candidateCalls))
 	}
-	if len(repo.memoryCalls) != 1 {
-		t.Fatalf("expected one memory query, got %d", len(repo.memoryCalls))
+	if len(repo.memoryCalls) != 0 {
+		t.Fatalf("did not expect memory queries, got %d", len(repo.memoryCalls))
 	}
-	wantMemoryTags := wantQueryTags
-	if !reflect.DeepEqual(repo.memoryCalls[0].Tags, wantMemoryTags) {
-		t.Fatalf("unexpected canonical memory tags: got %v want %v", repo.memoryCalls[0].Tags, wantMemoryTags)
-	}
-	if !containsAllStrings(result.Receipt.Meta.ResolvedTags, wantMemoryTags) {
-		t.Fatalf("expected resolved tags to contain %v, got %v", wantMemoryTags, result.Receipt.Meta.ResolvedTags)
+	if !containsAllStrings(result.Receipt.Meta.ResolvedTags, wantQueryTags) {
+		t.Fatalf("expected resolved tags to contain %v, got %v", wantQueryTags, result.Receipt.Meta.ResolvedTags)
 	}
 }
 
@@ -1152,15 +1131,11 @@ func TestContext_DefaultRepoTagsFileDiscoveryMergesCanonicalAliases(t *testing.T
 	if result.Receipt == nil {
 		t.Fatal("expected receipt")
 	}
-	wantTags := []string{"backend", "bootstrap"}
 	if len(repo.candidateCalls) != 0 {
 		t.Fatalf("did not expect candidate queries, got %d", len(repo.candidateCalls))
 	}
-	if len(repo.memoryCalls) != 1 {
-		t.Fatalf("expected one memory query, got %d", len(repo.memoryCalls))
-	}
-	if !reflect.DeepEqual(repo.memoryCalls[0].Tags, wantTags) {
-		t.Fatalf("unexpected memory tags: got %v want %v", repo.memoryCalls[0].Tags, wantTags)
+	if len(repo.memoryCalls) != 0 {
+		t.Fatalf("did not expect memory queries, got %d", len(repo.memoryCalls))
 	}
 }
 
@@ -3353,8 +3328,8 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 	if result.Summary.OK {
 		t.Fatalf("expected summary not ok: %+v", result.Summary)
 	}
-	if result.Summary.TotalFindings != 10 {
-		t.Fatalf("unexpected total findings: got %d want 10", result.Summary.TotalFindings)
+	if result.Summary.TotalFindings != 7 {
+		t.Fatalf("unexpected total findings: got %d want 7", result.Summary.TotalFindings)
 	}
 
 	wantOrder := []string{
@@ -3393,8 +3368,8 @@ func TestHealthCheck_DefaultsDeterministicOrderingAndCapping(t *testing.T) {
 	if len(repo.candidateCalls) != 1 || !repo.candidateCalls[0].Unbounded {
 		t.Fatalf("expected unbounded candidate health query, got %+v", repo.candidateCalls)
 	}
-	if len(repo.memoryCalls) != 1 || !repo.memoryCalls[0].Unbounded {
-		t.Fatalf("expected unbounded memory health query, got %+v", repo.memoryCalls)
+	if len(repo.memoryCalls) != 0 {
+		t.Fatalf("did not expect memory health query, got %+v", repo.memoryCalls)
 	}
 }
 
@@ -3427,7 +3402,7 @@ func TestStatus_ReportsMissingCanonicalSources(t *testing.T) {
 	for _, integration := range result.Integrations {
 		integrationIDs = append(integrationIDs, integration.ID)
 	}
-	for _, id := range []string{"starter-contract", "detailed-planning-enforcement", "verify-generic", "verify-go", "verify-python", "verify-rust", "verify-ts", "opencode-pack"} {
+	for _, id := range []string{"starter-contract", "detailed-planning-enforcement", "verify-generic", "verify-go", "verify-python", "verify-rust", "verify-ts", "codex-hooks", "opencode-pack"} {
 		if !containsString(integrationIDs, id) {
 			t.Fatalf("expected integration %q in %+v", id, integrationIDs)
 		}
@@ -5395,6 +5370,92 @@ func TestInit_ApplyOpenCodePackIndexesCreatedFiles(t *testing.T) {
 		if !containsString(gotPaths, required) {
 			t.Fatalf("expected indexed template path %q in %v", required, gotPaths)
 		}
+	}
+}
+
+func TestInit_CodexHooksSeedsRepoLocalHooksIdempotently(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+
+	respectGitIgnore := false
+	repo := &fakeRepository{}
+	svc, err := New(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	result, apiErr := svc.Init(context.Background(), v1.InitPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+		ApplyTemplates:   []string{"codex-hooks"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error: %+v", apiErr)
+	}
+
+	if result.CandidateCount != 7 || result.IndexedStubs != 7 {
+		t.Fatalf("unexpected bootstrap counts: %+v", result)
+	}
+	templateResult, ok := initTemplateResultByID(result.TemplateResults, "codex-hooks")
+	if !ok {
+		t.Fatalf("expected codex-hooks result, got %+v", result.TemplateResults)
+	}
+	if wantCreated := []string{
+		".codex/config.toml",
+		".codex/hooks.json",
+		".codex/hooks/acm-common.sh",
+		".codex/hooks/acm-prompt-guard.sh",
+		".codex/hooks/acm-session-context.sh",
+		".codex/hooks/acm-stop-guard.sh",
+	}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
+		t.Fatalf("unexpected created paths: got %v want %v", templateResult.Created, wantCreated)
+	}
+
+	gotPaths := make([]string, 0, len(repo.upsertStubCalls[0]))
+	for _, stub := range repo.upsertStubCalls[0] {
+		gotPaths = append(gotPaths, stub.Path)
+	}
+	for _, required := range []string{
+		".codex/config.toml",
+		".codex/hooks.json",
+		".codex/hooks/acm-common.sh",
+		".codex/hooks/acm-prompt-guard.sh",
+		".codex/hooks/acm-session-context.sh",
+		".codex/hooks/acm-stop-guard.sh",
+	} {
+		if !containsString(gotPaths, required) {
+			t.Fatalf("expected indexed template path %q in %v", required, gotPaths)
+		}
+	}
+
+	again, apiErr := svc.Init(context.Background(), v1.InitPayload{
+		ProjectID:        "project.alpha",
+		ProjectRoot:      root,
+		RespectGitIgnore: &respectGitIgnore,
+		ApplyTemplates:   []string{"codex-hooks"},
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected API error on rerun: %+v", apiErr)
+	}
+	againResult, ok := initTemplateResultByID(again.TemplateResults, "codex-hooks")
+	if !ok {
+		t.Fatalf("expected codex-hooks result on rerun, got %+v", again.TemplateResults)
+	}
+	if againResult.Created != nil || againResult.Updated != nil {
+		t.Fatalf("expected no created or updated paths on rerun, got %+v", againResult)
+	}
+	if wantUnchanged := []string{
+		".codex/config.toml",
+		".codex/hooks.json",
+		".codex/hooks/acm-common.sh",
+		".codex/hooks/acm-prompt-guard.sh",
+		".codex/hooks/acm-session-context.sh",
+		".codex/hooks/acm-stop-guard.sh",
+	}; !reflect.DeepEqual(againResult.Unchanged, wantUnchanged) {
+		t.Fatalf("unexpected unchanged paths on rerun: got %v want %v", againResult.Unchanged, wantUnchanged)
 	}
 }
 

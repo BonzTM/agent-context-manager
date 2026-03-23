@@ -198,7 +198,7 @@ func TestExportContextMarkdownIncludesReceiptSections(t *testing.T) {
 	if result.Document.Context == nil || result.Document.Context.Meta.TaskText == "" {
 		t.Fatalf("expected context receipt payload, got %+v", result.Document.Context)
 	}
-	for _, needle := range []string{"# Context", "## Rules", "## Memories", "## Plans", "## Initial Scope"} {
+	for _, needle := range []string{"# Context", "## Rules", "## Plans", "## Initial Scope"} {
 		if !strings.Contains(result.Content, needle) {
 			t.Fatalf("expected markdown to contain %q, got:\n%s", needle, result.Content)
 		}
@@ -521,7 +521,7 @@ func TestRenderExportMarkdown_Golden(t *testing.T) {
 						Status:                "ok",
 						ResolvedTags:          []string{"backend", "export"},
 						RuleCount:             3,
-						MemoryCount:           1,
+						MemoryCount:           0,
 						PlanCount:             1,
 						InitialScopePathCount: 1,
 					},

@@ -47,7 +47,6 @@ ready=false missing=1 warnings=1
 - Status: ok
 - Resolved Tags: `backend`, `export`
 - Rule Count: 3
-- Memory Count: 1
 - Plan Count: 1
 - Initial Scope Paths: 1
 

@@ -88,7 +88,7 @@ This scans your repo and creates auto-indexed pointer stubs for discovered files
 
 Use `--persist-candidates` to save the enumerated file list to `.acm/init_candidates.json`.
 
-Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `detailed-planning-enforcement`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `codex-pack`, `opencode-pack`, `claude-command-pack`, `claude-hooks`, `git-hooks-precommit`. See [docs/examples/init-templates.md](examples/init-templates.md) for the seeded files and template-specific behavior.
+Templates (`--apply-template`) are repeatable and safe to re-run. They only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments — they never delete or overwrite files you've edited. Built-ins: `starter-contract`, `detailed-planning-enforcement`, `verify-generic`, `verify-go`, `verify-ts`, `verify-python`, `verify-rust`, `codex-pack`, `codex-hooks`, `opencode-pack`, `claude-command-pack`, `claude-hooks`, `git-hooks-precommit`. See [docs/examples/init-templates.md](examples/init-templates.md) for the seeded files and template-specific behavior.
 
 If you want to inspect indexing drift later, use `acm health --include-details` or `acm status`. The standalone `coverage` command is gone; the useful signals now live in health/status.
 
@@ -485,6 +485,23 @@ That template creates:
 - `.codex/acm-broker/README.md`
 - `.codex/acm-broker/AGENTS.example.md`
 
+If you also want the experimental repo-local Codex hook layer, seed it with:
+
+```bash
+acm init --apply-template codex-hooks
+```
+
+That template creates:
+
+- `.codex/config.toml`
+- `.codex/hooks.json`
+- `.codex/hooks/acm-common.sh`
+- `.codex/hooks/acm-session-context.sh`
+- `.codex/hooks/acm-prompt-guard.sh`
+- `.codex/hooks/acm-stop-guard.sh`
+
+The hook layer is opt-in and intentionally narrower than Claude's hook pack. Today it only covers startup guidance, prompt-time context nudges, and a one-time stop reminder, and it depends on Codex's current experimental hook support.
+
 Keep the repo-root `AGENTS.md` authoritative. A starter template is at [docs/examples/AGENTS.md](examples/AGENTS.md), and the Codex companion example above is there to make the full ACM loop explicit for Codex-driven repos.
 
 Codex is a primary ACM operator, not only a review backend. The normal loop is:
@@ -503,7 +520,7 @@ Claude and Codex hand off through the same ACM state. A common pattern is:
 3. Let the other tool resume from the same `receipt_id` or `plan_key`
 4. Close with shared `verify`, `review`, `done`, and `memory` history instead of vendor-local notes
 
-There is intentionally no fake slash-command or hook parity here. Codex relies on the installed skill, the repo-root `AGENTS.md`, and normal CLI/MCP access.
+There is intentionally no fake slash-command or Claude-equivalent hook parity here. The default Codex path still relies on the installed skill, the repo-root `AGENTS.md`, and normal CLI/MCP access; `codex-hooks` is an optional experimental helper layer.
 
 ### OpenCode
 

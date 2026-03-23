@@ -88,6 +88,7 @@ acm init \
 
 `--apply-template` is repeatable and safe to re-run. Templates only create missing files, upgrade pristine scaffolds, and merge additive JSON fragments (e.g. `.claude/settings.json`). They never delete files or overwrite files you've edited.
 Add `--apply-template codex-pack` when you want repo-local Codex companion docs under `.codex/acm-broker/`.
+Add `--apply-template codex-hooks` when you want the current experimental repo-local Codex hook layer under `.codex/`.
 Add `--apply-template opencode-pack` when you want repo-local OpenCode companion docs under `.opencode/acm-broker/`.
 
 Starter verify profiles:
@@ -105,6 +106,7 @@ Planning profile:
 Tooling companions:
 
 - `codex-pack` — seeds `.codex/acm-broker/README.md` and `.codex/acm-broker/AGENTS.example.md` so Codex has repo-local companion docs in addition to the global skill install
+- `codex-hooks` — seeds `.codex/config.toml`, `.codex/hooks.json`, and `.codex/hooks/*` to enable Codex's current experimental lifecycle hooks for startup reminders, prompt-time nudges, and one-time closeout guards
 - `opencode-pack` — seeds `.opencode/acm-broker/README.md` and `.opencode/acm-broker/AGENTS.example.md` for the explicit repo-local OpenCode companion path
 - `claude-command-pack` — seeds `.claude/commands/*` and `.claude/acm-broker/*`
 - `claude-hooks` — seeds `.claude/hooks/acm-receipt-guard.sh`, `.claude/hooks/acm-receipt-mark.sh`, `.claude/hooks/acm-session-context.sh`, `.claude/hooks/acm-edit-state.sh`, and `.claude/hooks/acm-stop-guard.sh` to inject the ACM loop at session start, block edits until `/acm-context` succeeds, require `/acm-work` before untracked multi-file edits, and block stop until edits are reported
@@ -177,7 +179,15 @@ acm init --apply-template codex-pack
 
 That seeds `.codex/acm-broker/README.md` and `.codex/acm-broker/AGENTS.example.md`. Keep the repo-root `AGENTS.md` authoritative; the Codex companion files are there to make the full ACM loop explicit for Codex-driven repos, not to replace the root contract.
 
-Codex can drive the same core workflow directly: `context`, `work`, `verify`, `review`, `done`, and `memory`. The absence of slash commands or Claude-style hooks is intentional; Codex relies on the installed skill, repo-root `AGENTS.md`, and normal CLI/MCP access.
+If you also want the experimental repo-local Codex hook layer, run:
+
+```bash
+acm init --apply-template codex-hooks
+```
+
+That seeds `.codex/config.toml`, `.codex/hooks.json`, and `.codex/hooks/*`. The hook layer is opt-in and intentionally narrower than Claude's hook pack: it currently only covers startup guidance, prompt-time context nudges, and a one-time stop reminder, and it depends on Codex's current experimental hook support.
+
+Codex can drive the same core workflow directly: `context`, `work`, `verify`, `review`, `done`, and `memory`. The docs-only path still works with just the installed skill, repo-root `AGENTS.md`, and normal CLI/MCP access; `codex-hooks` is an additional experimental helper, not a parity claim.
 
 ### OpenCode (repo-local companion docs)
 
@@ -470,6 +480,7 @@ Templates are seed-only — they create missing files but never overwrite edited
 | `verify-python` | Python-oriented `.acm/acm-tests.yaml` |
 | `verify-rust` | Rust-oriented `.acm/acm-tests.yaml` |
 | `codex-pack` | `.codex/acm-broker/README.md`, `.codex/acm-broker/AGENTS.example.md` |
+| `codex-hooks` | `.codex/config.toml`, `.codex/hooks.json`, `.codex/hooks/*` |
 | `opencode-pack` | `.opencode/acm-broker/README.md`, `.opencode/acm-broker/AGENTS.example.md` |
 | `claude-command-pack` | `.claude/commands/*`, `.claude/acm-broker/*` |
 | `claude-hooks` | Claude hook settings plus ACM process guard scripts |

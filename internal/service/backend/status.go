@@ -19,6 +19,7 @@ var statusTemplateIDs = []string{
 	"claude-command-pack",
 	"claude-hooks",
 	"codex-pack",
+	"codex-hooks",
 	"opencode-pack",
 	"detailed-planning-enforcement",
 	"git-hooks-precommit",
@@ -343,11 +344,7 @@ func (s *Service) statusContextPreview(ctx context.Context, payload v1.StatusPay
 		return result
 	}
 
-	activeMemories, err := s.fetchMemories(ctx, payload.ProjectID, taskTags, defaultMaxMemories, false)
-	if err != nil {
-		result.Error = fmt.Sprintf("fetch memories: %v", err)
-		return result
-	}
+	var activeMemories []core.ActiveMemory
 
 	rules := makeContextRules(selectedRules)
 	memories := makeContextMemories(activeMemories)
