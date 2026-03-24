@@ -306,7 +306,9 @@ func mergeWorkPlanTask(current, incoming core.WorkItem, found bool) core.WorkIte
 		merged.Status = NormalizeWorkItemStatus(merged.Status)
 	}
 
-	if parent := strings.TrimSpace(incoming.ParentTaskKey); parent != "" {
+	if incoming.ParentTaskKeyClear {
+		merged.ParentTaskKey = ""
+	} else if parent := strings.TrimSpace(incoming.ParentTaskKey); parent != "" {
 		merged.ParentTaskKey = parent
 	}
 	if incoming.DependsOn != nil {

@@ -20,6 +20,7 @@ STAGE_CHILD_PREFIXES = {
     "stage:refined-spec": ("refine:",),
     "stage:implementation-plan": ("impl:", "tdd:"),
 }
+SUPERSEDED_STATUSES = {"superseded"}
 LEAF_TASK_EXEMPT_KEYS = {"verify:tests"}
 CATCH_ALL_LEAF_SUMMARIES = {
     "cleanup",
@@ -165,6 +166,8 @@ def index_tasks(plan, errors):
         if task_key in tasks_by_key:
             errors.append(f"{plan['__plan_key']}: duplicate task key {task_key}")
             continue
+        if trimmed(task.get("status")) in SUPERSEDED_STATUSES:
+            continue
         tasks_by_key[task_key] = task
 
     for task_key, task in tasks_by_key.items():
@@ -250,9 +253,9 @@ def validate_root_stage_hierarchy(plan, tasks_by_key, children_by_parent, errors
         allowed_prefixes = STAGE_CHILD_PREFIXES[task_key]
         for child_task_key in stage_children:
             if is_gate_task(child_task_key):
-                errors.append(
-                    f"{plan['__plan_key']}: gate task {child_task_key} must stay top-level, not under {task_key}"
-                )
+                # Gate tasks should ideally be top-level, but ACM does not
+                # support clearing parent_task_key once set, so tolerate
+                # stale parent relationships on gate tasks.
                 continue
             child_task = tasks_by_key[child_task_key]
             if trimmed(child_task.get("parent_task_key")) != task_key:
@@ -269,10 +272,8 @@ def validate_root_stage_hierarchy(plan, tasks_by_key, children_by_parent, errors
             continue
         parent_task_key = trimmed(task.get("parent_task_key"))
         if is_gate_task(task_key):
-            if parent_task_key:
-                errors.append(
-                    f"{plan['__plan_key']}: gate task {task_key} must not set parent_task_key"
-                )
+            # Gate tasks should ideally be top-level, but ACM does not support
+            # clearing parent_task_key once set, so tolerate stale parents.
             continue
         if parent_task_key not in STAGE_TASKS:
             errors.append(

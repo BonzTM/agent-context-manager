@@ -59,6 +59,55 @@ func TestMergeIncomingWorkPlanTasksPreservesExistingMetadata(t *testing.T) {
 	}
 }
 
+func TestMergeIncomingWorkPlanTasksClearsParentTaskKeyWhenExplicit(t *testing.T) {
+	current := []core.WorkItem{{
+		ItemKey:       "verify:tests",
+		Summary:       "Run verification",
+		Status:        core.WorkItemStatusPending,
+		ParentTaskKey: "stage:implementation-plan",
+	}}
+
+	merged := MergeIncomingWorkPlanTasks(current, []core.WorkItem{{
+		ItemKey:            "verify:tests",
+		Summary:            "Run verification",
+		Status:             core.WorkItemStatusPending,
+		ParentTaskKeyClear: true,
+	}}, core.WorkPlanModeMerge)
+
+	if len(merged) != 1 {
+		t.Fatalf("expected one merged task, got %+v", merged)
+	}
+	task := merged[0]
+	if task.ParentTaskKey != "" {
+		t.Fatalf("expected parent_task_key to be cleared, got %q", task.ParentTaskKey)
+	}
+}
+
+func TestMergeIncomingWorkPlanTasksPreservesParentTaskKeyWhenNotExplicit(t *testing.T) {
+	current := []core.WorkItem{{
+		ItemKey:       "impl:foo",
+		Summary:       "Do something",
+		Status:        core.WorkItemStatusPending,
+		ParentTaskKey: "stage:implementation-plan",
+	}}
+
+	merged := MergeIncomingWorkPlanTasks(current, []core.WorkItem{{
+		ItemKey: "impl:foo",
+		Summary: "Do something",
+		Status:  core.WorkItemStatusComplete,
+		// ParentTaskKeyClear is false (default), ParentTaskKey is ""
+		// This should preserve the existing parent_task_key
+	}}, core.WorkPlanModeMerge)
+
+	if len(merged) != 1 {
+		t.Fatalf("expected one merged task, got %+v", merged)
+	}
+	task := merged[0]
+	if task.ParentTaskKey != "stage:implementation-plan" {
+		t.Fatalf("expected parent_task_key to be preserved, got %q", task.ParentTaskKey)
+	}
+}
+
 func TestDerivePlanStatusAndNormalizeWorkItemStatus_HandleSuperseded(t *testing.T) {
 	if got := NormalizeWorkItemStatus(core.WorkItemStatusSuperseded); got != core.WorkItemStatusSuperseded {
 		t.Fatalf("expected superseded status to survive normalization, got %q", got)

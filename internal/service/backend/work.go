@@ -141,11 +141,20 @@ func workPayloadTasks(payload v1.WorkPayload) []core.WorkItem {
 
 	items := make([]core.WorkItem, 0, len(payload.Tasks))
 	for _, task := range payload.Tasks {
+		var parentTaskKey string
+		var parentTaskKeyClear bool
+		if task.ParentTaskKey != nil {
+			parentTaskKey = strings.TrimSpace(*task.ParentTaskKey)
+			if parentTaskKey == "" {
+				parentTaskKeyClear = true
+			}
+		}
 		items = append(items, core.WorkItem{
 			ItemKey:            task.Key,
 			Summary:            strings.TrimSpace(task.Summary),
 			Status:             string(task.Status),
-			ParentTaskKey:      strings.TrimSpace(task.ParentTaskKey),
+			ParentTaskKey:      parentTaskKey,
+			ParentTaskKeyClear: parentTaskKeyClear,
 			DependsOn:          normalizeValues(task.DependsOn),
 			AcceptanceCriteria: normalizeValues(task.AcceptanceCriteria),
 			References:         normalizeValues(task.References),

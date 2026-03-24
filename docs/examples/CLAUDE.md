@@ -10,19 +10,17 @@ Claude companion for a repo whose primary contract is `AGENTS.md`.
 
 ## Claude Workflow
 
-For non-trivial work (multi-step, multi-file, or governed), follow this loop. Trivial single-file fixes can skip the ACM ceremony.
+Follow the task loop in `AGENTS.md`. For Claude, the ACM commands map to slash commands:
 
-1. Start with `/acm-context ...`.
-2. Read the returned hard rules before touching files.
-3. Use `/acm-work ...` when the task is multi-step, spans multiple files, or needs durable state.
-4. Use `/acm-verify ...` before `/acm-done ...` for any code, config, schema, or executable behavior change.
-5. Use `/acm-review <receipt_id-or-plan_key> {"run":true}` when `.acm/acm-workflows.yaml` requires a review task such as `review:cross-llm` and the task defines a `run` block; otherwise use manual review JSON or `/acm-work ...`.
-6. Use `/acm-done ...` to close the task; include changed files for file-backed work when you have them, or let ACM compute the task delta from the receipt baseline. When that detected delta is empty, the closeout is effectively no-file. ACM may enforce additional task keys from `.acm/acm-workflows.yaml` when file-backed work is detected.
-7. If the repo also uses AMM, use AMM for durable memory.
-If the task changes rules, tags, tests, workflows, onboarding, or tool-surface behavior, run direct CLI `acm sync --mode working_tree --insert-new-candidates` and `acm health --include-details` before `/acm-done`.
+| ACM step | Claude slash command |
+|---|---|
+| `acm context` | `/acm-context [phase] <task>` |
+| `acm work` | `/acm-work` |
+| `acm verify` | `/acm-verify` |
+| `acm review --run` | `/acm-review <id> {"run":true}` |
+| `acm done` | `/acm-done` |
 
-If you need historical discovery after compaction, use direct CLI `acm history` with `--entity work` for plan/task discovery or another entity for receipts and runs, then `acm fetch` the returned `fetch_keys`; the default slash-command pack does not add a dedicated `/acm-history` command.
-If you need runtime or setup diagnostics, use direct CLI `acm status`.
+Direct CLI (`acm sync`, `acm health`, `acm history`, `acm status`) has no slash-command aliases — call those directly when needed.
 
 ## Claude-Specific Notes
 

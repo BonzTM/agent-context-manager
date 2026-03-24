@@ -14,6 +14,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 
+## [1.1.2] - 2026-03-24
+
+Fix for `work` command not supporting clearing `parent_task_key` once set, plus agent directive improvements and plan validator hardening.
+
+### Fixed
+
+- `work` merge logic now supports clearing `parent_task_key` by explicitly sending an empty string; previously, empty values were silently ignored and the stored value persisted
+- `WorkTaskPayload.ParentTaskKey` changed from `string` to `*string` to distinguish "not provided" (nil, preserve existing) from "explicitly clear" (empty string)
+- Plan validator (`acm-feature-plan-validate.py`) now skips tasks with `status=superseded` during validation
+- Plan validator no longer errors on gate tasks (`verify:tests`, `review:*`) that have stale `parent_task_key` values
+
+### Added
+
+- `AGENTS.md` — Build And Verify section with build/test/lint commands for all agents
+- `AGENTS.md` — Common Mistakes section with 10 repo-specific anti-patterns
+- `AGENTS.md` — Decision Authority section distinguishing autonomous vs human-required agent decisions
+- `CONTRIBUTING.md` — Go Style And Patterns section with errors, logging, package boundaries, and style guidance referencing the coding-handbook
+- `internal/storage/domain/domain_test.go` — tests for `parent_task_key` clear and preserve merge behavior
+
+### Changed
+
+- `docs/examples/CLAUDE.md` — replaced duplicated ACM workflow loop with concise slash-command mapping table
+- Bootstrap template `acm-feature-plan-validate.py` — fully synced to current canonical version
+- `CLAUDE.md` — kept minimal as routing-only file (build commands now in `AGENTS.md`)
+
+See [docs/release-notes/RELEASE_NOTES_1.1.2.md](docs/release-notes/RELEASE_NOTES_1.1.2.md) for the full release notes.
+
 ## [1.1.1] - 2026-03-23
 
 Post-release cleanup: completes memory surface removal, improves Claude/Codex hooks, adds architecture diagrams, and hardens docs and init templates.

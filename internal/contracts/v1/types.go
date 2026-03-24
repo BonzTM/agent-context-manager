@@ -175,7 +175,7 @@ type WorkTaskPayload struct {
 	Key                string         `json:"key"`
 	Summary            string         `json:"summary"`
 	Status             WorkItemStatus `json:"status"`
-	ParentTaskKey      string         `json:"parent_task_key,omitempty"`
+	ParentTaskKey      *string        `json:"parent_task_key,omitempty"`
 	DependsOn          []string       `json:"depends_on,omitempty"`
 	AcceptanceCriteria []string       `json:"acceptance_criteria,omitempty"`
 	References         []string       `json:"references,omitempty"`

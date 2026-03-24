@@ -119,6 +119,7 @@ type WorkItem struct {
 	Summary            string
 	Status             string
 	ParentTaskKey      string
+	ParentTaskKeyClear bool // explicitly clear ParentTaskKey during merge
 	DependsOn          []string
 	AcceptanceCriteria []string
 	References         []string

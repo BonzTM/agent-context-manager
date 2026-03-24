@@ -29,6 +29,36 @@ Read this file first, then use the linked docs when you need deeper reference ma
 | Init, sync, health, onboarding, or templates | `internal/bootstrap/`, `README.md`, `docs/getting-started.md` | `docs/examples/*`, template files, `skills/acm-broker/**` | [docs/maintainer-map.md](docs/maintainer-map.md) |
 | Feature-planning contract | `docs/feature-plans.md`, `.acm/acm-tests.yaml`, `scripts/acm-feature-plan-validate.py` | maintainer docs, examples, workflow guidance | [docs/maintainer-map.md](docs/maintainer-map.md) |
 
+## Build And Verify
+
+```bash
+# Build all binaries
+go build -o dist/acm ./cmd/acm
+go build -o dist/acm-mcp ./cmd/acm-mcp
+go build -o dist/acm-web ./cmd/acm-web
+
+# Run the full test suite
+go test ./...
+
+# Run a specific package
+go test ./internal/service/backend/...
+
+# Run with race detector
+go test -race ./...
+
+# Format check
+gofmt -s -l .
+
+# Static analysis
+go vet ./...
+```
+
+Postgres integration tests require `ACM_PG_DSN`:
+
+```bash
+ACM_PG_DSN="postgres://..." go test ./internal/integration/...
+```
+
 ## Working Norms
 
 - Prefer small, reviewable changes over broad cleanup.
@@ -38,6 +68,42 @@ Read this file first, then use the linked docs when you need deeper reference ma
 - If a planned task or review gate becomes obsolete, mark it `superseded` instead of leaving it open or `blocked`.
 - Planned behavior-changing Go work under `cmd/**` or `internal/**` should add a `tdd:red` task before implementation, or a `tdd:exemption` task with a concrete justification.
 - Repo-local verify treats non-test Go changes under `cmd/**` or `internal/**` as behavior changes unless that exemption is present.
+
+## Common Mistakes
+
+Do not:
+
+- **Add a command without updating the catalog.** Every command needs entries in `internal/contracts/v1/command_catalog.go`, `internal/contracts/v1/types.go`, `internal/contracts/v1/validate.go`, `internal/commands/dispatch.go`, `cmd/acm/routes.go`, and `cmd/acm/convenience.go`. Missing any one causes parity or routing failures.
+- **Add a SQLite migration without a matching Postgres migration** (or vice versa). Both adapters under `internal/adapters/` must move together with equivalent semantics.
+- **Put business logic in an adapter.** Adapters (`internal/adapters/`) translate between external protocols and `internal/core/` interfaces. Decision logic belongs in `internal/service/backend/`.
+- **Change a payload type without updating `spec/v1/` schemas.** The `schema_files_test` will catch drift, but catching it at PR time wastes a review cycle.
+- **Modify MCP tool wiring manually.** MCP tool definitions auto-generate from the command catalog. Update the catalog, not the MCP layer.
+- **Edit `.acm/*.yaml` files without refreshing state.** If you change rules, tags, tests, or workflow config, the runtime must be synced before those changes take effect.
+- **Create catch-all tasks** like `misc`, `polish`, `remaining`, or `cleanup`. Each task should describe one bounded deliverable.
+- **Use `go run ./cmd/acm` in production or CI.** Build and install the binary. `go run` is only for testing source-build behavior.
+- **Add dependencies without justification.** Stdlib first. Document why an existing dependency or the stdlib is insufficient before adding a new one.
+- **Log errors at every layer.** Log once at the boundary that can act on the error. Return wrapped errors through intermediate layers.
+
+## Decision Authority
+
+Agents can decide autonomously:
+
+- Which files to read and in what order
+- Test strategy (unit vs integration) for new behavior, as long as tests exist
+- Internal refactoring within a single package that does not change exported APIs
+- Commit and PR structure for the current task
+
+Agents must surface to a human before proceeding:
+
+- **New dependencies** in `go.mod` — requires rationale and human approval
+- **New commands or flags** — product decisions about the public surface
+- **Architecture changes** — new packages, layer boundaries, interface contracts
+- **Compatibility or migration changes** — anything that affects existing adopters
+- **Scope expansion** beyond the original task — flag it, do not silently widen
+- **Security-sensitive changes** — auth, secrets, permissions, or trust boundaries
+- **Deleting or renaming exported symbols** — breaking change for importers
+
+When in doubt, surface the decision. The cost of asking is low; the cost of an unauthorized architecture change is high.
 
 ## Reference Docs
 

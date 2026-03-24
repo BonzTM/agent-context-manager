@@ -793,7 +793,7 @@ func TestDecodeAndValidateCommand_WorkAcceptsHierarchyAndExternalRefs(t *testing
 	if p.Plan == nil || p.Plan.Kind != "story" || p.Plan.ParentPlanKey != "plan:receipt-9999" {
 		t.Fatalf("unexpected plan payload: %+v", p.Plan)
 	}
-	if len(p.Tasks) != 1 || p.Tasks[0].ParentTaskKey != "task.checkout.epic" {
+	if len(p.Tasks) != 1 || p.Tasks[0].ParentTaskKey == nil || *p.Tasks[0].ParentTaskKey != "task.checkout.epic" {
 		t.Fatalf("unexpected tasks payload: %+v", p.Tasks)
 	}
 }

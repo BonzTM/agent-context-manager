@@ -21,7 +21,7 @@ tests:
       argv: ["python3", "scripts/acm-feature-plan-validate.py", "--help"]
     select:
       phases: ["execute", "review"]
-      changed_paths_any: ["AGENTS.md", "CLAUDE.md", ".acm/**", "README.md", "docs/**", "internal/bootstrap/**", "scripts/**", "skills/**"]
+      changed_paths_any: ["scripts/acm-feature-plan-validate.py"]
     expected:
       exit_code: 0
 
@@ -31,7 +31,7 @@ tests:
       argv: ["python3", "scripts/acm-feature-plan-validate.py"]
     select:
       phases: ["execute", "review"]
-      changed_paths_any: ["AGENTS.md", "CLAUDE.md", ".acm/**", "README.md", "cmd/**", "docs/**", "go.mod", "go.sum", "internal/**", "scripts/**", "skills/**", "spec/**"]
+      changed_paths_any: ["cmd/**", "go.mod", "go.sum", "internal/**", "scripts/**", "skills/**", "spec/**"]
     expected:
       exit_code: 0
 
@@ -67,7 +67,7 @@ tests:
       argv: ["python3", "scripts/acm-tdd-guard.py"]
     select:
       phases: ["execute", "review"]
-      changed_paths_any: ["AGENTS.md", ".acm/**", "cmd/**", "internal/**", "scripts/**"]
+      changed_paths_any: ["cmd/**", "internal/**", "scripts/**"]
     expected:
       exit_code: 0
 

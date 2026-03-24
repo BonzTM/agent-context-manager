@@ -418,8 +418,8 @@ func validateWorkPayload(p *WorkPayload) error {
 		if err := validateWorkItemStatusValue(task.Status, prefix+".status"); err != nil {
 			return err
 		}
-		if task.ParentTaskKey != "" {
-			if err := validateBoundedKey(task.ParentTaskKey, 512); err != nil {
+		if task.ParentTaskKey != nil && *task.ParentTaskKey != "" {
+			if err := validateBoundedKey(*task.ParentTaskKey, 512); err != nil {
 				return fmt.Errorf("%s.parent_task_key %w", prefix, err)
 			}
 		}
