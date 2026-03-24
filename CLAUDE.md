@@ -2,9 +2,9 @@
 
 Everything in `AGENTS.md` applies. This file only adds Claude-specific mappings.
 
-## Slash-Command Workflow
+## ACM Workflow
 
-For non-trivial work sessions (multi-step, multi-file, or governed), the ACM task loop from `AGENTS.md` maps to these slash commands:
+See [.acm/acm-work-loop.md](.acm/acm-work-loop.md) for the full command reference. Claude slash-command equivalents:
 
 | AGENTS.md step | Claude command |
 |---|---|

@@ -1,17 +1,7 @@
 version: acm.init-template.v1
 id: detailed-planning-enforcement
-summary: Seed a richer feature-planning contract and validator, and upgrade pristine starter scaffolds.
+summary: Seed a richer feature-planning contract and validator.
 operations:
-  - type: create_or_replace_if_pristine
-    target: AGENTS.md
-    source: files/AGENTS.md
-    pristine:
-      - starter_contract_agents_v1
-  - type: create_or_replace_if_pristine
-    target: CLAUDE.md
-    source: files/CLAUDE.md
-    pristine:
-      - starter_contract_claude_v1
   - type: replace_if_pristine
     target: .acm/acm-rules.yaml
     source: files/.acm/acm-rules.yaml

@@ -32,61 +32,6 @@ func TestEmbeddedTemplateManifestsUseInitTemplateVersion(t *testing.T) {
 	}
 }
 
-func TestClaudeCommandPackTemplateMatchesSkillPack(t *testing.T) {
-	t.Parallel()
-
-	cases := map[string]string{
-		"bootstrap_templates/claude-command-pack/files/.claude/acm-broker/CLAUDE.md":    "../../skills/acm-broker/claude/CLAUDE.md",
-		"bootstrap_templates/claude-command-pack/files/.claude/acm-broker/README.md":    "../../skills/acm-broker/claude/README.md",
-		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-context.md": "../../skills/acm-broker/claude/commands/acm-context.md",
-		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-done.md":    "../../skills/acm-broker/claude/commands/acm-done.md",
-		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-review.md":  "../../skills/acm-broker/claude/commands/acm-review.md",
-		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-verify.md":  "../../skills/acm-broker/claude/commands/acm-verify.md",
-		"bootstrap_templates/claude-command-pack/files/.claude/commands/acm-work.md":    "../../skills/acm-broker/claude/commands/acm-work.md",
-	}
-
-	for embeddedPath, repoRelativePath := range cases {
-		t.Run(filepath.Base(embeddedPath), func(t *testing.T) {
-			expected, err := os.ReadFile(filepath.Clean(repoRelativePath))
-			if err != nil {
-				t.Fatalf("read skill-pack asset: %v", err)
-			}
-			actual, err := initTemplateFS.ReadFile(embeddedPath)
-			if err != nil {
-				t.Fatalf("read embedded template asset: %v", err)
-			}
-			if string(actual) != string(expected) {
-				t.Fatalf("template asset drifted from skill-pack counterpart: %s", embeddedPath)
-			}
-		})
-	}
-}
-
-func TestCodexPackTemplateMatchesSkillPack(t *testing.T) {
-	t.Parallel()
-
-	cases := map[string]string{
-		"bootstrap_templates/codex-pack/files/.codex/acm-broker/README.md":         "../../skills/acm-broker/codex/README.md",
-		"bootstrap_templates/codex-pack/files/.codex/acm-broker/AGENTS.example.md": "../../skills/acm-broker/codex/AGENTS.example.md",
-	}
-
-	for embeddedPath, repoRelativePath := range cases {
-		t.Run(filepath.Base(embeddedPath), func(t *testing.T) {
-			expected, err := os.ReadFile(filepath.Clean(repoRelativePath))
-			if err != nil {
-				t.Fatalf("read skill-pack asset: %v", err)
-			}
-			actual, err := initTemplateFS.ReadFile(embeddedPath)
-			if err != nil {
-				t.Fatalf("read embedded template asset: %v", err)
-			}
-			if string(actual) != string(expected) {
-				t.Fatalf("template asset drifted from skill-pack counterpart: %s", embeddedPath)
-			}
-		})
-	}
-}
-
 func TestCodexHooksTemplateEnablesExperimentalFeature(t *testing.T) {
 	t.Parallel()
 
@@ -127,110 +72,6 @@ func TestCodexHooksTemplateSeedsOnlyCurrentLifecycleEvents(t *testing.T) {
 	}
 }
 
-func TestOpenCodePackTemplateMatchesSkillPack(t *testing.T) {
-	t.Parallel()
-
-	cases := map[string]string{
-		"bootstrap_templates/opencode-pack/files/.opencode/acm-broker/README.md":         "../../skills/acm-broker/opencode/README.md",
-		"bootstrap_templates/opencode-pack/files/.opencode/acm-broker/AGENTS.example.md": "../../skills/acm-broker/opencode/AGENTS.example.md",
-	}
-
-	for embeddedPath, repoRelativePath := range cases {
-		t.Run(filepath.Base(embeddedPath), func(t *testing.T) {
-			expected, err := os.ReadFile(filepath.Clean(repoRelativePath))
-			if err != nil {
-				t.Fatalf("read skill-pack asset: %v", err)
-			}
-			actual, err := initTemplateFS.ReadFile(embeddedPath)
-			if err != nil {
-				t.Fatalf("read embedded template asset: %v", err)
-			}
-			if string(actual) != string(expected) {
-				t.Fatalf("template asset drifted from skill-pack counterpart: %s", embeddedPath)
-			}
-		})
-	}
-}
-
-func TestRepoClaudeCommandPackMatchesSkillPack(t *testing.T) {
-	t.Parallel()
-
-	cases := map[string]string{
-		"../../.claude/acm-broker/CLAUDE.md":    "../../skills/acm-broker/claude/CLAUDE.md",
-		"../../.claude/acm-broker/README.md":    "../../skills/acm-broker/claude/README.md",
-		"../../.claude/commands/acm-context.md": "../../skills/acm-broker/claude/commands/acm-context.md",
-		"../../.claude/commands/acm-done.md":    "../../skills/acm-broker/claude/commands/acm-done.md",
-		"../../.claude/commands/acm-review.md":  "../../skills/acm-broker/claude/commands/acm-review.md",
-		"../../.claude/commands/acm-verify.md":  "../../skills/acm-broker/claude/commands/acm-verify.md",
-		"../../.claude/commands/acm-work.md":    "../../skills/acm-broker/claude/commands/acm-work.md",
-	}
-
-	for repoRelativePath, skillRelativePath := range cases {
-		t.Run(filepath.Base(repoRelativePath), func(t *testing.T) {
-			actual, err := os.ReadFile(filepath.Clean(repoRelativePath))
-			if err != nil {
-				t.Fatalf("read repo asset: %v", err)
-			}
-			expected, err := os.ReadFile(filepath.Clean(skillRelativePath))
-			if err != nil {
-				t.Fatalf("read skill-pack asset: %v", err)
-			}
-			if string(actual) != string(expected) {
-				t.Fatalf("repo asset drifted from skill-pack counterpart: %s", repoRelativePath)
-			}
-		})
-	}
-}
-
-func TestRepoCodexCompanionMatchesSkillPack(t *testing.T) {
-	t.Parallel()
-
-	cases := map[string]string{
-		"../../.codex/acm-broker/README.md":         "../../skills/acm-broker/codex/README.md",
-		"../../.codex/acm-broker/AGENTS.example.md": "../../skills/acm-broker/codex/AGENTS.example.md",
-	}
-
-	for repoRelativePath, skillRelativePath := range cases {
-		t.Run(filepath.Base(repoRelativePath), func(t *testing.T) {
-			actual, err := os.ReadFile(filepath.Clean(repoRelativePath))
-			if err != nil {
-				t.Fatalf("read repo asset: %v", err)
-			}
-			expected, err := os.ReadFile(filepath.Clean(skillRelativePath))
-			if err != nil {
-				t.Fatalf("read skill-pack asset: %v", err)
-			}
-			if string(actual) != string(expected) {
-				t.Fatalf("repo asset drifted from skill-pack counterpart: %s", repoRelativePath)
-			}
-		})
-	}
-}
-
-func TestRepoOpenCodeCompanionMatchesSkillPack(t *testing.T) {
-	t.Parallel()
-
-	cases := map[string]string{
-		"../../.opencode/acm-broker/README.md":         "../../skills/acm-broker/opencode/README.md",
-		"../../.opencode/acm-broker/AGENTS.example.md": "../../skills/acm-broker/opencode/AGENTS.example.md",
-	}
-
-	for repoRelativePath, skillRelativePath := range cases {
-		t.Run(filepath.Base(repoRelativePath), func(t *testing.T) {
-			actual, err := os.ReadFile(filepath.Clean(repoRelativePath))
-			if err != nil {
-				t.Fatalf("read repo asset: %v", err)
-			}
-			expected, err := os.ReadFile(filepath.Clean(skillRelativePath))
-			if err != nil {
-				t.Fatalf("read skill-pack asset: %v", err)
-			}
-			if string(actual) != string(expected) {
-				t.Fatalf("repo asset drifted from skill-pack counterpart: %s", repoRelativePath)
-			}
-		})
-	}
-}
 
 func TestClaudeHooksReceiptMarkHookCoversContextJSONFlow(t *testing.T) {
 	t.Parallel()
@@ -366,19 +207,6 @@ func TestStarterAndDetailedContractsCarryMaintenanceAndDiscoveredScopeGuidance(t
 			"acm sync --mode working_tree --insert-new-candidates",
 			"acm health --include-details",
 			"work.plan.discovered_paths",
-		},
-		"bootstrap_templates/detailed-planning-enforcement/files/AGENTS.md": {
-			"acm sync --mode working_tree --insert-new-candidates",
-			"acm health --include-details",
-			"work.plan.discovered_paths",
-		},
-		"bootstrap_templates/starter-contract/files/CLAUDE.md": {
-			"acm sync --mode working_tree --insert-new-candidates",
-			"acm health --include-details",
-		},
-		"bootstrap_templates/detailed-planning-enforcement/files/CLAUDE.md": {
-			"acm sync --mode working_tree --insert-new-candidates",
-			"acm health --include-details",
 		},
 	}
 

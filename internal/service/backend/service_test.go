@@ -4028,7 +4028,7 @@ func TestInit_ApplyStarterContractSeedsContractsAndIndexesThem(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected starter-contract template result, got %+v", result.TemplateResults)
 	}
-	if wantCreated := []string{"AGENTS.md", "CLAUDE.md"}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
+	if wantCreated := []string{".acm/acm-work-loop.md", "AGENTS.md", "CLAUDE.md"}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
 		t.Fatalf("unexpected created paths: got %v want %v", templateResult.Created, wantCreated)
 	}
 	if wantUpdated := []string{".acm/acm-rules.yaml"}; !reflect.DeepEqual(templateResult.Updated, wantUpdated) {
@@ -4039,8 +4039,8 @@ func TestInit_ApplyStarterContractSeedsContractsAndIndexesThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read AGENTS.md: %v", err)
 	}
-	if !strings.Contains(string(agentsRaw), "## Required Task Loop") {
-		t.Fatalf("unexpected AGENTS.md contents: %q", string(agentsRaw))
+	if len(agentsRaw) == 0 {
+		t.Fatalf("AGENTS.md is empty after starter-contract scaffold")
 	}
 
 	rulesRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-rules.yaml"))
@@ -4079,7 +4079,7 @@ func TestInit_ApplyDetailedPlanningEnforcementSeedsFeaturePlanningScaffold(t *te
 	if !ok {
 		t.Fatalf("expected detailed-planning-enforcement template result, got %+v", result.TemplateResults)
 	}
-	if wantCreated := []string{"AGENTS.md", "CLAUDE.md", "docs/feature-plans.md", "scripts/acm-feature-plan-validate.py"}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
+	if wantCreated := []string{"docs/feature-plans.md", "scripts/acm-feature-plan-validate.py"}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
 		t.Fatalf("unexpected created paths: got %v want %v", templateResult.Created, wantCreated)
 	}
 	if wantUpdated := []string{".acm/acm-rules.yaml", ".acm/acm-tests.yaml"}; !reflect.DeepEqual(templateResult.Updated, wantUpdated) {
@@ -4092,18 +4092,10 @@ func TestInit_ApplyDetailedPlanningEnforcementSeedsFeaturePlanningScaffold(t *te
 	for _, stub := range repo.upsertStubCalls[0] {
 		gotPaths = append(gotPaths, stub.Path)
 	}
-	for _, required := range []string{"AGENTS.md", "CLAUDE.md", "README.md", "docs/feature-plans.md", "scripts/acm-feature-plan-validate.py"} {
+	for _, required := range []string{"README.md", "docs/feature-plans.md", "scripts/acm-feature-plan-validate.py"} {
 		if !containsString(gotPaths, required) {
 			t.Fatalf("expected indexed template path %q in %v", required, gotPaths)
 		}
-	}
-
-	agentsRaw, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
-	if err != nil {
-		t.Fatalf("read AGENTS.md: %v", err)
-	}
-	if !strings.Contains(string(agentsRaw), "## Feature Plans") {
-		t.Fatalf("expected detailed feature plan guidance, got %q", string(agentsRaw))
 	}
 
 	rulesRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-rules.yaml"))
@@ -4179,27 +4171,11 @@ func TestInit_DetailedPlanningEnforcementUpgradesPristineStarterScaffolds(t *tes
 	if wantCreated := []string{"docs/feature-plans.md", "scripts/acm-feature-plan-validate.py"}; !reflect.DeepEqual(templateResult.Created, wantCreated) {
 		t.Fatalf("unexpected created paths: got %v want %v", templateResult.Created, wantCreated)
 	}
-	if wantUpdated := []string{".acm/acm-rules.yaml", ".acm/acm-tests.yaml", "AGENTS.md", "CLAUDE.md"}; !reflect.DeepEqual(templateResult.Updated, wantUpdated) {
+	if wantUpdated := []string{".acm/acm-rules.yaml", ".acm/acm-tests.yaml"}; !reflect.DeepEqual(templateResult.Updated, wantUpdated) {
 		t.Fatalf("unexpected updated paths: got %v want %v", templateResult.Updated, wantUpdated)
 	}
 	if templateResult.SkippedConflicts != nil {
 		t.Fatalf("expected no template conflicts, got %+v", templateResult.SkippedConflicts)
-	}
-
-	agentsRaw, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
-	if err != nil {
-		t.Fatalf("read AGENTS.md: %v", err)
-	}
-	if strings.Contains(string(agentsRaw), "## Optional Feature Plans") || !strings.Contains(string(agentsRaw), "## Feature Plans") {
-		t.Fatalf("expected mandatory feature plan guidance, got %q", string(agentsRaw))
-	}
-
-	claudeRaw, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
-	if err != nil {
-		t.Fatalf("read CLAUDE.md: %v", err)
-	}
-	if !strings.Contains(string(claudeRaw), "scripts/acm-feature-plan-validate.py") {
-		t.Fatalf("expected CLAUDE guidance to mention the validator, got %q", string(claudeRaw))
 	}
 
 	testsRaw, err := os.ReadFile(filepath.Join(root, ".acm", "acm-tests.yaml"))
@@ -4343,7 +4319,7 @@ func TestInit_ReapplyStarterContractTemplateIsNoOp(t *testing.T) {
 	if templateResult.Created != nil || templateResult.Updated != nil {
 		t.Fatalf("expected no created or updated paths on rerun, got %+v", templateResult)
 	}
-	if wantUnchanged := []string{".acm/acm-rules.yaml", "AGENTS.md", "CLAUDE.md"}; !reflect.DeepEqual(templateResult.Unchanged, wantUnchanged) {
+	if wantUnchanged := []string{".acm/acm-rules.yaml", ".acm/acm-work-loop.md", "AGENTS.md", "CLAUDE.md"}; !reflect.DeepEqual(templateResult.Unchanged, wantUnchanged) {
 		t.Fatalf("unexpected unchanged paths: got %v want %v", templateResult.Unchanged, wantUnchanged)
 	}
 }

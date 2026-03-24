@@ -8,6 +8,9 @@ operations:
   - type: create_if_missing
     target: CLAUDE.md
     source: files/CLAUDE.md
+  - type: create_if_missing
+    target: .acm/acm-work-loop.md
+    source: files/.acm/acm-work-loop.md
   - type: replace_if_pristine
     target: .acm/acm-rules.yaml
     source: files/.acm/acm-rules.yaml

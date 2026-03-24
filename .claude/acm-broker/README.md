@@ -3,6 +3,8 @@
 This folder provides Claude Code slash-command prompts that mirror the `acm-broker` workflow.
 The intended default story is the modular core loop: `context`, `work`, `verify`, and `done`, with `fetch` and `review` as supporting surfaces.
 
+This command pack covers the ACM workflow loop only.
+
 ## Commands
 
 - `/acm-context [phase] <task text>`
