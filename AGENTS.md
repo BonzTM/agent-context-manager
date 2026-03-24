@@ -73,11 +73,21 @@ When changing rules, tags, tests, workflows, onboarding, or tool-surface behavio
 
 ## Memory (AMM)
 
-This repo uses [Agent Memory Manager (AMM)](https://github.com/bonztm/agent-memory-manager) for durable memory. AMM is installed globally and available via MCP tools (`amm_recall`, `amm_remember`, `amm_expand`) and CLI (`amm`).
+This repo uses [AMM (Agent Memory Manager)](https://github.com/bonztm/agent-memory-manager) for durable memory. AMM is available via MCP tools (`amm_recall`, `amm_remember`, `amm_expand`) and CLI (`amm`).
 
-- Use `amm_recall` at task start or when prior context would help a decision.
-- Use `amm_remember` to commit stable decisions, preferences, or constraints that should survive this session.
-- Do not use AMM for transient task state — that belongs in ACM `work` plans.
+**When to query AMM:**
+- **Session start.** Run `amm recall|amm_recall` (mode `ambient`) at the beginning of every session to load relevant prior context about this project, the user, and past decisions.
+- **Before decisions.** When you encounter an architectural choice, a naming question, a pattern question, or anything where prior context might exist, query AMM before guessing.
+- **On uncertainty.** If you don't know something about the project, the user's preferences, or past work — ask AMM first.
+
+**When to write to AMM:**
+- **Stable decisions.** When a decision is made (architecture, naming, tooling choice), commit it with `amm remember|amm_remember`.
+- **User preferences.** When you learn how the user likes to work, record it.
+- **Gotchas and lessons.** When something surprising happens or a non-obvious fix is found, save it for next time.
+
+**When not to use AMM:**
+- Transient task state belongs in ACM `work` plans, not AMM.
+- Don't store information that's already in the code or git history.
 
 ## Working Norms
 
