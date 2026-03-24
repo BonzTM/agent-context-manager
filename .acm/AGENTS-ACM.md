@@ -14,7 +14,7 @@ See [acm-work-loop.md](acm-work-loop.md) for the full command reference.
 
 ## Fast Path
 
-1. Read `AGENTS.md` (and `CLAUDE.md` if using Claude).
+1. Read `AGENTS.md` and any tool-specific companion (e.g. `CLAUDE.md`).
 2. If you need orientation before reading code, run `acm status --project agent-context-manager --task-text "<task>" --phase <plan|execute|review>`.
 3. For non-trivial work (multi-step, multi-file, or governed), run `acm context --project agent-context-manager --task-text "<task>" --phase <plan|execute|review>`. Trivial single-file fixes can skip the ACM ceremony.
 4. Follow the returned hard rules. Use `acm fetch` only for keys you need.
@@ -56,3 +56,17 @@ When changing rules, tags, tests, workflows, onboarding, or tool-surface behavio
 - When the runtime supports sub-agents, prefer delegating bounded leaf tasks so the orchestrator keeps the full-plan context. When it does not, execute the same leaf tasks sequentially and return to the root plan between them.
 - Keep leaf tasks so tight that an assignee can succeed from the listed `references`, `acceptance_criteria`, and `depends_on` edges without inventing missing scope.
 - If governed scope expands, declare new files through `acm work` before `acm review` or `acm done`.
+
+## Skill Aliases
+
+Tools with the ACM skill pack installed expose these shorthand commands:
+
+| ACM CLI | Skill alias |
+|---|---|
+| `acm context` | `/acm-context [phase] <task>` |
+| `acm work` | `/acm-work` |
+| `acm verify` | `/acm-verify` |
+| `acm review --run` | `/acm-review <id> {"run":true}` |
+| `acm done` | `/acm-done` |
+
+Direct CLI (`acm sync`, `acm health`, `acm history`, `acm status`) has no skill aliases — call those directly.
