@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bonztm/agent-context-manager/internal/adapters/cli"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
@@ -1119,7 +1118,7 @@ func TestRunConvenienceWithDeps_EndToEndContext(t *testing.T) {
 		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
 			return svc, func() {}, nil
 		},
-		cli.RunWithLogger,
+		RunWithLogger,
 	)
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d", code)
@@ -1160,7 +1159,7 @@ func TestRunConvenienceWithDeps_DefaultsProjectIDFromEnv(t *testing.T) {
 		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
 			return svc, func() {}, nil
 		},
-		cli.RunWithLogger,
+		RunWithLogger,
 	)
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d", code)
@@ -1195,7 +1194,7 @@ func TestRunConvenienceWithDeps_ExportFlagsWriteRawStdout(t *testing.T) {
 		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
 			return svc, func() {}, nil
 		},
-		cli.RunWithLogger,
+		RunWithLogger,
 	)
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d", code)
@@ -1239,7 +1238,7 @@ func TestRunConvenienceWithDeps_ExportFlagsWriteOutFileAndRequireForce(t *testin
 			func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
 				return svc, func() {}, nil
 			},
-			cli.RunWithLogger,
+			RunWithLogger,
 		)
 		if code != 1 {
 			t.Fatalf("expected exit code 1 without force, got %d", code)
@@ -1263,7 +1262,7 @@ func TestRunConvenienceWithDeps_ExportFlagsWriteOutFileAndRequireForce(t *testin
 		func(_ context.Context, _ logging.Logger) (core.Service, runtime.CleanupFunc, error) {
 			return svc, func() {}, nil
 		},
-		cli.RunWithLogger,
+		RunWithLogger,
 	)
 	if code != 0 {
 		t.Fatalf("expected exit code 0 with force, got %d", code)

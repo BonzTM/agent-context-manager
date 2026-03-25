@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bonztm/agent-context-manager/internal/adapters/cli"
 	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/logging"
@@ -45,7 +44,7 @@ func runConvenience(ctx context.Context, logger logging.Logger, subcommand strin
 		os.Stdout,
 		time.Now,
 		runtime.NewServiceFromEnvWithLogger,
-		cli.RunWithLogger,
+		RunWithLogger,
 	)
 }
 
@@ -72,7 +71,7 @@ func runConvenienceWithDeps(
 		newService = runtime.NewServiceFromEnvWithLogger
 	}
 	if runAdapter == nil {
-		runAdapter = cli.RunWithLogger
+		runAdapter = RunWithLogger
 	}
 
 	requestSpec, err := buildConvenienceRequest(subcommand, args, now)
@@ -81,21 +80,21 @@ func runConvenienceWithDeps(
 			logger.Info(ctx, logging.EventACMRun, "stage", "finish", "subcommand", subcommand, "exit_code", 0)
 			return 0
 		}
-		logger.Error(ctx, logging.EventACMRun, "stage", "parse_flags", "subcommand", subcommand, "ok", false, "error_code", "INVALID_FLAGS")
+		logger.Error(ctx, logging.EventACMRun, "stage", "parse_flags", "subcommand", subcommand, "ok", false, "error_code", v1.ErrCodeInvalidFlags)
 		fmt.Fprintf(os.Stderr, "failed to parse %s flags: %v\n", subcommand, err)
 		return 2
 	}
 
 	request, err := json.Marshal(requestSpec.Envelope)
 	if err != nil {
-		logger.Error(ctx, logging.EventACMRun, "stage", "marshal", "subcommand", subcommand, "ok", false, "error_code", "INTERNAL_ERROR")
+		logger.Error(ctx, logging.EventACMRun, "stage", "marshal", "subcommand", subcommand, "ok", false, "error_code", v1.ErrCodeInternalError)
 		fmt.Fprintf(os.Stderr, "failed to build request: %v\n", err)
 		return 1
 	}
 
 	svc, closeService, err := newService(ctx, logger)
 	if err != nil {
-		logger.Error(ctx, logging.EventACMRun, "stage", "service_init", "subcommand", subcommand, "ok", false, "error_code", "SERVICE_INIT_FAILED")
+		logger.Error(ctx, logging.EventACMRun, "stage", "service_init", "subcommand", subcommand, "ok", false, "error_code", v1.ErrCodeServiceInitFailed)
 		fmt.Fprintf(os.Stderr, "failed to initialize service: %v\n", err)
 		return 1
 	}
@@ -117,12 +116,12 @@ func runConvenienceWithDeps(
 
 		content, err := extractExportContent(rawBuffer.Bytes())
 		if err != nil {
-			logger.Error(ctx, logging.EventACMRun, "stage", "raw_output_parse", "subcommand", subcommand, "ok", false, "error_code", "INTERNAL_ERROR")
+			logger.Error(ctx, logging.EventACMRun, "stage", "raw_output_parse", "subcommand", subcommand, "ok", false, "error_code", v1.ErrCodeInternalError)
 			fmt.Fprintf(os.Stderr, "failed to parse export output: %v\n", err)
 			return 1
 		}
 		if err := emitRawExportContent(out, content, *requestSpec.RawOutput); err != nil {
-			logger.Error(ctx, logging.EventACMRun, "stage", "raw_output_write", "subcommand", subcommand, "ok", false, "error_code", "WRITE_FAILED")
+			logger.Error(ctx, logging.EventACMRun, "stage", "raw_output_write", "subcommand", subcommand, "ok", false, "error_code", v1.ErrCodeWriteFailed)
 			fmt.Fprintf(os.Stderr, "failed to write export output: %v\n", err)
 			return 1
 		}

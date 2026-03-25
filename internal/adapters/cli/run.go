@@ -27,17 +27,17 @@ func RunWithLogger(ctx context.Context, svc core.Service, in io.Reader, out io.W
 
 	input, err := io.ReadAll(in)
 	if err != nil {
-		logger.Error(ctx, logging.EventCLIIngressRead, "ok", false, "error_code", "READ_FAILED")
-		logger.Error(ctx, logging.EventCLIFailure, "stage", "read", "error_code", "READ_FAILED")
+		logger.Error(ctx, logging.EventCLIIngressRead, "ok", false, "error_code", v1.ErrCodeReadFailed)
+		logger.Error(ctx, logging.EventCLIFailure, "stage", "read", "error_code", v1.ErrCodeReadFailed)
 		writeEnvelope(out, v1.ResultEnvelope{
 			Version:   v1.Version,
 			Command:   "",
 			RequestID: "",
 			OK:        false,
 			Timestamp: now().UTC().Format(time.RFC3339),
-			Error:     &v1.ErrorPayload{Code: "READ_FAILED", Message: err.Error()},
+			Error:     &v1.ErrorPayload{Code: v1.ErrCodeReadFailed, Message: err.Error(), Source: v1.ErrSourceAdapter},
 		})
-		logger.Info(ctx, logging.EventCLIResult, "ok", false, "error_code", "READ_FAILED")
+		logger.Info(ctx, logging.EventCLIResult, "ok", false, "error_code", v1.ErrCodeReadFailed)
 		return 1
 	}
 	logger.Info(ctx, logging.EventCLIIngressRead, "ok", true, "bytes", len(input))
