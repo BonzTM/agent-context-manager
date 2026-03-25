@@ -5,6 +5,7 @@ import "github.com/bonztm/agent-context-manager/internal/contracts/v1"
 type APIError struct {
 	Code    string
 	Message string
+	Source  string
 	Details any
 }
 
@@ -22,10 +23,15 @@ func (e *APIError) ToPayload() *v1.ErrorPayload {
 	return &v1.ErrorPayload{
 		Code:    e.Code,
 		Message: e.Message,
+		Source:  e.Source,
 		Details: e.Details,
 	}
 }
 
 func NewError(code, message string, details any) *APIError {
-	return &APIError{Code: code, Message: message, Details: details}
+	return NewErrorWithSource(code, message, "", details)
+}
+
+func NewErrorWithSource(code, message, source string, details any) *APIError {
+	return &APIError{Code: code, Message: message, Source: source, Details: details}
 }

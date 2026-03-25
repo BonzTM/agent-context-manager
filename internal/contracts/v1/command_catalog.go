@@ -28,7 +28,7 @@ type CommandSpec struct {
 
 func (s CommandSpec) Decode(raw json.RawMessage, defaults ValidationDefaults) (any, *ErrorPayload) {
 	if s.decode == nil {
-		return nil, validationError("INVALID_COMMAND", "command is not recognized")
+		return nil, validationError(ErrCodeInvalidCommand, "command is not recognized")
 	}
 	return s.decode(raw, normalizeValidationDefaults(defaults))
 }
@@ -394,14 +394,14 @@ func decodeValidatedCommandPayload[Payload any](
 ) (any, *ErrorPayload) {
 	var payload Payload
 	if err := decodeStrict(raw, &payload); err != nil {
-		return nil, validationError("INVALID_PAYLOAD", err.Error())
+		return nil, validationError(ErrCodeInvalidPayload, err.Error())
 	}
 	if applyDefaults != nil {
 		applyDefaults(&payload, defaults)
 	}
 	if validate != nil {
 		if err := validate(&payload); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
+			return nil, validationError(ErrCodeInvalidPayload, err.Error())
 		}
 	}
 	return payload, nil
@@ -415,18 +415,18 @@ func decodeValidatedCommandPayloadWithFields[Payload any](
 ) (any, *ErrorPayload) {
 	var payload Payload
 	if err := decodeStrict(raw, &payload); err != nil {
-		return nil, validationError("INVALID_PAYLOAD", err.Error())
+		return nil, validationError(ErrCodeInvalidPayload, err.Error())
 	}
 	if applyDefaults != nil {
 		applyDefaults(&payload, defaults)
 	}
 	fields, err := decodeObjectFields(raw)
 	if err != nil {
-		return nil, validationError("INVALID_PAYLOAD", err.Error())
+		return nil, validationError(ErrCodeInvalidPayload, err.Error())
 	}
 	if validate != nil {
 		if err := validate(&payload, fields); err != nil {
-			return nil, validationError("INVALID_PAYLOAD", err.Error())
+			return nil, validationError(ErrCodeInvalidPayload, err.Error())
 		}
 	}
 	return payload, nil

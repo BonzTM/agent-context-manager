@@ -16,7 +16,7 @@ import (
 
 func (s *Service) Fetch(ctx context.Context, payload v1.FetchPayload) (v1.FetchResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.FetchResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.FetchResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	projectID := strings.TrimSpace(payload.ProjectID)
@@ -534,14 +534,10 @@ func (s *Service) readPointerFetchContent(pointerPath string) (string, error) {
 }
 
 func fetchInternalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to fetch context",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInternalError, "failed to fetch context", map[string]any{
+		"operation": operation,
+		"error":     err.Error(),
+	})
 }
 
 func wrapFetchOperationError(operation string, err error) error {

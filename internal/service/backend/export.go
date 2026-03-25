@@ -12,7 +12,7 @@ import (
 
 func (s *Service) Export(ctx context.Context, payload v1.ExportPayload) (v1.ExportResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.ExportResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.ExportResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	document, apiErr := s.resolveExportDocument(ctx, payload)
@@ -43,7 +43,7 @@ func (s *Service) resolveExportDocument(ctx context.Context, payload v1.ExportPa
 	case payload.Status != nil:
 		return s.resolveStatusExportDocument(ctx, payload.ProjectID, payload.Status)
 	default:
-		return nil, core.NewError("INVALID_INPUT", "export requires exactly one selector", map[string]any{
+		return nil, backendError(v1.ErrCodeInvalidInput, "export requires exactly one selector", map[string]any{
 			"operation": "resolve_export_document",
 		})
 	}
@@ -61,7 +61,7 @@ func (s *Service) resolveContextExportDocument(ctx context.Context, projectID st
 		return nil, apiErr
 	}
 	if result.Receipt == nil {
-		return nil, core.NewError("INTERNAL_ERROR", "context export receipt is missing", map[string]any{
+		return nil, backendError(v1.ErrCodeInternalError, "context export receipt is missing", map[string]any{
 			"operation": "resolve_export_context",
 		})
 	}
@@ -337,7 +337,7 @@ func decodeFetchContent[T any](item v1.FetchItem) (*T, error) {
 }
 
 func exportContentDecodeError(item v1.FetchItem, err error) *core.APIError {
-	return core.NewError("INTERNAL_ERROR", "failed to decode fetch export content", map[string]any{
+	return backendError(v1.ErrCodeInternalError, "failed to decode fetch export content", map[string]any{
 		"operation": "decode_fetch_export_content",
 		"key":       strings.TrimSpace(item.Key),
 		"type":      strings.TrimSpace(item.Type),
@@ -354,7 +354,7 @@ func renderExportContent(format v1.ExportFormat, document *v1.ExportDocument) (s
 	default:
 		content, err := json.MarshalIndent(document, "", "  ")
 		if err != nil {
-			return "", core.NewError("INTERNAL_ERROR", "failed to render export content", map[string]any{
+			return "", backendError(v1.ErrCodeInternalError, "failed to render export content", map[string]any{
 				"operation": "render_export_json",
 				"error":     err.Error(),
 			})

@@ -46,6 +46,7 @@ type CommandEnvelope struct {
 type ErrorPayload struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Source  string `json:"source,omitempty"`
 	Details any    `json:"details,omitempty"`
 }
 

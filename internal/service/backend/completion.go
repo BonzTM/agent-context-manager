@@ -14,7 +14,7 @@ import (
 
 func (s *Service) Done(ctx context.Context, payload v1.DonePayload) (v1.DoneResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.DoneResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.DoneResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	receiptID, planKey, apiErr := resolveReceiptPlanSelection(payload.ProjectID, payload.ReceiptID, payload.PlanKey)
@@ -28,14 +28,10 @@ func (s *Service) Done(ctx context.Context, payload v1.DonePayload) (v1.DoneResu
 	})
 	if err != nil {
 		if errors.Is(err, core.ErrReceiptScopeNotFound) {
-			return v1.DoneResult{}, core.NewError(
-				"NOT_FOUND",
-				"receipt scope was not found",
-				map[string]any{
-					"project_id": strings.TrimSpace(payload.ProjectID),
-					"receipt_id": receiptID,
-				},
-			)
+			return v1.DoneResult{}, backendError(v1.ErrCodeNotFound, "receipt scope was not found", map[string]any{
+				"project_id": strings.TrimSpace(payload.ProjectID),
+				"receipt_id": receiptID,
+			})
 		}
 		return v1.DoneResult{}, reportCompletionInternalError("fetch_receipt_scope", err)
 	}
@@ -255,14 +251,10 @@ func missingReviewExecutionIssue(requiredKey string) string {
 }
 
 func reportCompletionInternalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to finish task closeout",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInternalError, "failed to finish task closeout", map[string]any{
+		"operation": operation,
+		"error":     err.Error(),
+	})
 }
 
 func effectiveScopeMode(mode v1.ScopeMode) v1.ScopeMode {

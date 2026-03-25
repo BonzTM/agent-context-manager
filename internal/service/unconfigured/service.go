@@ -25,7 +25,6 @@ func (s *Service) Export(_ context.Context, _ v1.ExportPayload) (v1.ExportResult
 	return v1.ExportResult{}, notImplemented("export")
 }
 
-
 func (s *Service) Review(_ context.Context, _ v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
 	return v1.ReviewResult{}, notImplemented("review")
 }
@@ -63,9 +62,10 @@ func (s *Service) Init(_ context.Context, _ v1.InitPayload) (v1.InitResult, *cor
 }
 
 func notImplemented(op string) *core.APIError {
-	return core.NewError(
-		"NOT_IMPLEMENTED",
+	return core.NewErrorWithSource(
+		v1.ErrCodeNotImplemented,
 		"service backend for operation is not wired yet",
+		v1.ErrSourceBackend,
 		map[string]any{"operation": op},
 	)
 }

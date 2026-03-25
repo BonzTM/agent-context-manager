@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
@@ -27,7 +28,7 @@ type inventoryHealthReport struct {
 
 func (s *Service) computeInventoryHealth(ctx context.Context, projectID, projectRoot string) (inventoryHealthReport, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return inventoryHealthReport{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return inventoryHealthReport{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	projectRoot = s.effectiveProjectRoot(projectRoot)
@@ -168,12 +169,8 @@ func unindexedDirectories(paths []string, pointerByPath map[string]core.PointerI
 }
 
 func inventoryInternalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to compute inventory health",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInternalError, "failed to compute inventory health", map[string]any{
+		"operation": operation,
+		"error":     err.Error(),
+	})
 }

@@ -14,7 +14,7 @@ import (
 
 func (s *Service) HistorySearch(ctx context.Context, payload v1.HistorySearchPayload) (v1.HistorySearchResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.HistorySearchResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.HistorySearchResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 	entity := normalizeHistoryEntity(payload.Entity)
 	scope := normalizeHistoryScope(payload.Scope)
@@ -77,17 +77,13 @@ func (s *Service) historyItems(ctx context.Context, projectID string, entity v1.
 		}
 		return allItems, nil
 	default:
-		return nil, core.NewError("INVALID_INPUT", "history entity is not supported", map[string]any{"entity": entity})
+		return nil, backendError(v1.ErrCodeInvalidInput, "history entity is not supported", map[string]any{"entity": entity})
 	}
 }
 
 func (s *Service) listWorkHistoryItems(ctx context.Context, projectID string, scope v1.HistoryScope, kind, query string, limit int, unbounded bool) ([]v1.HistoryItem, *core.APIError) {
 	if s.planRepo == nil {
-		return nil, core.NewError(
-			"NOT_IMPLEMENTED",
-			"work history search requires plan storage support",
-			map[string]any{"operation": "history", "entity": "work"},
-		)
+		return nil, backendError(v1.ErrCodeNotImplemented, "work history search requires plan storage support", map[string]any{"operation": "history", "entity": "work"})
 	}
 
 	rows, err := s.planRepo.ListWorkPlans(ctx, core.WorkPlanListQuery{
@@ -139,11 +135,7 @@ func (s *Service) listWorkHistoryItems(ctx context.Context, projectID string, sc
 
 func (s *Service) listReceiptHistoryItems(ctx context.Context, projectID, query string, limit int, unbounded bool) ([]v1.HistoryItem, *core.APIError) {
 	if s.historyRepo == nil {
-		return nil, core.NewError(
-			"NOT_IMPLEMENTED",
-			"receipt history search requires history storage support",
-			map[string]any{"operation": "history", "entity": "receipt"},
-		)
+		return nil, backendError(v1.ErrCodeNotImplemented, "receipt history search requires history storage support", map[string]any{"operation": "history", "entity": "receipt"})
 	}
 
 	rows, err := s.historyRepo.ListReceiptHistory(ctx, core.ReceiptHistoryListQuery{
@@ -183,11 +175,7 @@ func (s *Service) listReceiptHistoryItems(ctx context.Context, projectID, query 
 
 func (s *Service) listRunHistoryItems(ctx context.Context, projectID, query string, limit int, unbounded bool) ([]v1.HistoryItem, *core.APIError) {
 	if s.historyRepo == nil {
-		return nil, core.NewError(
-			"NOT_IMPLEMENTED",
-			"run history search requires history storage support",
-			map[string]any{"operation": "history", "entity": "run"},
-		)
+		return nil, backendError(v1.ErrCodeNotImplemented, "run history search requires history storage support", map[string]any{"operation": "history", "entity": "run"})
 	}
 
 	rows, err := s.historyRepo.ListRunHistory(ctx, core.RunHistoryListQuery{

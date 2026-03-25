@@ -12,10 +12,10 @@ import (
 )
 
 var (
-	requestIDRe  = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
-	projectIDRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$`)
-	testIDRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-	planKindRe   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+	requestIDRe = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
+	projectIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$`)
+	testIDRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	planKindRe  = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 )
 
 type ValidationDefaults struct {
@@ -29,21 +29,21 @@ func DecodeAndValidateCommand(data []byte) (CommandEnvelope, any, *ErrorPayload)
 func DecodeAndValidateCommandWithDefaults(data []byte, defaults ValidationDefaults) (CommandEnvelope, any, *ErrorPayload) {
 	var env CommandEnvelope
 	if err := decodeStrict(data, &env); err != nil {
-		return CommandEnvelope{}, nil, validationError("INVALID_JSON", err.Error())
+		return CommandEnvelope{}, nil, validationError(ErrCodeInvalidJSON, err.Error())
 	}
 
 	if env.Version != Version {
-		return CommandEnvelope{}, nil, validationError("INVALID_VERSION", "version must be acm.v1")
+		return CommandEnvelope{}, nil, validationError(ErrCodeInvalidVersion, "version must be acm.v1")
 	}
 	spec, ok := LookupCommand(env.Command)
 	if !ok {
-		return CommandEnvelope{}, nil, validationError("INVALID_COMMAND", "command is not recognized")
+		return CommandEnvelope{}, nil, validationError(ErrCodeInvalidCommand, "command is not recognized")
 	}
 	if !requestIDRe.MatchString(env.RequestID) {
-		return CommandEnvelope{}, nil, validationError("INVALID_REQUEST_ID", "request_id format is invalid")
+		return CommandEnvelope{}, nil, validationError(ErrCodeInvalidRequestID, "request_id format is invalid")
 	}
 	if len(env.Payload) == 0 || string(env.Payload) == "null" {
-		return CommandEnvelope{}, nil, validationError("INVALID_PAYLOAD", "payload is required")
+		return CommandEnvelope{}, nil, validationError(ErrCodeInvalidPayload, "payload is required")
 	}
 
 	payload, errp := spec.Decode(env.Payload, normalizeValidationDefaults(defaults))
@@ -984,5 +984,5 @@ func healthFixerStrings(fixers []HealthFixer) []string {
 }
 
 func validationError(code, message string) *ErrorPayload {
-	return &ErrorPayload{Code: code, Message: message}
+	return &ErrorPayload{Code: code, Message: message, Source: ErrSourceValidation}
 }

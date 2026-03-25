@@ -13,13 +13,12 @@ import (
 )
 
 const (
-	contextVersion     = "backend.context.v1"
-
+	contextVersion = "backend.context.v1"
 )
 
 func (s *Service) Context(ctx context.Context, payload v1.ContextPayload) (v1.ContextResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.ContextResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.ContextResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	projectRoot := s.defaultProjectRoot()
@@ -117,7 +116,6 @@ func loadCanonicalContextRules(projectRoot, projectID string, tagNormalizer cano
 	return selected, normalizeValues(ruleKeys), mapKeysSorted(tagSet), nil
 }
 
-
 func makeContextRules(selected []core.CandidatePointer) []v1.ContextRule {
 	out := make([]v1.ContextRule, 0, len(selected))
 	for _, entry := range selected {
@@ -175,7 +173,6 @@ func ruleEnforcementFromTags(tags []string) string {
 	}
 	return "required"
 }
-
 
 func (s *Service) makeContextPlans(ctx context.Context, projectID, receiptID string, unbounded bool) []v1.ContextPlan {
 	if s != nil && s.planRepo != nil {
@@ -303,7 +300,6 @@ func pointerSummary(pointer core.CandidatePointer) string {
 	return description
 }
 
-
 func mapKeysSorted(values map[string]struct{}) []string {
 	if len(values) == 0 {
 		return nil
@@ -317,12 +313,8 @@ func mapKeysSorted(values map[string]struct{}) []string {
 }
 
 func internalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to resolve context",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInternalError, "failed to resolve context", map[string]any{
+		"operation": operation,
+		"error":     err.Error(),
+	})
 }

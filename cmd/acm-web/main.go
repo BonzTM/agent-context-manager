@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/buildinfo"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/logging"
 	"github.com/bonztm/agent-context-manager/internal/runtime"
 	"github.com/bonztm/agent-context-manager/web"
@@ -67,7 +68,7 @@ func serve(ctx context.Context, logger logging.Logger, args []string) int {
 
 	svc, cleanup, err := runtime.NewServiceFromEnvWithLogger(ctx, logger)
 	if err != nil {
-		logger.Error(ctx, logging.EventACMRun, "stage", "service_init", "ok", false, "error_code", "SERVICE_INIT_FAILED")
+		logger.Error(ctx, logging.EventACMRun, "stage", "service_init", "ok", false, "error_code", v1.ErrCodeServiceInitFailed)
 		fmt.Fprintf(os.Stderr, "failed to initialize service: %v\n", err)
 		return 1
 	}

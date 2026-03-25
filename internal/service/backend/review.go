@@ -30,7 +30,7 @@ type reviewPlanState struct {
 
 func (s *Service) Review(ctx context.Context, payload v1.ReviewPayload) (v1.ReviewResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.ReviewResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.ReviewResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	normalized := v1.NormalizeReviewPayload(payload)
@@ -51,14 +51,10 @@ func (s *Service) Review(ctx context.Context, payload v1.ReviewPayload) (v1.Revi
 			return v1.ReviewResult{}, workflowDefinitionsAPIError(source.SourcePath, err)
 		}
 		if definition, ok := findWorkflowRequiredTaskDefinition(definitions, normalized.Key); ok && definition.Run != nil && normalized.Status == v1.WorkItemStatusComplete {
-			return v1.ReviewResult{}, core.NewError(
-				"INVALID_INPUT",
-				"runnable review gates require run=true to record a completed result",
-				map[string]any{
-					"review_key":           normalized.Key,
-					"workflow_source_path": source.SourcePath,
-				},
-			)
+			return v1.ReviewResult{}, backendError(v1.ErrCodeInvalidInput, "runnable review gates require run=true to record a completed result", map[string]any{
+				"review_key":           normalized.Key,
+				"workflow_source_path": source.SourcePath,
+			})
 		}
 
 		evidence := mergeReviewTaskEvidence(state.Task, normalized.Evidence, latestReviewAttemptRef(attempts))
@@ -88,24 +84,16 @@ func (s *Service) Review(ctx context.Context, payload v1.ReviewPayload) (v1.Revi
 	}
 	definition, ok := findWorkflowRequiredTaskDefinition(definitions, normalized.Key)
 	if !ok {
-		return v1.ReviewResult{}, core.NewError(
-			"INVALID_INPUT",
-			"review key is not configured in workflow definitions",
-			map[string]any{
-				"review_key":           normalized.Key,
-				"workflow_source_path": source.SourcePath,
-			},
-		)
+		return v1.ReviewResult{}, backendError(v1.ErrCodeInvalidInput, "review key is not configured in workflow definitions", map[string]any{
+			"review_key":           normalized.Key,
+			"workflow_source_path": source.SourcePath,
+		})
 	}
 	if definition.Run == nil {
-		return v1.ReviewResult{}, core.NewError(
-			"INVALID_INPUT",
-			"review key does not define a runnable workflow command",
-			map[string]any{
-				"review_key":           normalized.Key,
-				"workflow_source_path": source.SourcePath,
-			},
-		)
+		return v1.ReviewResult{}, backendError(v1.ErrCodeInvalidInput, "review key does not define a runnable workflow command", map[string]any{
+			"review_key":           normalized.Key,
+			"workflow_source_path": source.SourcePath,
+		})
 	}
 	reviewSummary := firstNonEmpty(payload.Summary, definition.Summary, normalized.Summary)
 
@@ -217,7 +205,7 @@ executeReview:
 		CreatedAt:          run.FinishedAt,
 	})
 	if err != nil {
-		return v1.ReviewResult{}, core.NewError("INTERNAL_ERROR", "failed to persist review attempt", map[string]any{
+		return v1.ReviewResult{}, backendError(v1.ErrCodeInternalError, "failed to persist review attempt", map[string]any{
 			"review_key": normalized.Key,
 			"error":      err.Error(),
 		})
@@ -234,16 +222,12 @@ executeReview:
 	outcome := summarizeReviewOutcome(run, passed, attemptsRun, definition.MaxAttempts, passingRuns)
 	workResult, apiErr := s.updateReviewSnapshot(ctx, normalized, state, reviewSummary, taskStatus, outcome, reviewAttemptRef(attemptID))
 	if apiErr != nil {
-		return v1.ReviewResult{}, core.NewError(
-			apiErr.Code,
-			"review gate ran but failed to update review task",
-			map[string]any{
-				"review_key":       normalized.Key,
-				"wrapped_code":     apiErr.Code,
-				"wrapped_message":  apiErr.Message,
-				"workflow_command": append([]string(nil), definition.Run.Argv...),
-			},
-		)
+		return v1.ReviewResult{}, backendError(apiErr.Code, "review gate ran but failed to update review task", map[string]any{
+			"review_key":       normalized.Key,
+			"wrapped_code":     apiErr.Code,
+			"wrapped_message":  apiErr.Message,
+			"workflow_command": append([]string(nil), definition.Run.Argv...),
+		})
 	}
 
 	return v1.ReviewResultFromWork(
@@ -311,7 +295,7 @@ func (s *Service) loadReviewPlanState(ctx context.Context, projectID, planKey, r
 	if normalizedPlanKey != "" {
 		derivedReceiptID, ok := parsePlanFetchKey(normalizedPlanKey)
 		if !ok {
-			return reviewPlanState{}, core.NewError("INVALID_INPUT", "plan_key must use format plan:<receipt_id>", map[string]any{"plan_key": normalizedPlanKey})
+			return reviewPlanState{}, backendError(v1.ErrCodeInvalidInput, "plan_key must use format plan:<receipt_id>", map[string]any{"plan_key": normalizedPlanKey})
 		}
 		if normalizedReceiptID == "" {
 			normalizedReceiptID = derivedReceiptID
@@ -390,7 +374,7 @@ func (s *Service) fetchReviewReceiptScope(ctx context.Context, projectID, receip
 	})
 	if err != nil {
 		if errors.Is(err, core.ErrReceiptScopeNotFound) {
-			return core.ReceiptScope{}, core.NewError("NOT_FOUND", "receipt scope was not found", map[string]any{
+			return core.ReceiptScope{}, backendError(v1.ErrCodeNotFound, "receipt scope was not found", map[string]any{
 				"project_id": strings.TrimSpace(projectID),
 				"receipt_id": strings.TrimSpace(receiptID),
 			})
@@ -407,7 +391,7 @@ func (s *Service) listReviewAttempts(ctx context.Context, projectID, receiptID, 
 		ReviewKey: strings.TrimSpace(reviewKey),
 	})
 	if err != nil {
-		return nil, core.NewError("INTERNAL_ERROR", "failed to list review attempts", map[string]any{
+		return nil, backendError(v1.ErrCodeInternalError, "failed to list review attempts", map[string]any{
 			"project_id": strings.TrimSpace(projectID),
 			"receipt_id": strings.TrimSpace(receiptID),
 			"review_key": strings.TrimSpace(reviewKey),
@@ -493,7 +477,7 @@ func workflowRunnerFingerprints(projectRoot string, command workflowRunDefinitio
 		case errors.Is(err, os.ErrNotExist):
 			continue
 		case err != nil:
-			return nil, core.NewError("INTERNAL_ERROR", "failed to read workflow runner file", map[string]any{
+			return nil, backendError(v1.ErrCodeInternalError, "failed to read workflow runner file", map[string]any{
 				"path":  rawArg,
 				"error": err.Error(),
 			})
@@ -541,7 +525,7 @@ func collectReviewFingerprintEntries(projectRoot string, scopePaths []string) ([
 			entries[relativePath] = reviewFingerprintEntry{Path: relativePath, Kind: "missing"}
 			continue
 		case err != nil:
-			return nil, core.NewError("INTERNAL_ERROR", "failed to stat scoped review file", map[string]any{
+			return nil, backendError(v1.ErrCodeInternalError, "failed to stat scoped review file", map[string]any{
 				"path":  relativePath,
 				"error": err.Error(),
 			})
@@ -562,7 +546,7 @@ func collectReviewFingerprintEntries(projectRoot string, scopePaths []string) ([
 
 		blob, err := os.ReadFile(absolutePath)
 		if err != nil {
-			return nil, core.NewError("INTERNAL_ERROR", "failed to read scoped review file", map[string]any{
+			return nil, backendError(v1.ErrCodeInternalError, "failed to read scoped review file", map[string]any{
 				"path":  relativePath,
 				"error": err.Error(),
 			})
@@ -621,7 +605,7 @@ func collectReviewDirectoryFingerprintEntries(projectRoot, rootRelative string) 
 		return nil
 	})
 	if err != nil {
-		return nil, core.NewError("INTERNAL_ERROR", "failed to walk scoped review directory", map[string]any{
+		return nil, backendError(v1.ErrCodeInternalError, "failed to walk scoped review directory", map[string]any{
 			"path":  rootRelative,
 			"error": err.Error(),
 		})
@@ -805,18 +789,10 @@ func reviewExecutionFromRun(sourcePath string, command workflowRunDefinition, ru
 
 func workflowDefinitionsAPIError(sourcePath string, err error) *core.APIError {
 	if errors.Is(err, os.ErrNotExist) {
-		return core.NewError(
-			"NOT_FOUND",
-			"workflow definitions file was not found",
-			map[string]any{"workflow_source_path": sourcePath},
-		)
+		return backendError(v1.ErrCodeNotFound, "workflow definitions file was not found", map[string]any{"workflow_source_path": sourcePath})
 	}
-	return core.NewError(
-		"INVALID_INPUT",
-		"workflow definitions are invalid",
-		map[string]any{
-			"workflow_source_path": sourcePath,
-			"error":                err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInvalidInput, "workflow definitions are invalid", map[string]any{
+		"workflow_source_path": sourcePath,
+		"error":                err.Error(),
+	})
 }

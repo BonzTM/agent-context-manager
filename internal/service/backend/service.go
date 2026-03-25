@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	bootstrapkit "github.com/bonztm/agent-context-manager/internal/bootstrap"
+	"github.com/bonztm/agent-context-manager/internal/contracts/v1"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/workspace"
 )
@@ -264,9 +265,5 @@ func normalizeValues(values []string) []string {
 }
 
 func notImplemented(op string) *core.APIError {
-	return core.NewError(
-		"NOT_IMPLEMENTED",
-		"service backend for operation is not wired yet",
-		map[string]any{"operation": op},
-	)
+	return backendError(v1.ErrCodeNotImplemented, "service backend for operation is not wired yet", map[string]any{"operation": op})
 }

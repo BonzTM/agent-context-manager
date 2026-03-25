@@ -12,7 +12,7 @@ import (
 
 func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.WorkResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.WorkResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	projectID := strings.TrimSpace(payload.ProjectID)
@@ -20,14 +20,10 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 	planKey := strings.TrimSpace(rawPlanKey)
 	receiptID := strings.TrimSpace(payload.ReceiptID)
 	if rawPlanKey != "" && rawPlanKey != planKey {
-		return v1.WorkResult{}, core.NewError(
-			"INVALID_INPUT",
-			"plan_key must not include surrounding whitespace",
-			map[string]any{
-				"project_id": projectID,
-				"plan_key":   rawPlanKey,
-			},
-		)
+		return v1.WorkResult{}, backendError(v1.ErrCodeInvalidInput, "plan_key must not include surrounding whitespace", map[string]any{
+			"project_id": projectID,
+			"plan_key":   rawPlanKey,
+		})
 	}
 	if planKey == "" && receiptID != "" {
 		planKey = "plan:" + receiptID
@@ -35,39 +31,27 @@ func (s *Service) Work(ctx context.Context, payload v1.WorkPayload) (v1.WorkResu
 	if planKey != "" {
 		derivedReceiptID, ok := parsePlanFetchKey(planKey)
 		if !ok {
-			return v1.WorkResult{}, core.NewError(
-				"INVALID_INPUT",
-				"plan_key must use format plan:<receipt_id>",
-				map[string]any{
-					"project_id": projectID,
-					"plan_key":   planKey,
-				},
-			)
+			return v1.WorkResult{}, backendError(v1.ErrCodeInvalidInput, "plan_key must use format plan:<receipt_id>", map[string]any{
+				"project_id": projectID,
+				"plan_key":   planKey,
+			})
 		}
 		if receiptID == "" {
 			receiptID = derivedReceiptID
 		} else if receiptID != derivedReceiptID {
-			return v1.WorkResult{}, core.NewError(
-				"INVALID_INPUT",
-				"plan_key and receipt_id must reference the same receipt",
-				map[string]any{
-					"project_id":          projectID,
-					"plan_key":            planKey,
-					"receipt_id":          receiptID,
-					"plan_key_receipt_id": derivedReceiptID,
-				},
-			)
+			return v1.WorkResult{}, backendError(v1.ErrCodeInvalidInput, "plan_key and receipt_id must reference the same receipt", map[string]any{
+				"project_id":          projectID,
+				"plan_key":            planKey,
+				"receipt_id":          receiptID,
+				"plan_key_receipt_id": derivedReceiptID,
+			})
 		}
 	}
 	if planKey == "" {
-		return v1.WorkResult{}, core.NewError(
-			"INVALID_INPUT",
-			"plan_key or receipt_id is required",
-			map[string]any{
-				"project_id": projectID,
-				"plan_key":   planKey,
-			},
-		)
+		return v1.WorkResult{}, backendError(v1.ErrCodeInvalidInput, "plan_key or receipt_id is required", map[string]any{
+			"project_id": projectID,
+			"plan_key":   planKey,
+		})
 	}
 
 	workItems := workPayloadTasks(payload)
@@ -527,12 +511,8 @@ func isTerminalPlanStatus(raw string) bool {
 }
 
 func workInternalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to persist work state",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInternalError, "failed to persist work state", map[string]any{
+		"operation": operation,
+		"error":     err.Error(),
+	})
 }

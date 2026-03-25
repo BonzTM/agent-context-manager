@@ -51,7 +51,7 @@ var handlers = map[v1.Command]handlerFunc{
 func Dispatch(ctx context.Context, svc core.Service, command v1.Command, payload any) (any, *core.APIError) {
 	handler, ok := handlers[command]
 	if !ok {
-		return nil, core.NewError("INVALID_COMMAND", "command is not recognized", nil)
+		return nil, core.NewErrorWithSource(v1.ErrCodeInvalidCommand, "command is not recognized", v1.ErrSourceDispatch, nil)
 	}
 	return handler(ctx, svc, payload)
 }

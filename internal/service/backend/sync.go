@@ -21,7 +21,7 @@ import (
 
 func (s *Service) Sync(ctx context.Context, payload v1.SyncPayload) (v1.SyncResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.SyncResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.SyncResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	mode := normalizeSyncMode(payload.Mode)
@@ -614,12 +614,8 @@ func syncOperationFromError(err error) string {
 }
 
 func syncInternalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to sync project",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInternalError, "failed to sync project", map[string]any{
+		"operation": operation,
+		"error":     err.Error(),
+	})
 }

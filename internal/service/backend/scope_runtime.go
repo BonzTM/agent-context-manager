@@ -24,7 +24,7 @@ func (s *Service) captureWorkingTreeBaseline(ctx context.Context, projectRoot st
 			"project_root": strings.TrimSpace(projectRoot),
 			"git_error":    err.Error(),
 		}
-		return nil, core.NewError("INTERNAL_ERROR", "failed to capture working-tree baseline", details)
+		return nil, backendError(v1.ErrCodeInternalError, "failed to capture working-tree baseline", details)
 	}
 
 	paths, walkErr := s.captureWorkingTreeBaselineFromWalk(ctx, projectRoot)
@@ -39,7 +39,7 @@ func (s *Service) captureWorkingTreeBaseline(ctx context.Context, projectRoot st
 	if walkErr != nil {
 		details["walk_error"] = walkErr.Error()
 	}
-	return nil, core.NewError("INTERNAL_ERROR", "failed to capture working-tree baseline", details)
+	return nil, backendError(v1.ErrCodeInternalError, "failed to capture working-tree baseline", details)
 }
 
 func projectRootContainsGitDir(projectRoot string) bool {
@@ -248,40 +248,28 @@ func resolveReceiptPlanSelection(projectID, receiptID, planKey string) (string, 
 	if normalizedPlanKey != "" {
 		derivedReceiptID, ok := parsePlanFetchKey(normalizedPlanKey)
 		if !ok {
-			return "", "", core.NewError(
-				"INVALID_INPUT",
-				"plan_key must use format plan:<receipt_id>",
-				map[string]any{
-					"project_id": strings.TrimSpace(projectID),
-					"plan_key":   normalizedPlanKey,
-				},
-			)
+			return "", "", backendError(v1.ErrCodeInvalidInput, "plan_key must use format plan:<receipt_id>", map[string]any{
+				"project_id": strings.TrimSpace(projectID),
+				"plan_key":   normalizedPlanKey,
+			})
 		}
 		if normalizedReceiptID == "" {
 			normalizedReceiptID = derivedReceiptID
 		} else if normalizedReceiptID != derivedReceiptID {
-			return "", "", core.NewError(
-				"INVALID_INPUT",
-				"plan_key and receipt_id must reference the same receipt",
-				map[string]any{
-					"project_id":          strings.TrimSpace(projectID),
-					"plan_key":            normalizedPlanKey,
-					"receipt_id":          normalizedReceiptID,
-					"plan_key_receipt_id": derivedReceiptID,
-				},
-			)
+			return "", "", backendError(v1.ErrCodeInvalidInput, "plan_key and receipt_id must reference the same receipt", map[string]any{
+				"project_id":          strings.TrimSpace(projectID),
+				"plan_key":            normalizedPlanKey,
+				"receipt_id":          normalizedReceiptID,
+				"plan_key_receipt_id": derivedReceiptID,
+			})
 		}
 	}
 	if normalizedReceiptID == "" {
-		return "", "", core.NewError(
-			"INVALID_INPUT",
-			"receipt_id or plan_key is required",
-			map[string]any{
-				"project_id": strings.TrimSpace(projectID),
-				"plan_key":   normalizedPlanKey,
-				"receipt_id": normalizedReceiptID,
-			},
-		)
+		return "", "", backendError(v1.ErrCodeInvalidInput, "receipt_id or plan_key is required", map[string]any{
+			"project_id": strings.TrimSpace(projectID),
+			"plan_key":   normalizedPlanKey,
+			"receipt_id": normalizedReceiptID,
+		})
 	}
 	return normalizedReceiptID, normalizedPlanKey, nil
 }
@@ -311,7 +299,7 @@ func (s *Service) loadEffectiveWorkPlan(ctx context.Context, projectID, receiptI
 	if errors.Is(err, core.ErrWorkPlanNotFound) {
 		return nil, nil
 	}
-	return nil, core.NewError("INTERNAL_ERROR", "failed to load work plan", map[string]any{
+	return nil, backendError(v1.ErrCodeInternalError, "failed to load work plan", map[string]any{
 		"project_id": strings.TrimSpace(projectID),
 		"plan_key":   normalizedPlanKey,
 		"receipt_id": normalizedReceiptID,
@@ -330,11 +318,7 @@ func resolveDoneFilesChanged(reliable bool, detected, supplied []string, noFileC
 	if reliable {
 		normalizedDetected := normalizeCompletionPaths(detected)
 		if noFileChanges && len(normalizedDetected) > 0 {
-			return nil, core.NewError(
-				"INVALID_INPUT",
-				"no_file_changes cannot be used when ACM detected file changes",
-				map[string]any{"files_changed": normalizedDetected},
-			)
+			return nil, backendError(v1.ErrCodeInvalidInput, "no_file_changes cannot be used when ACM detected file changes", map[string]any{"files_changed": normalizedDetected})
 		}
 		return normalizedDetected, nil
 	}
@@ -344,11 +328,7 @@ func resolveDoneFilesChanged(reliable bool, detected, supplied []string, noFileC
 
 	normalizedSupplied := normalizeCompletionPaths(supplied)
 	if len(normalizedSupplied) == 0 {
-		return nil, core.NewError(
-			"INVALID_INPUT",
-			"automatic task delta detection is unavailable; provide files_changed or set no_file_changes",
-			nil,
-		)
+		return nil, backendError(v1.ErrCodeInvalidInput, "automatic task delta detection is unavailable; provide files_changed or set no_file_changes", nil)
 	}
 	return normalizedSupplied, nil
 }

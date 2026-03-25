@@ -35,7 +35,7 @@ func (s *Service) Health(ctx context.Context, payload v1.HealthPayload) (v1.Heal
 
 func (s *Service) healthCheck(ctx context.Context, payload v1.HealthPayload) (v1.HealthCheckResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.HealthCheckResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.HealthCheckResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	candidates, err := s.repo.FetchCandidatePointers(ctx, core.CandidatePointerQuery{
@@ -77,7 +77,7 @@ func (s *Service) healthCheck(ctx context.Context, payload v1.HealthPayload) (v1
 
 func (s *Service) Init(ctx context.Context, payload v1.InitPayload) (v1.InitResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.InitResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.InitResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	projectRoot := s.effectiveProjectRoot(payload.ProjectRoot)
@@ -87,11 +87,7 @@ func (s *Service) Init(ctx context.Context, payload v1.InitPayload) (v1.InitResu
 	if err != nil {
 		var unknown bootstrapkit.UnknownTemplateError
 		if errors.As(err, &unknown) {
-			return v1.InitResult{}, core.NewError(
-				"INVALID_INPUT",
-				"unknown init template",
-				map[string]any{"template_id": unknown.TemplateID},
-			)
+			return v1.InitResult{}, backendError(v1.ErrCodeInvalidInput, "unknown init template", map[string]any{"template_id": unknown.TemplateID})
 		}
 		return v1.InitResult{}, initInternalError("load_templates", err)
 	}
@@ -481,25 +477,17 @@ func isManagedProjectPath(raw string) bool {
 }
 
 func healthCheckInternalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to run health check",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInternalError, "failed to run health check", map[string]any{
+		"operation": operation,
+		"error":     err.Error(),
+	})
 }
 
 func initInternalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to initialize project state",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInternalError, "failed to initialize project state", map[string]any{
+		"operation": operation,
+		"error":     err.Error(),
+	})
 }
 
 func derefString(value *string) string {

@@ -17,7 +17,7 @@ var defaultHealthFixers = []v1.HealthFixer{
 
 func (s *Service) healthFix(ctx context.Context, payload v1.HealthPayload) (v1.HealthFixResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.HealthFixResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.HealthFixResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	projectID := strings.TrimSpace(payload.ProjectID)
@@ -234,12 +234,8 @@ func healthFixSummary(dryRun bool, fixerCount, totalPlanned, totalApplied int) s
 }
 
 func healthFixInternalError(operation string, err error) *core.APIError {
-	return core.NewError(
-		"INTERNAL_ERROR",
-		"failed to apply health fixes",
-		map[string]any{
-			"operation": operation,
-			"error":     err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInternalError, "failed to apply health fixes", map[string]any{
+		"operation": operation,
+		"error":     err.Error(),
+	})
 }

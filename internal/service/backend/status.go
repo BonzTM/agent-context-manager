@@ -33,7 +33,7 @@ var statusTemplateIDs = []string{
 
 func (s *Service) Status(ctx context.Context, payload v1.StatusPayload) (v1.StatusResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.StatusResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.StatusResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	projectRoot := s.effectiveProjectRoot(payload.ProjectRoot)

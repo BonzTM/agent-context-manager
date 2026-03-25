@@ -93,8 +93,6 @@ func (h *handler) getPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-
-
 func (h *handler) getStatus(w http.ResponseWriter, r *http.Request) {
 	result, apiErr := h.svc.Status(context.Background(), v1.StatusPayload{
 		ProjectID: h.projectID,
@@ -116,9 +114,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeAPIError(w http.ResponseWriter, apiErr *core.APIError) {
 	status := http.StatusInternalServerError
-	if apiErr.Code == "NOT_FOUND" {
+	if apiErr.Code == v1.ErrCodeNotFound {
 		status = http.StatusNotFound
-	} else if apiErr.Code == "VALIDATION_ERROR" || apiErr.Code == "INVALID_PAYLOAD" {
+	} else if apiErr.Code == v1.ErrCodeValidationError || apiErr.Code == v1.ErrCodeInvalidPayload {
 		status = http.StatusBadRequest
 	}
 	w.Header().Set("Content-Type", "application/json")

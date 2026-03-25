@@ -136,11 +136,11 @@ type verifyCommandRun struct {
 
 func (s *Service) Verify(ctx context.Context, payload v1.VerifyPayload) (v1.VerifyResult, *core.APIError) {
 	if s == nil || s.repo == nil {
-		return v1.VerifyResult{}, core.NewError("INTERNAL_ERROR", "service repository is not configured", nil)
+		return v1.VerifyResult{}, backendError(v1.ErrCodeInternalError, "service repository is not configured", nil)
 	}
 
 	if s.verifyRepo == nil {
-		return v1.VerifyResult{}, core.NewError("INTERNAL_ERROR", "verification storage is not configured", nil)
+		return v1.VerifyResult{}, backendError(v1.ErrCodeInternalError, "verification storage is not configured", nil)
 	}
 
 	projectID := strings.TrimSpace(payload.ProjectID)
@@ -464,11 +464,7 @@ func (s *Service) resolveVerifySelectionContext(ctx context.Context, payload v1.
 	if selection.ReceiptID == "" && selection.PlanKey != "" {
 		derivedReceiptID, ok := parsePlanFetchKey(selection.PlanKey)
 		if !ok {
-			return verifySelectionContext{}, core.NewError(
-				"INVALID_INPUT",
-				"plan_key must use format plan:<receipt_id>",
-				map[string]any{"plan_key": selection.PlanKey},
-			)
+			return verifySelectionContext{}, backendError(v1.ErrCodeInvalidInput, "plan_key must use format plan:<receipt_id>", map[string]any{"plan_key": selection.PlanKey})
 		}
 		selection.ReceiptID = derivedReceiptID
 	}
@@ -483,14 +479,10 @@ func (s *Service) resolveVerifySelectionContext(ctx context.Context, payload v1.
 	})
 	if err != nil {
 		if errors.Is(err, core.ErrReceiptScopeNotFound) {
-			return verifySelectionContext{}, core.NewError(
-				"NOT_FOUND",
-				"receipt scope was not found",
-				map[string]any{
-					"project_id": strings.TrimSpace(payload.ProjectID),
-					"receipt_id": selection.ReceiptID,
-				},
-			)
+			return verifySelectionContext{}, backendError(v1.ErrCodeNotFound, "receipt scope was not found", map[string]any{
+				"project_id": strings.TrimSpace(payload.ProjectID),
+				"receipt_id": selection.ReceiptID,
+			})
 		}
 		return verifySelectionContext{}, verifyInternalError("fetch_receipt_scope", err, "")
 	}
@@ -518,11 +510,7 @@ func selectVerifyDefinitions(definitions []verifyTestDefinition, payload v1.Veri
 			testID := strings.ToLower(strings.TrimSpace(rawID))
 			definition, ok := byID[testID]
 			if !ok {
-				return nil, core.NewError(
-					"INVALID_INPUT",
-					"unknown test_id",
-					map[string]any{"test_id": testID},
-				)
+				return nil, backendError(v1.ErrCodeInvalidInput, "unknown test_id", map[string]any{"test_id": testID})
 			}
 			selected = append(selected, verifySelectedTest{
 				Definition:       definition,
@@ -785,15 +773,11 @@ func (s *Service) updateVerifyWork(ctx context.Context, projectID string, select
 		}},
 	})
 	if apiErr != nil {
-		return core.NewError(
-			apiErr.Code,
-			"verification ran but failed to update verify:tests",
-			map[string]any{
-				"batch_run_id":    batchRunID,
-				"wrapped_code":    apiErr.Code,
-				"wrapped_message": apiErr.Message,
-			},
-		)
+		return backendError(apiErr.Code, "verification ran but failed to update verify:tests", map[string]any{
+			"batch_run_id":    batchRunID,
+			"wrapped_code":    apiErr.Code,
+			"wrapped_message": apiErr.Message,
+		})
 	}
 	return nil
 }
@@ -1105,20 +1089,12 @@ func newVerifyBatchRunID() (string, error) {
 
 func verifyDefinitionsAPIError(sourcePath string, err error) *core.APIError {
 	if errors.Is(err, os.ErrNotExist) {
-		return core.NewError(
-			"NOT_FOUND",
-			"verification definitions file was not found",
-			map[string]any{"tests_source_path": sourcePath},
-		)
+		return backendError(v1.ErrCodeNotFound, "verification definitions file was not found", map[string]any{"tests_source_path": sourcePath})
 	}
-	return core.NewError(
-		"INVALID_INPUT",
-		"verification definitions are invalid",
-		map[string]any{
-			"tests_source_path": sourcePath,
-			"error":             err.Error(),
-		},
-	)
+	return backendError(v1.ErrCodeInvalidInput, "verification definitions are invalid", map[string]any{
+		"tests_source_path": sourcePath,
+		"error":             err.Error(),
+	})
 }
 
 func verifyInternalError(operation string, err error, batchRunID string) *core.APIError {
@@ -1129,5 +1105,5 @@ func verifyInternalError(operation string, err error, batchRunID string) *core.A
 	if strings.TrimSpace(batchRunID) != "" {
 		details["batch_run_id"] = batchRunID
 	}
-	return core.NewError("INTERNAL_ERROR", "failed to run verify", details)
+	return backendError(v1.ErrCodeInternalError, "failed to run verify", details)
 }
