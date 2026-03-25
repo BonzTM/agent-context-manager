@@ -1,7 +1,7 @@
 # Getting Started
 
 This guide walks you through setting up acm in a project from scratch. Steps 1-4 are human setup. Steps 5+ show the agent-facing operations and how to wire them into your tools.
-The public contract is built around the smaller core surface described here rather than preserving every older alias or workflow shape.
+The public contract is built around the smaller core surface described here rather than preserving every older alias or workflow shape. See the [Integration Guide](integration.md), [CLI Reference](cli-reference.md), and [MCP Reference](mcp-reference.md) for full command and tool details.
 
 This guide is for adopting ACM in another repository. If you are maintaining ACM itself, use [AGENTS.md](../AGENTS.md), [docs/maintainer-map.md](maintainer-map.md), and [docs/maintainer-reference.md](maintainer-reference.md) for the repo-specific maintainer workflow instead of treating this file as the maintainer contract.
 
@@ -545,21 +545,21 @@ There is intentionally no undocumented global OpenCode skill path or hidden hook
 
 ### MCP
 
-For models with native tool support, use the MCP adapter:
+For models with native tool support, use the MCP adapter. It is a JSON-RPC 2.0 stdio server:
 
 ```bash
-acm-mcp tools          # list all 13 available tools
-acm-mcp invoke --tool context --in payload.json
+# acm-mcp implements the MCP protocol over stdio
+acm-mcp
 ```
 
-The MCP adapter exposes the same 12 convenience-routed operations plus one backend-only export surface:
+See the [Integration Guide](integration.md) for how to wire `acm-mcp` into your runtime and the [MCP Reference](mcp-reference.md) for tool details. The adapter exposes 12 convenience-routed operations plus one backend-only export surface:
 
 - **Core** (4): `context`, `work`, `verify`, `done`
 - **Supporting** (3): `fetch`, `review`, `history`
 - **Advanced backend-only** (1): `export`
 - **Maintenance** (4): `sync`, `health`, `status`, `init`
 
-Use `export` through `acm run --in <request.json>` or `acm-mcp invoke --tool export --in <payload.json>` when you need stable JSON or Markdown output for ACM-owned context, fetch, history, or status data. Example envelope: [examples/export-request.json](examples/export-request.json).
+Use `export` through `acm run --in <request.json>` or as a `tools/call` JSON-RPC request to the `acm-mcp` server when you need stable JSON or Markdown output for ACM-owned context, fetch, history, or status data. Example envelope: [examples/export-request.json](examples/export-request.json).
 
 For interactive CLI use, `context`, `fetch`, `history`, and `status` also accept `--format json|markdown`, plus `--out-file` and `--force`, to emit raw rendered artifacts through that same backend export path. Example command: [examples/context-export-command.txt](examples/context-export-command.txt).
 
