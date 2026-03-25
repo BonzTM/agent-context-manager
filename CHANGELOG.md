@@ -6,13 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Fixed
+Architectural retrofit applying patterns from [AMM](https://github.com/bonztm/agent-memory-manager): ultra-thin entrypoints, JSON-RPC 2.0 MCP protocol, centralized error codes, and expanded documentation.
 
 ### Added
 
+- JSON-RPC 2.0 stdio MCP server — `acm-mcp` now implements the standard MCP protocol (`initialize`, `tools/list`, `tools/call`) over line-delimited JSON on stdin/stdout
+- `internal/contracts/v1/errors.go` — centralized error code constants (`ErrCodeInvalidJSON`, `ErrCodeUnknownTool`, etc.) and error source constants (`ErrSourceValidation`, `ErrSourceDispatch`, `ErrSourceBackend`, `ErrSourceAdapter`)
+- `Source` field on `ErrorPayload` and `core.APIError` — traces error origin for debugging (`json:"source,omitempty"`)
+- `core.NewErrorWithSource()` constructor — creates errors with explicit source tagging
+- `internal/service/backend/errors.go` — backend error helper stamping `ErrSourceBackend`
+- `internal/contracts/v1/command_catalog_test.go` — catalog completeness test asserting all 12 specs have non-empty metadata, no duplicates
+- `internal/contracts/v1/errors_test.go` — error code uniqueness and format tests, `ErrorPayload.Source` JSON round-trip test
+- `internal/core/errors_test.go` — `APIError.ToPayload()` source propagation test
+- `internal/adapters/mcp/jsonrpc.go` — JSON-RPC 2.0 request/response types, parse/serialize helpers, standard error codes
+- `internal/adapters/mcp/protocol.go` — MCP method dispatch: `initialize`, `notifications/initialized`, `tools/list`, `tools/call`
+- `internal/adapters/mcp/server.go` — line-delimited stdio server loop
+- `internal/adapters/mcp/jsonrpc_test.go`, `protocol_test.go`, `app_test.go` — full test coverage for JSON-RPC parsing, MCP protocol methods, and server startup
+- `docs/architecture.md` — layer diagram, request lifecycle, error propagation, storage parity, command catalog reference
+- `docs/cli-reference.md` — full CLI command reference extracted from README
+- `docs/mcp-reference.md` — MCP protocol reference rewritten for JSON-RPC 2.0
+- `docs/integration.md` — generic integration guide with handshake flow, tool calling, runtime configuration snippets
+
 ### Changed
 
+- **BREAKING**: `acm-mcp` is now a JSON-RPC 2.0 stdio server; `acm-mcp tools` and `acm-mcp invoke` subcommands removed
+- `cmd/acm/main.go` — reduced to 11-line thin shell delegating to `cli.RunCLI()`
+- `cmd/acm-mcp/main.go` — reduced to 11-line thin shell delegating to `mcp.RunMCP()`
+- CLI routing (`convenience.go`, `routes.go`) moved from `cmd/acm/` to `internal/adapters/cli/`
+- MCP dispatch logic moved from `cmd/acm-mcp/` to `internal/adapters/mcp/`
+- `internal/adapters/mcp/invoke.go` — `ToolDef` updated to MCP format (`inputSchema` camelCase, `title` and `output_schema` removed)
+- `spec/v1/mcp.tools.v1.json` — tool contract schema updated to match JSON-RPC tool format (`name`, `description`, `inputSchema`)
+- Ad-hoc error code string literals replaced with `v1.ErrCode*` constants across `validate.go`, `dispatch.go`, `run.go`, `invoke.go`, and all backend service files
+- All backend error creation routed through `backendError()` helper to stamp `ErrSourceBackend`
+- `README.md` — CLI Reference and MCP sections replaced with summaries linking to new dedicated docs
+- `docs/getting-started.md` — cross-references to new CLI, MCP, and integration docs added
+- `skills/acm-broker/assets/requests/mcp_*.json` — all 8 MCP example payloads converted from legacy invoke format to JSON-RPC 2.0 `tools/call` requests
+- `skills/acm-broker/{claude,codex,opencode}/README.md` — `acm-mcp invoke` references replaced with JSON-RPC protocol guidance
+
 ### Removed
+
+- `acm-mcp tools` subcommand — replaced by `tools/list` JSON-RPC method
+- `acm-mcp invoke` subcommand — replaced by `tools/call` JSON-RPC method
+- `cmd/acm-mcp/main_test.go` — test coverage moved to `internal/adapters/mcp/app_test.go`
+- `cmd/acm/convenience_test.go`, `cmd/acm/main_test.go`, `cmd/acm/routes_test.go` — test coverage moved to `internal/adapters/cli/`
 
 ## [1.1.2] - 2026-03-24
 
@@ -129,6 +165,7 @@ Initial public release of acm (agent-context-manager).
 
 See [docs/release-notes/RELEASE_NOTES_1.0.0.md](docs/release-notes/RELEASE_NOTES_1.0.0.md) for the full release notes.
 
+[1.1.2]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.1.2
 [1.1.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.1.1
 [1.1.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.1.0
 [1.0.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.0.0
