@@ -1,26 +1,34 @@
 {
-  "project_id": "customer-portal",
-  "receipt_id": "replace-from-context-receipt",
-  "mode": "merge",
-  "plan": {
-    "title": "Profile settings save race",
-    "objective": "Prevent stale save responses from overwriting newer settings and verify the fix",
-    "kind": "bugfix",
-    "status": "in_progress",
-    "discovered_paths": [
-      "web/src/features/profile/useSaveProfile.test.tsx"
-    ]
-  },
-  "tasks": [
-    {
-      "key": "guard-stale-saves",
-      "summary": "Ignore stale save responses and keep the newest request authoritative",
-      "status": "in_progress"
-    },
-    {
-      "key": "verify:tests",
-      "summary": "Run targeted frontend verification for profile save behavior",
-      "status": "pending"
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "work",
+    "arguments": {
+      "project_id": "customer-portal",
+      "receipt_id": "replace-from-context-receipt",
+      "mode": "merge",
+      "plan": {
+        "title": "Profile settings save race",
+        "objective": "Prevent stale save responses from overwriting newer settings and verify the fix",
+        "kind": "bugfix",
+        "status": "in_progress",
+        "discovered_paths": [
+          "web/src/features/profile/useSaveProfile.test.tsx"
+        ]
+      },
+      "tasks": [
+        {
+          "key": "guard-stale-saves",
+          "summary": "Ignore stale save responses and keep the newest request authoritative",
+          "status": "in_progress"
+        },
+        {
+          "key": "verify:tests",
+          "summary": "Run targeted frontend verification for profile save behavior",
+          "status": "pending"
+        }
+      ]
     }
-  ]
+  }
 }

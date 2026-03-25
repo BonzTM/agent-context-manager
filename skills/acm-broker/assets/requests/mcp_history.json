@@ -1,6 +1,14 @@
 {
-  "project_id": "customer-portal",
-  "entity": "work",
-  "query": "profile save",
-  "limit": 10
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "history",
+    "arguments": {
+      "project_id": "customer-portal",
+      "entity": "work",
+      "query": "profile save",
+      "limit": 10
+    }
+  }
 }

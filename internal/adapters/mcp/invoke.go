@@ -14,11 +14,9 @@ import (
 )
 
 type ToolDef struct {
-	Name         string         `json:"name"`
-	Title        string         `json:"title"`
-	Description  string         `json:"description"`
-	InputSchema  map[string]any `json:"input_schema"`
-	OutputSchema map[string]any `json:"output_schema"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema"`
 }
 
 func ToolDefinitions() []ToolDef {
@@ -26,11 +24,9 @@ func ToolDefinitions() []ToolDef {
 	defs := make([]ToolDef, 0, len(specs))
 	for _, spec := range specs {
 		defs = append(defs, ToolDef{
-			Name:         string(spec.Command),
-			Title:        spec.ToolTitle,
-			Description:  spec.ToolDescription,
-			InputSchema:  schemaRef(commandSchemaID, spec.InputSchemaDef),
-			OutputSchema: schemaRef(resultSchemaID, spec.ResultSchemaDef),
+			Name:        string(spec.Command),
+			Description: spec.ToolDescription,
+			InputSchema: schemaRef(commandSchemaID, spec.InputSchemaDef),
 		})
 	}
 	return defs
@@ -39,7 +35,6 @@ func ToolDefinitions() []ToolDef {
 const (
 	schemaDraft202012 = "https://json-schema.org/draft/2020-12/schema"
 	commandSchemaID   = "https://agent-context-manager.dev/spec/v1/cli.command.schema.json"
-	resultSchemaID    = "https://agent-context-manager.dev/spec/v1/cli.result.schema.json"
 )
 
 func schemaRef(schemaID, defName string) map[string]any {
@@ -59,7 +54,7 @@ func InvokeWithLogger(ctx context.Context, svc core.Service, tool string, input 
 
 	command, ok := v1.CommandFromToolName(tool)
 	if !ok {
-		err := core.NewError("UNKNOWN_TOOL", "tool is not supported in v1", map[string]any{"tool": tool})
+		err := core.NewErrorWithSource(v1.ErrCodeUnknownTool, "tool is not supported in v1", v1.ErrSourceAdapter, map[string]any{"tool": tool})
 		logger.Error(ctx, logging.EventMCPIngressValidate, "ok", false, "tool", tool, "error_code", err.Code)
 		logger.Error(ctx, logging.EventMCPFailure, "stage", "validate", "tool", tool, "error_code", err.Code)
 		logger.Info(ctx, logging.EventMCPResult, "ok", false, "tool", tool, "error_code", err.Code)
@@ -97,11 +92,11 @@ func InvokeWithLogger(ctx context.Context, svc core.Service, tool string, input 
 func decodeValidatedToolPayload(command v1.Command, raw json.RawMessage, defaults v1.ValidationDefaults) (any, *core.APIError) {
 	blob, err := v1.BuildEnvelopeForCommand(command, "mcp.invoke", raw)
 	if err != nil {
-		return nil, core.NewError("INVALID_JSON", err.Error(), nil)
+		return nil, core.NewErrorWithSource(v1.ErrCodeInvalidJSON, err.Error(), v1.ErrSourceAdapter, nil)
 	}
 	_, payload, valErr := v1.DecodeAndValidateCommandWithDefaults(blob, defaults)
 	if valErr != nil {
-		return nil, core.NewError(valErr.Code, valErr.Message, nil)
+		return nil, core.NewErrorWithSource(valErr.Code, valErr.Message, valErr.Source, nil)
 	}
 	return payload, nil
 }

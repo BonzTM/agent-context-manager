@@ -337,33 +337,12 @@ func TestToolDefinitions_IncludeSchemaMetadata(t *testing.T) {
 		"verify":  "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/verifyPayload",
 		"init":    "https://agent-context-manager.dev/spec/v1/cli.command.schema.json#/$defs/initPayload",
 	}
-	expectedOutputRefs := map[string]string{
-		"context": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/contextResult",
-		"fetch":   "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/fetchResult",
-		"export":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/exportResult",
-		"done":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/doneResult",
-		"review":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/reviewResult",
-		"work":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/workResult",
-		"history": "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/historySearchResult",
-		"sync":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/syncResult",
-		"health":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/healthResult",
-		"status":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/statusResult",
-		"verify":  "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/verifyResult",
-		"init":    "https://agent-context-manager.dev/spec/v1/cli.result.schema.json#/$defs/initResult",
-	}
-
 	for _, def := range defs {
 		if got := def.InputSchema["$schema"]; got != schemaDraft202012 {
 			t.Fatalf("tool %q missing input schema draft metadata: %v", def.Name, got)
 		}
-		if got := def.OutputSchema["$schema"]; got != schemaDraft202012 {
-			t.Fatalf("tool %q missing output schema draft metadata: %v", def.Name, got)
-		}
 		if got := def.InputSchema["$ref"]; got != expectedInputRefs[def.Name] {
 			t.Fatalf("tool %q unexpected input schema ref: %v", def.Name, got)
-		}
-		if got := def.OutputSchema["$ref"]; got != expectedOutputRefs[def.Name] {
-			t.Fatalf("tool %q unexpected output schema ref: %v", def.Name, got)
 		}
 	}
 }

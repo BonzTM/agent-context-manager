@@ -1,9 +1,17 @@
 {
-  "project_id": "customer-portal",
-  "receipt_id": "replace-from-context-receipt",
-  "keys": [
-    "customer-portal:web/src/features/profile/ProfileForm.tsx",
-    "customer-portal:web/src/features/profile/useSaveProfile.ts",
-    "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
-  ]
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "fetch",
+    "arguments": {
+      "project_id": "customer-portal",
+      "receipt_id": "replace-from-context-receipt",
+      "keys": [
+        "customer-portal:web/src/features/profile/ProfileForm.tsx",
+        "customer-portal:web/src/features/profile/useSaveProfile.ts",
+        "customer-portal:web/src/features/profile/useSaveProfile.test.tsx"
+      ]
+    }
+  }
 }

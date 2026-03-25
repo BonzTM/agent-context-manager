@@ -1,5 +1,13 @@
 {
-  "project_id": "customer-portal",
-  "task_text": "fix the profile settings save race so stale responses cannot overwrite newer edits",
-  "phase": "execute"
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "context",
+    "arguments": {
+      "project_id": "customer-portal",
+      "task_text": "fix the profile settings save race so stale responses cannot overwrite newer edits",
+      "phase": "execute"
+    }
+  }
 }

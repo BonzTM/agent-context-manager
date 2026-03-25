@@ -1,7 +1,15 @@
 {
-  "project_id": "customer-portal",
-  "format": "markdown",
-  "fetch": {
-    "receipt_id": "receipt-12345678"
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "export",
+    "arguments": {
+      "project_id": "customer-portal",
+      "format": "markdown",
+      "fetch": {
+        "receipt_id": "receipt-12345678"
+      }
+    }
   }
 }
