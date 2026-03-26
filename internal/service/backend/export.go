@@ -785,7 +785,7 @@ func appendMarkdownHeading(b *strings.Builder, level int, title string) {
 	if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n\n") {
 		b.WriteString("\n")
 	}
-	b.WriteString(strings.Repeat("#", maxInt(level, 1)))
+	b.WriteString(strings.Repeat("#", max(level, 1)))
 	b.WriteString(" ")
 	b.WriteString(trimmed)
 	b.WriteString("\n\n")
@@ -901,13 +901,6 @@ func cloneStringMap(input map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
-}
-
-func maxInt(value, minimum int) int {
-	if value < minimum {
-		return minimum
-	}
-	return value
 }
 
 const timeLayoutRFC3339 = "2006-01-02T15:04:05Z"

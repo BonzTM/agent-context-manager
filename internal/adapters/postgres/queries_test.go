@@ -275,7 +275,7 @@ func TestBuildUpsertWorkItemsQuery_DeterministicAndValidated(t *testing.T) {
 		ProjectID: " project-a ",
 		ReceiptID: " receipt-123 ",
 		Items: []core.WorkItem{
-			{ItemKey: " src/b.go ", Status: core.WorkItemStatusCompleted},
+			{ItemKey: " src/b.go ", Status: core.WorkItemStatusComplete},
 			{ItemKey: "src/a.go", Status: core.WorkItemStatusInProgress},
 			{ItemKey: "src/a.go", Status: core.WorkItemStatusBlocked},
 			{ItemKey: "src/c.go", Status: "unknown"},
@@ -314,7 +314,7 @@ func TestBuildUpsertWorkItemsQuery_DeterministicAndValidated(t *testing.T) {
 }
 
 func TestNormalizeWorkItemStatus_NormalizesLegacyCompleted(t *testing.T) {
-	if got := normalizeWorkItemStatus(core.WorkItemStatusCompleted); got != core.WorkItemStatusComplete {
+	if got := normalizeWorkItemStatus("completed"); got != core.WorkItemStatusComplete {
 		t.Fatalf("legacy completed should normalize to complete, got %q", got)
 	}
 	if got := normalizeWorkItemStatus(core.WorkItemStatusComplete); got != core.WorkItemStatusComplete {

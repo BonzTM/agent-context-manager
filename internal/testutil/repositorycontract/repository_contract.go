@@ -53,6 +53,9 @@ func RunRepositoryParity(t *testing.T, cfg ContractConfig) {
 	t.Run("work_plan_merge_preserves_task_metadata", func(t *testing.T) {
 		runWorkPlanMergePreservesTaskMetadata(t, projectID+".workplan-merge", cfg.Repo)
 	})
+	t.Run("rule_pointer_sync_round_trip", func(t *testing.T) {
+		runRulePointerSyncRoundTrip(t, projectID+".rule-sync", cfg.Repo)
+	})
 	t.Run("receipt_scope_snapshot_round_trip", func(t *testing.T) {
 		runReceiptScopeSnapshotRoundTrip(t, projectID+".receipt-scope", cfg.Repo)
 	})
@@ -61,6 +64,9 @@ func RunRepositoryParity(t *testing.T, cfg ContractConfig) {
 	})
 	t.Run("run_summary_round_trip", func(t *testing.T) {
 		runRunSummaryRoundTrip(t, projectID+".runs", cfg.Repo)
+	})
+	t.Run("run_summary_preserves_definition_of_done_issues", func(t *testing.T) {
+		runRunSummaryPreservesDefinitionOfDoneIssues(t, projectID+".runs-dod", cfg.Repo)
 	})
 	if cfg.IncludeServiceFlows {
 		t.Run("service_flows", func(t *testing.T) {
@@ -465,6 +471,96 @@ func runWorkPlanMergePreservesTaskMetadata(t *testing.T, projectID string, repo 
 	}
 }
 
+func runRulePointerSyncRoundTrip(t *testing.T, projectID string, repo ContractRepository) {
+	t.Helper()
+	ctx := context.Background()
+
+	sourcePath := ".acm/acm-rules.yaml"
+	firstPointers := []core.RulePointer{
+		{
+			PointerKey:  projectID + ":.acm/acm-rules.yaml#rule.alpha",
+			SourcePath:  sourcePath,
+			RuleID:      "rule.alpha",
+			Summary:     "alpha summary",
+			Content:     "alpha content",
+			Enforcement: "hard",
+			Tags:        []string{"ops"},
+		},
+		{
+			PointerKey:  projectID + ":.acm/acm-rules.yaml#rule.beta",
+			SourcePath:  sourcePath,
+			RuleID:      "rule.beta",
+			Summary:     "beta summary",
+			Content:     "beta content",
+			Enforcement: "soft",
+			Tags:        []string{"policy"},
+		},
+	}
+
+	firstResult, err := repo.SyncRulePointers(ctx, core.RulePointerSyncInput{
+		ProjectID:  projectID,
+		SourcePath: sourcePath,
+		Pointers:   firstPointers,
+	})
+	if err != nil {
+		t.Fatalf("first sync rule pointers: %v", err)
+	}
+	if firstResult.Upserted != 2 || firstResult.MarkedStale != 0 {
+		t.Fatalf("unexpected first sync result: %+v", firstResult)
+	}
+
+	if _, err := repo.LookupPointerByKey(ctx, core.PointerLookupQuery{ProjectID: projectID, PointerKey: firstPointers[0].PointerKey}); err != nil {
+		t.Fatalf("lookup first active rule pointer: %v", err)
+	}
+	if _, err := repo.LookupPointerByKey(ctx, core.PointerLookupQuery{ProjectID: projectID, PointerKey: firstPointers[1].PointerKey}); err != nil {
+		t.Fatalf("lookup second active rule pointer: %v", err)
+	}
+
+	secondResult, err := repo.SyncRulePointers(ctx, core.RulePointerSyncInput{
+		ProjectID:  projectID,
+		SourcePath: sourcePath,
+		Pointers: []core.RulePointer{
+			{
+				PointerKey:  firstPointers[0].PointerKey,
+				SourcePath:  sourcePath,
+				RuleID:      "rule.alpha",
+				Summary:     "alpha summary updated",
+				Content:     "",
+				Enforcement: "hard",
+				Tags:        []string{"ops"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("second sync rule pointers: %v", err)
+	}
+	if secondResult.Upserted != 1 {
+		t.Fatalf("unexpected second upsert count: %d", secondResult.Upserted)
+	}
+	if secondResult.MarkedStale != 1 {
+		t.Fatalf("unexpected second removed count: %d", secondResult.MarkedStale)
+	}
+
+	active, err := repo.LookupPointerByKey(ctx, core.PointerLookupQuery{ProjectID: projectID, PointerKey: firstPointers[0].PointerKey})
+	if err != nil {
+		t.Fatalf("lookup updated active rule pointer: %v", err)
+	}
+	if active.Description != "alpha summary updated" {
+		t.Fatalf("expected empty content fallback to summary, got %q", active.Description)
+	}
+	if !reflect.DeepEqual(active.Tags, []string{"canonical-rule", "enforcement-hard", "ops", "rule"}) {
+		t.Fatalf("unexpected active tags: %+v", active.Tags)
+	}
+
+	_, err = repo.LookupPointerByKey(ctx, core.PointerLookupQuery{ProjectID: projectID, PointerKey: firstPointers[1].PointerKey})
+	if err == nil {
+		t.Fatal("expected stale rule pointer lookup to be hidden")
+	}
+	if err != core.ErrPointerLookupNotFound {
+		t.Fatalf("expected ErrPointerLookupNotFound, got %v", err)
+	}
+}
+
 func runReviewAttemptRoundTrip(t *testing.T, projectID string, repo ContractRepository) {
 	t.Helper()
 	ctx := context.Background()
@@ -639,6 +735,53 @@ func runRunSummaryRoundTrip(t *testing.T, projectID string, repo ContractReposit
 	}
 	if !reflect.DeepEqual(row.FilesChanged, []string{"internal/testutil/repositorycontract/repository_contract.go"}) {
 		t.Fatalf("unexpected run history files_changed: %+v", row.FilesChanged)
+	}
+}
+
+func runRunSummaryPreservesDefinitionOfDoneIssues(t *testing.T, projectID string, repo ContractRepository) {
+	t.Helper()
+	ctx := context.Background()
+
+	runIDs, err := repo.SaveRunReceiptSummary(ctx, core.RunReceiptSummary{
+		ProjectID: projectID,
+		ReceiptID: "receipt-runsummary-dod-12345",
+		Status:    "accepted_with_warnings",
+		DefinitionOfDoneIssues: []string{
+			"issue1",
+			"issue2",
+		},
+	})
+	if err != nil {
+		t.Fatalf("save run receipt summary with DoD issues: %v", err)
+	}
+	if runIDs.RunID <= 0 {
+		t.Fatalf("expected positive run id, got %+v", runIDs)
+	}
+
+	row, err := repo.LookupRunHistory(ctx, core.RunHistoryLookupQuery{
+		ProjectID: projectID,
+		RunID:     runIDs.RunID,
+	})
+	if err != nil {
+		t.Fatalf("lookup run history with DoD issues: %v", err)
+	}
+	if row.RunID != runIDs.RunID || row.ReceiptID != "receipt-runsummary-dod-12345" || row.Status != "accepted_with_warnings" {
+		t.Fatalf("unexpected run history row for DoD issues summary: %+v", row)
+	}
+
+	rows, err := repo.ListRunHistory(ctx, core.RunHistoryListQuery{
+		ProjectID: projectID,
+		Query:     "issue1",
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("list run history by DoD issue query: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected one run history row from DoD issue query, got %+v", rows)
+	}
+	if rows[0].RunID != runIDs.RunID {
+		t.Fatalf("unexpected run id from DoD issue query: %+v", rows[0])
 	}
 }
 

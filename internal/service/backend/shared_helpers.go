@@ -15,17 +15,3 @@ func indexEntryVersion(parts ...string) string {
 	digest := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(digest[:8])
 }
-
-func maxZero(value int) int {
-	if value < 0 {
-		return 0
-	}
-	return value
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

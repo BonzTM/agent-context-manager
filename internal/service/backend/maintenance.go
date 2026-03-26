@@ -190,7 +190,7 @@ func healthCheckItem(name, severity string, findings []string, includeDetails bo
 		Count:    len(normalizedFindings),
 	}
 	if includeDetails && len(normalizedFindings) > 0 {
-		limit := minInt(len(normalizedFindings), maxFindings)
+		limit := min(len(normalizedFindings), maxFindings)
 		item.Samples = append([]string(nil), normalizedFindings[:limit]...)
 	}
 	return item

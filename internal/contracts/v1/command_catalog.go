@@ -364,6 +364,9 @@ func ProjectIDFromPayload(payload any) string {
 	case map[string]string:
 		return strings.TrimSpace(p["project_id"])
 	default:
+		// Reflect fallback: extracts ProjectID from arbitrary struct types not covered
+		// by the explicit cases above. Provides forward-compatibility so callers can
+		// pass new payload types without updating this switch. Tested in cli/run_test.go.
 		value := reflect.ValueOf(payload)
 		if !value.IsValid() {
 			return ""

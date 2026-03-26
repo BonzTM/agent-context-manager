@@ -426,7 +426,7 @@ func normalizeWorkItemStatus(raw string) string {
 		return core.WorkItemStatusBlocked
 	case core.WorkItemStatusInProgress:
 		return core.WorkItemStatusInProgress
-	case core.WorkItemStatusComplete, core.WorkItemStatusCompleted:
+	case core.WorkItemStatusComplete, "completed":
 		return core.WorkItemStatusComplete
 	case core.WorkItemStatusSuperseded:
 		return core.WorkItemStatusSuperseded
@@ -441,7 +441,7 @@ func normalizePlanStatus(raw string) string {
 		return core.PlanStatusBlocked
 	case core.PlanStatusInProgress:
 		return core.PlanStatusInProgress
-	case core.PlanStatusComplete, core.PlanStatusCompleted:
+	case core.PlanStatusComplete, "completed":
 		return core.PlanStatusComplete
 	case core.PlanStatusSuperseded:
 		return core.PlanStatusSuperseded

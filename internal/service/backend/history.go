@@ -120,11 +120,11 @@ func (s *Service) listWorkHistoryItems(ctx context.Context, projectID string, sc
 			Kind:          strings.TrimSpace(row.Kind),
 			ParentPlanKey: strings.TrimSpace(row.ParentPlanKey),
 			TaskCounts: &v1.ContextPlanTaskCounts{
-				Total:      maxZero(row.TaskCountTotal),
-				Pending:    maxZero(row.TaskCountPending),
-				InProgress: maxZero(row.TaskCountInProgress),
-				Blocked:    maxZero(row.TaskCountBlocked),
-				Complete:   maxZero(row.TaskCountComplete),
+				Total:      max(row.TaskCountTotal, 0),
+				Pending:    max(row.TaskCountPending, 0),
+				InProgress: max(row.TaskCountInProgress, 0),
+				Blocked:    max(row.TaskCountBlocked, 0),
+				Complete:   max(row.TaskCountComplete, 0),
 			},
 			FetchKeys: []string{planKey},
 			UpdatedAt: historyTimestamp(row.UpdatedAt),
@@ -268,7 +268,7 @@ func historyScopeFromPlanStatus(status string) v1.HistoryScope {
 	switch normalizePlanStatus(status) {
 	case core.PlanStatusBlocked:
 		return v1.HistoryScopeDeferred
-	case core.PlanStatusComplete, core.PlanStatusCompleted, core.PlanStatusSuperseded:
+	case core.PlanStatusComplete, core.PlanStatusSuperseded:
 		return v1.HistoryScopeCompleted
 	default:
 		return v1.HistoryScopeCurrent

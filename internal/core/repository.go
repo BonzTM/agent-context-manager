@@ -19,14 +19,12 @@ const (
 	WorkItemStatusBlocked    = "blocked"
 	WorkItemStatusComplete   = "complete"
 	WorkItemStatusSuperseded = "superseded"
-	WorkItemStatusCompleted  = "completed"
 
 	PlanStatusPending    = "pending"
 	PlanStatusInProgress = "in_progress"
 	PlanStatusBlocked    = "blocked"
 	PlanStatusComplete   = "complete"
 	PlanStatusSuperseded = "superseded"
-	PlanStatusCompleted  = "completed"
 )
 
 type StaleFilter struct {
