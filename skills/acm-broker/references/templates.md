@@ -69,7 +69,7 @@ acm run --in assets/requests/context.execute.json
 Run:
 
 ```bash
-acm-mcp invoke --tool context --in assets/requests/mcp_context.execute.json
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"context","arguments":'$(cat assets/requests/mcp_context.execute.json)'}}' | acm-mcp
 ```
 
 ## CLI `fetch` request
@@ -121,7 +121,7 @@ acm run --in assets/requests/fetch.json
 Run:
 
 ```bash
-acm-mcp invoke --tool fetch --in assets/requests/mcp_fetch.json
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"fetch","arguments":'$(cat assets/requests/mcp_fetch.json)'}}' | acm-mcp
 ```
 
 ## CLI `work` request
@@ -302,7 +302,7 @@ Repos can enforce that schema through a repo-local `verify` script that inspects
 Run:
 
 ```bash
-acm-mcp invoke --tool work --in assets/requests/mcp_work.json
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"work","arguments":'$(cat assets/requests/mcp_work.json)'}}' | acm-mcp
 ```
 
 ## CLI `review` request
@@ -346,7 +346,7 @@ acm run --in assets/requests/review.json
 Run:
 
 ```bash
-acm-mcp invoke --tool review --in assets/requests/mcp_review.json
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"review","arguments":'$(cat assets/requests/mcp_review.json)'}}' | acm-mcp
 ```
 
 `review` is intentionally thin. It lowers to one `work.tasks[]` merge update. Omitted `key`, `summary`, and `status` default to `review:cross-llm`, `Cross-LLM review`, and `complete`. Prefer `run=true` when the repo workflow defines a runnable review gate because manual complete notes do not satisfy runnable gates. Use `status=blocked` plus `blocked_reason` when the review gate is waiting or failed, and reserve manual `status`, `outcome`, `blocked_reason`, and `evidence` fields for non-run mode. Put repo-local reviewer choices such as script arguments, provider selection, model ids, reasoning levels, and the shared `--yolo` high-trust shortcut in the workflow `run.argv` block; for Claude, `--yolo` maps to `--dangerously-skip-permissions`.
@@ -404,7 +404,7 @@ acm run --in assets/requests/verify.json
 Run:
 
 ```bash
-acm-mcp invoke --tool verify --in assets/requests/mcp_verify.json
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"verify","arguments":'$(cat assets/requests/mcp_verify.json)'}}' | acm-mcp
 ```
 
 ## CLI `done` request
@@ -458,7 +458,7 @@ acm run --in assets/requests/done.json
 Run:
 
 ```bash
-acm-mcp invoke --tool done --in assets/requests/mcp_done.json
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"done","arguments":'$(cat assets/requests/mcp_done.json)'}}' | acm-mcp
 ```
 
 When the detected task delta is empty, the closeout is effectively no-file:
@@ -565,5 +565,5 @@ These convenience flags lower into the backend `export` command under the hood.
 Run:
 
 ```bash
-acm-mcp invoke --tool export --in assets/requests/mcp_export.json
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"export","arguments":'$(cat assets/requests/mcp_export.json)'}}' | acm-mcp
 ```

@@ -94,4 +94,4 @@ acm validate --in request.json
 ```
 
 MCP tools use the same payload schema but omit the outer envelope because the tool name already identifies the command. See [Schema Reference](spec/v1/README.md) and [skills/acm-broker/assets/requests](skills/acm-broker/assets/requests) for worked request examples.
-Structured payloads may omit `project_id` when runtime defaults are configured; `acm run`, `acm validate`, and `acm-mcp invoke` resolve it in the same order as convenience commands.
+Structured payloads may omit `project_id` when runtime defaults are configured; `acm run` and `acm validate` resolve it in the same order as convenience commands. The MCP server (`acm-mcp`) uses JSON-RPC 2.0 `tools/call` requests over stdin/stdout; see [MCP Reference](docs/mcp-reference.md).

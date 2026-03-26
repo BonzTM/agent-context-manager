@@ -365,8 +365,7 @@ func printMainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  acm health --include-details")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "More Help:")
-	fmt.Fprintln(w, "  - `acm-mcp --help` describes the MCP adapter surface.")
-	fmt.Fprintln(w, "  - `acm-mcp tools` prints the machine-readable MCP tool directory.")
+	fmt.Fprintln(w, "  - `acm-mcp --help` describes the JSON-RPC 2.0 MCP server.")
 }
 
 func printHelpCommands(w io.Writer, commands []helpCommand) {

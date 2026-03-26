@@ -37,14 +37,9 @@ When the task changes repo governance or onboarding state such as rules, tags, t
   - `acm validate --in <request.json>`
   - `acm run --in <request.json>`
   - `acm run --in assets/requests/export.json` for backend-only JSON/Markdown rendering when the task explicitly needs a rendered ACM artifact
-- MCP path:
-  - `acm-mcp invoke --tool context --in <payload.json>`
-  - `acm-mcp invoke --tool fetch --in <payload.json>`
-  - `acm-mcp invoke --tool export --in <payload.json>`
-  - `acm-mcp invoke --tool review --in <payload.json>`
-  - `acm-mcp invoke --tool work --in <payload.json>`
-  - `acm-mcp invoke --tool verify --in <payload.json>`
-  - `acm-mcp invoke --tool done --in <payload.json>`
+- MCP path (JSON-RPC 2.0 over stdin/stdout):
+  - `acm-mcp` — start the JSON-RPC server, then send `tools/list` to discover tools and `tools/call` to invoke them
+  - See `docs/mcp-reference.md` for protocol details and `skills/acm-broker/assets/requests/` for example payloads
 
 Defaults:
 - SQLite backend is default when `ACM_PG_DSN` is unset.
