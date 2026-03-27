@@ -1,4 +1,7 @@
 .agents/
+.claude/
+.codex/
+.opencode/
 /bin/
 /dist/
 /acm
