@@ -1,13 +1,14 @@
-name: Go Build
+name: Release
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  VERSION: ${{ github.event.release.tag_name }}
 
 jobs:
   build:
@@ -40,17 +41,15 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
         run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
           LDFLAGS="-s -w"
-          LDFLAGS="$LDFLAGS -X github.com/bonztm/agent-context-manager/internal/buildinfo.commitShort=${SHORT_SHA}"
+          LDFLAGS="$LDFLAGS -X github.com/bonztm/agent-context-manager/internal/buildinfo.commitShort=${GITHUB_SHA::7}"
           mkdir -p dist
           for bin in acm acm-mcp acm-web; do
             go build -ldflags "$LDFLAGS" -o "dist/${bin}" "./cmd/${bin}"
           done
+          cd dist && tar czf "../acm-${{ env.VERSION }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" acm acm-mcp acm-web
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: acm-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/
-          if-no-files-found: error
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ env.VERSION }}" "acm-${{ env.VERSION }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" --clobber
