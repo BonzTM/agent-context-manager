@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-03-27
+
+Release distribution and documentation cleanup. Cross-platform binary builds for Linux, macOS, and Windows across amd64 and arm64. Release workflow automates GitHub Release asset uploads. Version string now injected via ldflags at build time. Stale `acm-mcp invoke` references cleaned up across docs and CLI help.
+
+### Added
+
+- GitHub Actions release workflow (`.github/workflows/release.yml`) — builds cross-platform archives and uploads them to GitHub Releases on tag publish
+- `internal/buildinfo.version` linker variable — release workflow injects the git tag so `acm --version` reports the release version instead of a commit hash
+- `internal/buildinfo/buildinfo_test.go` — `TestVersion_UsesInjectedVersionOverCommitShort` verifying version takes precedence over commit short
+- Windows build targets (`windows/amd64`, `windows/arm64`) in both build and release workflows, with `.exe` extension and `.zip` packaging
+
+### Changed
+
+- CI build workflow (`.github/workflows/go-build.yml`) — replaced single-platform build with matrix strategy across `linux/{amd64,arm64}`, `darwin/{amd64,arm64}`, `windows/{amd64,arm64}`; artifacts named per platform
+- `internal/adapters/cli/app.go` — CLI help text updated from stale `acm-mcp tools` reference to `acm-mcp --help` describing the JSON-RPC 2.0 MCP server
+- `docs/cli-reference.md` — replaced stale `acm-mcp invoke` reference with JSON-RPC 2.0 guidance
+- `skills/acm-broker/SKILL.md` — replaced per-tool `acm-mcp invoke` examples with JSON-RPC 2.0 protocol summary
+- `skills/acm-broker/references/templates.md` — all MCP example invocations converted from `acm-mcp invoke` to `tools/call` JSON-RPC piped commands
+
+See [docs/release-notes/RELEASE_NOTES_1.2.1.md](docs/release-notes/RELEASE_NOTES_1.2.1.md) for the full release notes.
+
 ## [1.2.0] - 2026-03-26
 
 Architectural retrofit and code quality pass. MCP server migrates to JSON-RPC 2.0, CLI and MCP routing move into internal adapters behind ultra-thin entrypoints, error codes are centralized, and four reference docs ship. Status constant duplication resolved, monolithic test file split into per-command files, hand-rolled helpers replaced with Go builtins, storage parity coverage strengthened, and cmd/ entrypoints gain smoke tests.
@@ -169,6 +190,7 @@ Initial public release of acm (agent-context-manager).
 
 See [docs/release-notes/RELEASE_NOTES_1.0.0.md](docs/release-notes/RELEASE_NOTES_1.0.0.md) for the full release notes.
 
+[1.2.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.2.1
 [1.2.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.2.0
 [1.1.2]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.1.2
 [1.1.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/1.1.1
