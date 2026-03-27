@@ -5,11 +5,17 @@ import (
 	"strings"
 )
 
-var commitShort string
+var (
+	version     string
+	commitShort string
+)
 
 var readBuildInfo = debug.ReadBuildInfo
 
 func Version() string {
+	if v := strings.TrimSpace(version); v != "" {
+		return v
+	}
 	if injected := strings.TrimSpace(commitShort); injected != "" {
 		return injected
 	}

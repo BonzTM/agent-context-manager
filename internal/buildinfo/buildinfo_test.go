@@ -5,14 +5,39 @@ import (
 	"testing"
 )
 
-func TestVersion_UsesInjectedCommitShortWhenPresent(t *testing.T) {
+func TestVersion_UsesInjectedVersionOverCommitShort(t *testing.T) {
+	previousVersion := version
 	previousCommit := commitShort
 	previousReader := readBuildInfo
 	t.Cleanup(func() {
+		version = previousVersion
 		commitShort = previousCommit
 		readBuildInfo = previousReader
 	})
 
+	version = "v1.2.3"
+	commitShort = "abc1234"
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		t.Fatal("readBuildInfo should not be called when version is injected")
+		return nil, false
+	}
+
+	if got := Version(); got != "v1.2.3" {
+		t.Fatalf("unexpected version: got %q want %q", got, "v1.2.3")
+	}
+}
+
+func TestVersion_UsesInjectedCommitShortWhenPresent(t *testing.T) {
+	previousVersion := version
+	previousCommit := commitShort
+	previousReader := readBuildInfo
+	t.Cleanup(func() {
+		version = previousVersion
+		commitShort = previousCommit
+		readBuildInfo = previousReader
+	})
+
+	version = ""
 	commitShort = "abc1234"
 	readBuildInfo = func() (*debug.BuildInfo, bool) {
 		t.Fatal("readBuildInfo should not be called when commitShort is injected")
@@ -25,13 +50,16 @@ func TestVersion_UsesInjectedCommitShortWhenPresent(t *testing.T) {
 }
 
 func TestVersion_UsesShortVCSRevisionAndDirtySuffix(t *testing.T) {
+	previousVersion := version
 	previousCommit := commitShort
 	previousReader := readBuildInfo
 	t.Cleanup(func() {
+		version = previousVersion
 		commitShort = previousCommit
 		readBuildInfo = previousReader
 	})
 
+	version = ""
 	commitShort = ""
 	readBuildInfo = func() (*debug.BuildInfo, bool) {
 		return &debug.BuildInfo{
@@ -49,13 +77,16 @@ func TestVersion_UsesShortVCSRevisionAndDirtySuffix(t *testing.T) {
 }
 
 func TestVersion_UsesPseudoVersionCommitWhenRevisionMissing(t *testing.T) {
+	previousVersion := version
 	previousCommit := commitShort
 	previousReader := readBuildInfo
 	t.Cleanup(func() {
+		version = previousVersion
 		commitShort = previousCommit
 		readBuildInfo = previousReader
 	})
 
+	version = ""
 	commitShort = ""
 	readBuildInfo = func() (*debug.BuildInfo, bool) {
 		return &debug.BuildInfo{
@@ -72,13 +103,16 @@ func TestVersion_UsesPseudoVersionCommitWhenRevisionMissing(t *testing.T) {
 }
 
 func TestVersion_FallsBackToDev(t *testing.T) {
+	previousVersion := version
 	previousCommit := commitShort
 	previousReader := readBuildInfo
 	t.Cleanup(func() {
+		version = previousVersion
 		commitShort = previousCommit
 		readBuildInfo = previousReader
 	})
 
+	version = ""
 	commitShort = ""
 	readBuildInfo = func() (*debug.BuildInfo, bool) {
 		return nil, false
@@ -90,13 +124,16 @@ func TestVersion_FallsBackToDev(t *testing.T) {
 }
 
 func TestBanner(t *testing.T) {
+	previousVersion := version
 	previousCommit := commitShort
 	previousReader := readBuildInfo
 	t.Cleanup(func() {
+		version = previousVersion
 		commitShort = previousCommit
 		readBuildInfo = previousReader
 	})
 
+	version = ""
 	commitShort = "abc1234"
 	readBuildInfo = func() (*debug.BuildInfo, bool) {
 		return nil, false

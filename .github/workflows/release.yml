@@ -42,6 +42,7 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           LDFLAGS="-s -w"
+          LDFLAGS="$LDFLAGS -X github.com/bonztm/agent-context-manager/internal/buildinfo.version=${{ env.VERSION }}"
           LDFLAGS="$LDFLAGS -X github.com/bonztm/agent-context-manager/internal/buildinfo.commitShort=${GITHUB_SHA::7}"
           mkdir -p dist
           for bin in acm acm-mcp acm-web; do
