@@ -24,6 +24,10 @@ jobs:
             goarch: amd64
           - goos: darwin
             goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,14 +42,15 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
           LDFLAGS="-s -w"
           LDFLAGS="$LDFLAGS -X github.com/bonztm/agent-context-manager/internal/buildinfo.commitShort=${SHORT_SHA}"
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           mkdir -p dist
           for bin in acm acm-mcp acm-web; do
-            go build -ldflags "$LDFLAGS" -o "dist/${bin}" "./cmd/${bin}"
+            go build -ldflags "$LDFLAGS" -o "dist/${bin}${EXT}" "./cmd/${bin}"
           done
 
       - name: Upload artifacts

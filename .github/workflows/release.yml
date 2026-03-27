@@ -25,6 +25,10 @@ jobs:
             goarch: amd64
           - goos: darwin
             goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,18 +43,34 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
         run: |
           LDFLAGS="-s -w"
           LDFLAGS="$LDFLAGS -X github.com/bonztm/agent-context-manager/internal/buildinfo.version=${{ env.VERSION }}"
           LDFLAGS="$LDFLAGS -X github.com/bonztm/agent-context-manager/internal/buildinfo.commitShort=${GITHUB_SHA::7}"
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           mkdir -p dist
           for bin in acm acm-mcp acm-web; do
-            go build -ldflags "$LDFLAGS" -o "dist/${bin}" "./cmd/${bin}"
+            go build -ldflags "$LDFLAGS" -o "dist/${bin}${EXT}" "./cmd/${bin}"
           done
-          cd dist && tar czf "../acm-${{ env.VERSION }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" acm acm-mcp acm-web
+
+      - name: Package release archive
+        run: |
+          cd dist
+          ARCHIVE="acm-${{ env.VERSION }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "../${ARCHIVE}.zip" acm.exe acm-mcp.exe acm-web.exe
+          else
+            tar czf "../${ARCHIVE}.tar.gz" acm acm-mcp acm-web
+          fi
 
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ env.VERSION }}" "acm-${{ env.VERSION }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" --clobber
+        run: |
+          ARCHIVE="acm-${{ env.VERSION }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            gh release upload "${{ env.VERSION }}" "${ARCHIVE}.zip" --clobber
+          else
+            gh release upload "${{ env.VERSION }}" "${ARCHIVE}.tar.gz" --clobber
+          fi
