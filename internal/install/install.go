@@ -10,6 +10,7 @@
 package install
 
 import (
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,12 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/agents"
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
+
+// opencodePluginSrc is the canonical OpenCode plugin, embedded so a global
+// install can drop it into OpenCode's auto-load directory with no npm step.
+//
+//go:embed assets/opencode-acm.ts
+var opencodePluginSrc string
 
 // Change describes one configuration file edit (real or, in a dry run, planned).
 type Change struct {
@@ -51,6 +58,9 @@ func Run(agent core.Agent, home string, apply bool) (Result, error) {
 			return Result{}, err
 		}
 	case core.AgentCodex:
+		if err := res.add(codexHooks(home, apply)); err != nil {
+			return Result{}, err
+		}
 		if err := res.add(codexNotify(home, apply)); err != nil {
 			return Result{}, err
 		}
@@ -58,16 +68,16 @@ func Run(agent core.Agent, home string, apply bool) (Result, error) {
 			return Result{}, err
 		}
 		res.Notes = append(res.Notes,
-			"Codex per-prompt recall: wire 'acm hook --agent codex --event UserPromptSubmit' into your Codex hooks config (format varies by version; see docs/integrations.md).")
+			"Codex hooks (~/.codex/hooks.json) are user-level and need no project trust. notify (assistant-turn capture) is set in ~/.codex/config.toml and must be global, which it now is.")
 	case core.AgentOpenCode:
-		if err := res.add(opencodeConfig(home, apply)); err != nil {
+		if err := res.add(opencodePlugin(home, apply)); err != nil {
 			return Result{}, err
 		}
-		if err := res.add(instructions(filepath.Join(home, ".config", "opencode", "AGENTS.md"), apply)); err != nil {
+		if err := res.add(instructions(filepath.Join(opencodeConfigDir(home), "AGENTS.md"), apply)); err != nil {
 			return Result{}, err
 		}
 		res.Notes = append(res.Notes,
-			"Install the acm-opencode plugin so OpenCode can load it (npm package 'acm-opencode', or link plugins/opencode-acm). Ensure the 'acm' binary is on PATH.")
+			"The OpenCode plugin is auto-loaded from its directory (no opencode.json edit needed) and shells out to 'acm' — ensure the binary is on PATH.")
 	default:
 		return Result{}, fmt.Errorf("install: unknown agent %q (want claude-code|codex|opencode)", agent)
 	}
@@ -91,9 +101,24 @@ func claudeSettings(home string, apply bool) (Change, error) {
 		return Change{}, err
 	}
 	changed := ensureAllow(m, "Bash(acm:*)")
-	changed = ensureClaudeHook(m, "UserPromptSubmit", "", "acm hook --agent claude-code --event UserPromptSubmit") || changed
-	changed = ensureClaudeHook(m, "PostToolUse", "*", "acm hook --agent claude-code --event PostToolUse") || changed
+	changed = ensureHookEntry(m, "UserPromptSubmit", "", "acm hook --agent claude-code --event UserPromptSubmit") || changed
+	changed = ensureHookEntry(m, "PostToolUse", "*", "acm hook --agent claude-code --event PostToolUse") || changed
 	return finishJSON(path, m, changed, apply, "hooks + Bash(acm:*) permission")
+}
+
+// --- Codex: ~/.codex/hooks.json (standalone JSON, same nested schema as Claude) ---
+
+func codexHooks(home string, apply bool) (Change, error) {
+	path := filepath.Join(home, ".codex", "hooks.json")
+	m, err := readJSON(path)
+	if err != nil {
+		return Change{}, err
+	}
+	// UserPromptSubmit ignores matchers; PostToolUse with no matcher fires on
+	// every tool. The command is a single string, per Codex's hooks schema.
+	changed := ensureHookEntry(m, "UserPromptSubmit", "", "acm hook --agent codex --event UserPromptSubmit")
+	changed = ensureHookEntry(m, "PostToolUse", "", "acm hook --agent codex --event PostToolUse") || changed
+	return finishJSON(path, m, changed, apply, "UserPromptSubmit + PostToolUse hooks")
 }
 
 func ensureAllow(m map[string]any, perm string) bool {
@@ -107,7 +132,10 @@ func ensureAllow(m map[string]any, perm string) bool {
 	return true
 }
 
-func ensureClaudeHook(m map[string]any, event, matcher, command string) bool {
+// ensureHookEntry adds a command hook for an event under the top-level "hooks"
+// object, idempotently. The nested schema ({event: [{matcher?, hooks: [{type,
+// command}]}]}) is shared by Claude Code settings.json and Codex hooks.json.
+func ensureHookEntry(m map[string]any, event, matcher, command string) bool {
 	hooks := childMap(m, "hooks")
 	entries := anySlice(hooks[event])
 	for _, e := range entries {
@@ -133,30 +161,47 @@ func ensureClaudeHook(m map[string]any, event, matcher, command string) bool {
 	return true
 }
 
-// --- OpenCode: ~/.config/opencode/opencode.json ---
+// --- OpenCode: drop the plugin into the auto-load directory ---
 
-func opencodeConfig(home string, apply bool) (Change, error) {
-	path := filepath.Join(home, ".config", "opencode", "opencode.json")
-	m, err := readJSON(path)
+// opencodeConfigDir resolves OpenCode's config directory: $OPENCODE_CONFIG_DIR,
+// then $XDG_CONFIG_HOME/opencode, else <home>/.config/opencode. OpenCode
+// auto-loads any plugin/*.ts under it — no opencode.json edit is needed.
+func opencodeConfigDir(home string) string {
+	if dir := os.Getenv("OPENCODE_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "opencode")
+	}
+	return filepath.Join(home, ".config", "opencode")
+}
+
+func opencodePlugin(home string, apply bool) (Change, error) {
+	path := filepath.Join(opencodeConfigDir(home), "plugin", "acm.ts")
+	existing, err := readText(path)
 	if err != nil {
 		return Change{}, err
 	}
-	plugins := anySlice(m["plugin"])
-	changed := false
-	if !hasString(plugins, "acm-opencode") {
-		m["plugin"] = append(plugins, "acm-opencode")
-		changed = true
+	if existing == opencodePluginSrc {
+		return Change{Path: path, Summary: "plugin up to date", Skipped: true}, nil
 	}
-	if _, ok := m["$schema"]; !ok {
-		m["$schema"] = "https://opencode.ai/config.json"
-		changed = true
+	if apply {
+		if wErr := writeText(path, opencodePluginSrc); wErr != nil {
+			return Change{}, wErr
+		}
 	}
-	return finishJSON(path, m, changed, apply, "acm-opencode plugin")
+	what := "OpenCode plugin (auto-loaded)"
+	if existing != "" {
+		what = "OpenCode plugin (updated to current version)"
+	}
+	return Change{Path: path, Summary: verb(apply) + " " + what, Applied: apply}, nil
 }
 
 // --- Codex: ~/.codex/config.toml (append-only notify) ---
 
 var notifyRe = regexp.MustCompile(`(?m)^[ \t]*notify[ \t]*=`)
+
+const acmNotifyMarker = "# acm: capture each turn's final assistant message"
 
 func codexNotify(home string, apply bool) (Change, error) {
 	path := filepath.Join(home, ".codex", "config.toml")
@@ -164,13 +209,13 @@ func codexNotify(home string, apply bool) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
-	if strings.Contains(text, "agent-turn-complete") && strings.Contains(text, "acm hook") {
+	if strings.Contains(text, acmNotifyMarker) {
 		return Change{Path: path, Summary: "notify already configured", Skipped: true}, nil
 	}
 	if notifyRe.MatchString(text) {
 		return Change{Path: path, Summary: "existing notify left unchanged (point it at: acm hook --agent codex --event agent-turn-complete)", Skipped: true}, nil
 	}
-	block := "\n# acm: capture each turn's final assistant message (global)\n" +
+	block := "\n" + acmNotifyMarker + " (global)\n" +
 		`notify = ["acm", "hook", "--agent", "codex", "--event", "agent-turn-complete"]` + "\n"
 	if apply {
 		if wErr := writeText(path, text+block); wErr != nil {

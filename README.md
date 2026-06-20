@@ -89,13 +89,16 @@ project — the per-project database is resolved from the working directory at h
 time, and a `.acm/` directory is created on first use:
 
 ```sh
-acm init claude-code --global          # preview the changes (dry run)
-acm init claude-code --global --apply  # install for every project
+acm init claude-code --global --dry-run  # preview the exact changes
+acm init claude-code --global            # install for every project
 ```
 
 The install is safe and idempotent: it merges acm's hooks and drill-down
 instructions into your existing config without overwriting other settings, and
-re-running changes nothing. Repeat for `codex` and `opencode` as needed.
+re-running changes nothing. Repeat for `codex` and `opencode` as needed. For
+Codex it writes `~/.codex/hooks.json` (capture + recall) and `notify`; for
+OpenCode it drops a self-contained plugin into OpenCode's auto-load directory —
+no npm step.
 
 Prefer per-project, committable setup instead? Omit `--global` to generate
 snippets under `.acm/init/<agent>/` for you to merge:

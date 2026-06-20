@@ -84,35 +84,57 @@ func TestClaudeGlobalInstallIsIdempotentAndPreservesKeys(t *testing.T) {
 	}
 }
 
-func TestOpencodePluginDedup(t *testing.T) {
+func TestOpencodePluginInstalledToAutoLoadDir(t *testing.T) {
 	home := t.TempDir()
-	if _, err := Run(core.AgentOpenCode, home, true); err != nil {
+	t.Setenv("OPENCODE_CONFIG_DIR", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	res, err := Run(core.AgentOpenCode, home, true)
+	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	path := filepath.Join(home, ".config", "opencode", "opencode.json")
-	var m map[string]any
-	if err := json.Unmarshal([]byte(readFile(t, path)), &m); err != nil {
-		t.Fatalf("parse: %v", err)
+	if len(res.Changes) == 0 {
+		t.Fatal("expected changes")
 	}
-	plugins := asSlice(t, m["plugin"])
-	if !containsStr(plugins, "acm-opencode") {
-		t.Fatalf("plugin not added: %v", plugins)
+	path := filepath.Join(home, ".config", "opencode", "plugin", "acm.ts")
+	content := readFile(t, path)
+	if !strings.Contains(content, "export default") {
+		t.Fatalf("plugin file does not look like a plugin:\n%s", content)
 	}
-	// Re-apply: still exactly one acm-opencode entry.
+
+	// Re-apply: idempotent (file unchanged).
 	if _, err := Run(core.AgentOpenCode, home, true); err != nil {
 		t.Fatalf("re-apply: %v", err)
 	}
-	if err := json.Unmarshal([]byte(readFile(t, path)), &m); err != nil {
-		t.Fatalf("parse: %v", err)
+	if readFile(t, path) != content {
+		t.Fatal("re-apply changed the plugin file")
 	}
-	count := 0
-	for _, p := range asSlice(t, m["plugin"]) {
-		if p == "acm-opencode" {
-			count++
+}
+
+func TestCodexHooksInstalledAndIdempotent(t *testing.T) {
+	home := t.TempDir()
+	if _, err := Run(core.AgentCodex, home, true); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	path := filepath.Join(home, ".codex", "hooks.json")
+	var m map[string]any
+	if err := json.Unmarshal([]byte(readFile(t, path)), &m); err != nil {
+		t.Fatalf("parse hooks.json: %v", err)
+	}
+	hooks := asMap(t, m["hooks"])
+	for _, ev := range []string{"UserPromptSubmit", "PostToolUse"} {
+		if len(asSlice(t, hooks[ev])) == 0 {
+			t.Fatalf("no %s hook installed", ev)
 		}
 	}
-	if count != 1 {
-		t.Fatalf("acm-opencode appears %d times, want 1", count)
+
+	// Idempotent re-apply.
+	before := readFile(t, path)
+	if _, err := Run(core.AgentCodex, home, true); err != nil {
+		t.Fatalf("re-apply: %v", err)
+	}
+	if readFile(t, path) != before {
+		t.Fatal("re-apply changed hooks.json (not idempotent)")
 	}
 }
 

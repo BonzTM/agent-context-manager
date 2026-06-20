@@ -16,7 +16,7 @@ import (
 func newInitCmd(a *app) *cobra.Command {
 	var (
 		global bool
-		apply  bool
+		dryRun bool
 	)
 	cmd := &cobra.Command{
 		Use:     "init <agent>",
@@ -25,31 +25,33 @@ func newInitCmd(a *app) *cobra.Command {
 		Long: "Sets up acm integration for an agent: capture-and-recall hooks plus the\n" +
 			"drill-down instructions that document acm's recovery commands.\n\n" +
 			"Modes:\n" +
-			"  (default)        Generate per-project snippets under <project>/.acm/init/<agent>/\n" +
-			"                   for you to merge. Never touches existing config.\n" +
-			"  --global         Target the agent's user-level config so every project is\n" +
-			"                   covered by one install. A dry run unless --apply is given.\n" +
-			"  --global --apply Safely merge acm's hooks/plugin and drill-down instructions\n" +
-			"                   into the global config (idempotent; existing keys preserved;\n" +
-			"                   invalid configs are never overwritten).\n\n" +
+			"  (default)          Generate per-project snippets under\n" +
+			"                     <project>/.acm/init/<agent>/ for you to merge. Never\n" +
+			"                     touches existing config.\n" +
+			"  --global           Install into the agent's user-level config so every\n" +
+			"                     project is covered by one install. Applies by default;\n" +
+			"                     safely merges acm's hooks/plugin and drill-down\n" +
+			"                     instructions (idempotent; existing keys preserved;\n" +
+			"                     invalid configs are never overwritten).\n" +
+			"  --global --dry-run Preview the exact global changes without writing.\n\n" +
 			"With a single global install, acm captures into whichever project you are\n" +
 			"working in — the database is resolved from the working directory at hook time,\n" +
 			"and a .acm/ directory is created on first write.\n\n" +
 			"Supported agents: claude-code, codex, opencode.",
-		Example: `  acm init claude-code                  # project snippets to merge
-  acm init claude-code --global         # preview a global install (dry run)
-  acm init claude-code --global --apply # install globally for every project`,
+		Example: `  acm init claude-code                   # project snippets to merge
+  acm init claude-code --global --dry-run # preview a global install
+  acm init claude-code --global           # install globally for every project`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agent := core.Agent(args[0])
 			if global {
-				return runGlobalInit(cmd, agent, apply)
+				return runGlobalInit(cmd, agent, !dryRun)
 			}
 			return runProjectInit(cmd, a, agent)
 		},
 	}
 	cmd.Flags().BoolVar(&global, "global", false, "install into the agent's user-level config (covers every project)")
-	cmd.Flags().BoolVar(&apply, "apply", false, "with --global, write the changes (default is a dry run)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "with --global, preview the changes without writing")
 	return cmd
 }
 
@@ -75,7 +77,7 @@ func runGlobalInit(cmd *cobra.Command, agent core.Agent, apply bool) error {
 		fmt.Fprintf(out, "note: %s\n", n)
 	}
 	if !apply {
-		fmt.Fprintln(out, "\nDry run — no files were changed. Re-run with --apply to install.")
+		fmt.Fprintln(out, "\nDry run — no files were changed. Run without --dry-run to install.")
 	} else {
 		fmt.Fprintln(out, "\nInstalled. Restart the agent to load the new configuration.")
 	}

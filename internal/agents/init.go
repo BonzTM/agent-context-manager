@@ -51,21 +51,15 @@ const claudeSettings = `{
 }
 `
 
-const codexHooks = `# Codex hooks for acm. Wire these into your Codex hooks configuration
-# (~/.codex/config.toml [hooks] or hooks.json, per your Codex version). The
-# capture commands are safe to run from any project; recall is emitted on
-# user-prompt-submit. Note: Codex ignores 'notify' in project config, so set the
-# agent-turn-complete capture globally if you want assistant-message capture.
-
-user-prompt-submit = "acm hook --agent codex --event UserPromptSubmit"
-post-tool-use      = "acm hook --agent codex --event PostToolUse"
-# global notify (in ~/.codex/config.toml): notify = ["acm","hook","--agent","codex","--event","agent-turn-complete"]
-`
-
-const opencodeConfig = `{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["acm-opencode"],
-  "_comment": "The acm OpenCode plugin (plugins/opencode-acm) captures events into acm and, on chat.messages.transform, can assemble the active window. It shells out to the 'acm' binary; ensure it is on PATH."
+const codexHooksSnippet = `{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "acm hook --agent codex --event UserPromptSubmit" } ] }
+    ],
+    "PostToolUse": [
+      { "hooks": [ { "type": "command", "command": "acm hook --agent codex --event PostToolUse" } ] }
+    ]
+  }
 }
 `
 
@@ -85,22 +79,22 @@ func BuildInit(agent core.Agent) (InitPlan, error) {
 	case core.AgentCodex:
 		return InitPlan{
 			Assets: []Asset{
-				{RelPath: "hooks.snippet.toml", Content: codexHooks},
+				{RelPath: "hooks.snippet.json", Content: codexHooksSnippet},
 				{RelPath: "AGENTS.acm.md", Content: DrillDownDoc},
 			},
 			Instructions: instructions(core.AgentCodex,
-				"Wire hooks.snippet.toml into your Codex hooks config (project .codex/config.toml requires trust;",
-				"notify must be set globally), and append AGENTS.acm.md to your project's AGENTS.md."),
+				"Merge hooks.snippet.json into ~/.codex/hooks.json (or <repo>/.codex/hooks.json for a trusted project),",
+				"add notify for assistant-turn capture in global ~/.codex/config.toml, and append AGENTS.acm.md to your AGENTS.md.",
+				"Tip: 'acm init --global codex' does all of this for every project."),
 		}, nil
 	case core.AgentOpenCode:
 		return InitPlan{
 			Assets: []Asset{
-				{RelPath: "opencode.snippet.json", Content: opencodeConfig},
 				{RelPath: "AGENTS.acm.md", Content: DrillDownDoc},
 			},
 			Instructions: instructions(core.AgentOpenCode,
-				"Merge opencode.snippet.json into your opencode.json (the acm-opencode plugin in plugins/opencode-acm),",
-				"and append AGENTS.acm.md to your project's AGENTS.md."),
+				"Install the embedded OpenCode plugin with 'acm init --global opencode' (writes ~/.config/opencode/plugin/acm.ts),",
+				"or for this project copy that plugin into <repo>/.opencode/plugin/. Append AGENTS.acm.md to your AGENTS.md."),
 		}, nil
 	default:
 		return InitPlan{}, fmt.Errorf("agents: unknown agent %q", agent)

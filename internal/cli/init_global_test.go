@@ -12,8 +12,8 @@ func TestInitGlobalDryRunThenApply(t *testing.T) {
 	t.Setenv("HOME", home)
 	dbPath := filepath.Join(t.TempDir(), "acm.db")
 
-	// Dry run writes nothing.
-	out := runACM(t, dbPath, "", "init", "claude-code", "--global")
+	// --dry-run writes nothing.
+	out := runACM(t, dbPath, "", "init", "claude-code", "--global", "--dry-run")
 	if !strings.Contains(out, "Dry run") {
 		t.Fatalf("expected dry-run notice, got:\n%s", out)
 	}
@@ -21,8 +21,8 @@ func TestInitGlobalDryRunThenApply(t *testing.T) {
 		t.Fatal("dry run created settings.json")
 	}
 
-	// Apply writes the global config + instructions.
-	out = runACM(t, dbPath, "", "init", "claude-code", "--global", "--apply")
+	// Default (no --dry-run) applies the global config + instructions.
+	out = runACM(t, dbPath, "", "init", "claude-code", "--global")
 	if !strings.Contains(out, "Installed") {
 		t.Fatalf("expected install confirmation, got:\n%s", out)
 	}

@@ -22,32 +22,32 @@ Instead of per-project setup, install once into the agent's user-level
 configuration to cover every project:
 
 ```sh
-acm init <agent> --global          # dry run: preview the exact changes
-acm init <agent> --global --apply  # safely merge the changes
+acm init <agent> --global --dry-run  # preview the exact changes
+acm init <agent> --global            # install (act by default)
 ```
 
-`--global --apply` is **safe and idempotent**: it parses your existing config,
-adds only acm's entries (preserving everything else), and re-running makes no
-further changes. It never overwrites a config it cannot parse. Because acm
-resolves the database from the working directory at hook time, one global install
-captures into whichever project you are working in, creating a `.acm/` directory
-on first use.
+The install is **safe and idempotent**: it parses your existing config, adds only
+acm's entries (preserving everything else), and re-running makes no further
+changes. It never overwrites a config it cannot parse. Use `--dry-run` to preview
+without writing. Because acm resolves the database from the working directory at
+hook time, one global install captures into whichever project you are working in,
+creating a `.acm/` directory on first use.
 
-What it touches per agent:
+What it installs per agent:
 
-| Agent | Config merged | Instructions appended |
-|-------|---------------|-----------------------|
-| Claude Code | `~/.claude/settings.json` (hooks + `Bash(acm:*)` permission) | `~/.claude/CLAUDE.md` |
-| Codex | `~/.codex/config.toml` (`notify` for assistant-turn capture) | `~/.codex/AGENTS.md` |
-| OpenCode | `~/.config/opencode/opencode.json` (plugin entry) | `~/.config/opencode/AGENTS.md` |
+| Agent | Config / files written | Instructions appended |
+|-------|------------------------|-----------------------|
+| Claude Code | `~/.claude/settings.json` — `UserPromptSubmit`+`PostToolUse` hooks + `Bash(acm:*)` permission | `~/.claude/CLAUDE.md` |
+| Codex | `~/.codex/hooks.json` — `UserPromptSubmit`+`PostToolUse` hooks; `~/.codex/config.toml` — `notify` (assistant-turn capture) | `~/.codex/AGENTS.md` |
+| OpenCode | `~/.config/opencode/plugin/acm.ts` — the plugin, auto-loaded (no `opencode.json` edit) | `~/.config/opencode/AGENTS.md` |
 
 Notes:
 
-- **Codex** per-prompt recall additionally needs a `UserPromptSubmit` hook wired
-  into your Codex hooks configuration (its format varies by version); the global
-  install sets up assistant-turn capture and the drill-down instructions.
-- **OpenCode** requires the `acm-opencode` plugin to be installed so OpenCode can
-  load it (npm package, or link `plugins/opencode-acm`).
+- **Codex** hooks live in `~/.codex/hooks.json` (user-level, no project trust
+  required). `notify` must be global, and the install sets it there.
+- **OpenCode** loads the plugin automatically from its plugin directory; the
+  plugin is embedded in the `acm` binary and written on install — no npm step.
+  Ensure `acm` is on `PATH` (the plugin shells out to it).
 
 The per-project setup below remains available (omit `--global`) when you prefer
 committable, repo-scoped configuration.
@@ -76,46 +76,40 @@ handling with a lossless side-record and recall.
 
 ## Codex
 
-`acm init codex` generates:
+Codex loads hooks from `hooks.json` (user-level `~/.codex/hooks.json`, or
+`<repo>/.codex/hooks.json` for a trusted project). `acm init codex` generates:
 
-- `hooks.snippet.toml` — capture/recall hook commands.
+- `hooks.snippet.json` — `UserPromptSubmit` (capture + recall) and `PostToolUse`
+  (capture) hooks.
 - `AGENTS.acm.md` — the drill-down instruction block.
 
-**Setup**
+**Setup** (or just run `acm init --global codex`, which does all of this)
 
-1. Wire the hook commands into your Codex hooks configuration. Project-level
-   configuration requires the project to be trusted.
-2. Append `AGENTS.acm.md` to your project's `AGENTS.md`.
+1. Merge `hooks.snippet.json` into `~/.codex/hooks.json`.
+2. For assistant-turn capture, add `notify` to the global `~/.codex/config.toml`
+   (it must be global — Codex ignores `notify` in project config):
+   `notify = ["acm", "hook", "--agent", "codex", "--event", "agent-turn-complete"]`.
+3. Append `AGENTS.acm.md` to your project's `AGENTS.md`.
 
-> Codex ignores `notify` in project-level configuration. To capture the final
-> assistant message of each turn, set the `agent-turn-complete` notify command
-> globally in `~/.codex/config.toml`.
-
-Codex's shell tool may be sandboxed or gated; the permission/trust setup ensures
-`acm` drill-down commands run without repeated prompts.
+Codex's shell tool may be sandboxed or gated; on a trusted project the `acm`
+drill-down commands run without repeated prompts.
 
 ---
 
 ## OpenCode
 
-OpenCode is integrated through a plugin (in `plugins/opencode-acm`) rather than
-shell hooks, because its plugin API can deterministically own the active context
-window.
+OpenCode is integrated through a plugin. OpenCode auto-loads any `*.ts` file in
+its plugin directory (Bun runs TypeScript natively), so installation is just
+dropping one self-contained file — no `opencode.json` edit, no npm.
 
-`acm init opencode` generates:
+The simplest path is `acm init --global opencode`, which writes the embedded
+plugin to `~/.config/opencode/plugin/acm.ts` and appends the drill-down
+instructions to `~/.config/opencode/AGENTS.md`. For a single project, copy that
+plugin into `<repo>/.opencode/plugin/` instead.
 
-- `opencode.snippet.json` — the plugin reference for `opencode.json`.
-- `AGENTS.acm.md` — the drill-down instruction block.
-
-**Setup**
-
-1. Install the plugin and merge `opencode.snippet.json` into your `opencode.json`.
-2. Append `AGENTS.acm.md` to your project's `AGENTS.md`.
-3. Ensure the `acm` binary is on `PATH`; the plugin shells out to it.
-
-By default the plugin captures messages and advertises the drill-down commands.
-Full active-window ownership (the plugin assembling exactly what the model sees)
-is available as an opt-in once validated for your OpenCode version.
+Ensure the `acm` binary is on `PATH`; the plugin shells out to it. The plugin
+captures each message into acm's lossless store; drill-down is documented for the
+model in the `AGENTS.md` block.
 
 ---
 

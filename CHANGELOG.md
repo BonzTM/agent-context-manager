@@ -19,9 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reuse the host agent's headless CLI.
 - Agent integration: `acm hook` (capture and recall injection) for Claude Code
   and Codex, an OpenCode plugin, and `acm init` to generate integration assets.
-- `acm init --global [--apply]` — safe, idempotent, dry-run-by-default
-  installation of acm's hooks and drill-down instructions into an agent's
-  user-level configuration, covering every project from one install.
+- `acm init --global` — safe, idempotent installation of acm's hooks and
+  drill-down instructions into an agent's user-level configuration, covering
+  every project from one install (`--dry-run` to preview). For Claude Code it
+  merges `~/.claude/settings.json`; for Codex it merges `~/.codex/hooks.json`
+  (UserPromptSubmit + PostToolUse) and adds `notify`; for OpenCode it drops a
+  self-contained, embedded plugin into OpenCode's auto-load directory (no npm).
 - `acm map` — off-context batch processing of JSONL datasets with bounded
   concurrency and validated retries.
 - Operational commands: `acm doctor`, `acm stats`, `acm version`.

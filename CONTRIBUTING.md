@@ -34,9 +34,10 @@ internal/
   summarize/          Summarizers (deterministic and agent-CLI backed).
   engine/             Compaction loop and active-window assembly.
   agents/             Per-agent capture, recall, and init assets.
+  install/            Global agent installation (safe config merge); embeds the
+                      OpenCode plugin (assets/opencode-acm.ts).
   llmmap/             Off-context batch processing.
   cli/                Command-line surface.
-plugins/opencode-acm/ OpenCode plugin.
 docs/                 Documentation.
 ```
 
