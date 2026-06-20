@@ -1,0 +1,90 @@
+# golangci-lint configuration. Targets golangci-lint v2.12.x (schema version "2").
+# Pinned as a module tool: see go.mod tool directives and the Makefile `lint`/`fmt`
+# targets. Run with: make lint
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose      # HTTP/SQL response bodies are closed (leak + connection-reuse bug)
+    - copyloopvar    # loop-variable capture bugs
+    - errorlint      # %w wrapping and errors.Is/As usage, not == comparisons
+    - gocritic       # broad correctness/performance/style diagnostics
+    - gosec          # security: unchecked file paths, weak crypto, SQL building
+    - nilerr         # returning nil when a non-nil error was just checked
+    - nilnesserr     # returning a nil error after a nil-pointer-deref guard
+    - noctx          # requests sent without a context.Context
+    - perfsprint     # cheaper alternatives to fmt.Sprintf on hot paths
+    - prealloc       # slices that should be preallocated in loops
+    - revive         # configurable replacement for the retired golint
+    - rowserrcheck   # sql.Rows.Err() is checked after iteration
+    - sqlclosecheck  # sql.Rows / sql.Stmt are closed
+    - testifylint    # correct testify assertion usage (no-op without testify)
+    - unconvert      # redundant type conversions
+    - unparam        # unused function parameters and results
+    - usestdlibvars  # use stdlib constants
+    - wastedassign   # assignments whose value is never read
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    gosec:
+      excludes:
+        - G104 # duplicate of errcheck
+        - G202 # SQL built only by concatenating constant column lists; every value is parameterized with ?
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: var-declaration
+        - name: var-naming
+
+  exclusions:
+    generated: strict
+    warn-unused: true
+    presets:
+      - common-false-positives
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - bodyclose
+          - noctx
+
+formatters:
+  enable:
+    - gofumpt
+    - gci
+  settings:
+    gofumpt:
+      module-path: github.com/bonztm/agent-context-manager
+      extra-rules: true
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/bonztm/agent-context-manager)
+      custom-order: true
+  exclusions:
+    generated: strict

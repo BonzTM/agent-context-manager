@@ -1,0 +1,34 @@
+# Build output and binaries
+/bin
+/out
+/dist
+*.exe
+/acm
+
+# Test and coverage artifacts
+*.test
+cover.out
+coverage.out
+coverage.html
+*.prof
+
+# Local acm state (per-project databases should never be committed here)
+.acm/
+*.db
+*.db-wal
+*.db-shm
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Editor/IDE cruft
+.idea
+.vscode
+*.swp
+.DS_Store
+
+# Stray tool log
+excalidraw.log

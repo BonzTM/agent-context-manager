@@ -1,0 +1,11 @@
+{
+  "name": "acm-opencode",
+  "version": "0.0.1",
+  "description": "agent-context-manager (acm) plugin for OpenCode: lossless capture + drill-down via the local acm binary",
+  "type": "module",
+  "main": "src/index.ts",
+  "license": "MIT",
+  "peerDependencies": {
+    "@opencode-ai/plugin": "*"
+  }
+}
