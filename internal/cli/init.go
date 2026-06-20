@@ -10,50 +10,100 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/agents"
 	"github.com/bonztm/agent-context-manager/internal/config"
 	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/install"
 )
 
 func newInitCmd(a *app) *cobra.Command {
-	return &cobra.Command{
+	var (
+		global bool
+		apply  bool
+	)
+	cmd := &cobra.Command{
 		Use:     "init <agent>",
 		GroupID: groupSetup,
-		Short:   "Generate integration assets (hooks, drill-down instructions) for an agent",
-		Long: "Generates the per-agent hook configuration and drill-down instruction assets\n" +
-			"under <project>/.acm/init/<agent>/ and prints next steps. It never mutates your\n" +
-			"existing agent configuration — it writes snippets for you to review and merge,\n" +
-			"so nothing is clobbered.\n\n" +
-			"Supported agents: claude-code, codex, opencode.\n\n" +
-			"The generated assets wire capture-and-recall hooks and document the drill-down\n" +
-			"commands (acm expand/grep/describe) for the model. See docs/integrations.md for\n" +
-			"the per-agent merge steps.",
-		Example: `  acm init claude-code
-  acm init codex
-  acm init opencode`,
+		Short:   "Generate or install integration for an agent (hooks + drill-down)",
+		Long: "Sets up acm integration for an agent: capture-and-recall hooks plus the\n" +
+			"drill-down instructions that document acm's recovery commands.\n\n" +
+			"Modes:\n" +
+			"  (default)        Generate per-project snippets under <project>/.acm/init/<agent>/\n" +
+			"                   for you to merge. Never touches existing config.\n" +
+			"  --global         Target the agent's user-level config so every project is\n" +
+			"                   covered by one install. A dry run unless --apply is given.\n" +
+			"  --global --apply Safely merge acm's hooks/plugin and drill-down instructions\n" +
+			"                   into the global config (idempotent; existing keys preserved;\n" +
+			"                   invalid configs are never overwritten).\n\n" +
+			"With a single global install, acm captures into whichever project you are\n" +
+			"working in — the database is resolved from the working directory at hook time,\n" +
+			"and a .acm/ directory is created on first write.\n\n" +
+			"Supported agents: claude-code, codex, opencode.",
+		Example: `  acm init claude-code                  # project snippets to merge
+  acm init claude-code --global         # preview a global install (dry run)
+  acm init claude-code --global --apply # install globally for every project`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agent := core.Agent(args[0])
-			plan, err := agents.BuildInit(agent)
-			if err != nil {
-				return err
+			if global {
+				return runGlobalInit(cmd, agent, apply)
 			}
-
-			dir := filepath.Join(a.cfg.ProjectRoot, config.DirName, "init", string(agent))
-			if mErr := os.MkdirAll(dir, 0o750); mErr != nil {
-				return fmt.Errorf("init: create dir: %w", mErr)
-			}
-
-			out := cmd.OutOrStdout()
-			for _, as := range plan.Assets {
-				path := filepath.Join(dir, as.RelPath)
-				if dErr := os.MkdirAll(filepath.Dir(path), 0o750); dErr != nil {
-					return fmt.Errorf("init: create asset dir: %w", dErr)
-				}
-				if wErr := os.WriteFile(path, []byte(as.Content), 0o600); wErr != nil {
-					return fmt.Errorf("init: write asset: %w", wErr)
-				}
-				fmt.Fprintf(out, "wrote %s\n", path)
-			}
-			fmt.Fprintln(out, plan.Instructions)
-			return nil
+			return runProjectInit(cmd, a, agent)
 		},
 	}
+	cmd.Flags().BoolVar(&global, "global", false, "install into the agent's user-level config (covers every project)")
+	cmd.Flags().BoolVar(&apply, "apply", false, "with --global, write the changes (default is a dry run)")
+	return cmd
+}
+
+func runGlobalInit(cmd *cobra.Command, agent core.Agent, apply bool) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("init: resolve home directory: %w", err)
+	}
+	res, err := install.Run(agent, home, apply)
+	if err != nil {
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+	for _, c := range res.Changes {
+		marker := "•"
+		if c.Skipped {
+			marker = "–"
+		}
+		fmt.Fprintf(out, "%s %s\n    %s\n", marker, c.Summary, c.Path)
+	}
+	for _, n := range res.Notes {
+		fmt.Fprintf(out, "note: %s\n", n)
+	}
+	if !apply {
+		fmt.Fprintln(out, "\nDry run — no files were changed. Re-run with --apply to install.")
+	} else {
+		fmt.Fprintln(out, "\nInstalled. Restart the agent to load the new configuration.")
+	}
+	return nil
+}
+
+func runProjectInit(cmd *cobra.Command, a *app, agent core.Agent) error {
+	plan, err := agents.BuildInit(agent)
+	if err != nil {
+		return err
+	}
+
+	dir := filepath.Join(a.cfg.ProjectRoot, config.DirName, "init", string(agent))
+	if mErr := os.MkdirAll(dir, 0o750); mErr != nil {
+		return fmt.Errorf("init: create dir: %w", mErr)
+	}
+
+	out := cmd.OutOrStdout()
+	for _, as := range plan.Assets {
+		path := filepath.Join(dir, as.RelPath)
+		if dErr := os.MkdirAll(filepath.Dir(path), 0o750); dErr != nil {
+			return fmt.Errorf("init: create asset dir: %w", dErr)
+		}
+		if wErr := os.WriteFile(path, []byte(as.Content), 0o600); wErr != nil {
+			return fmt.Errorf("init: write asset: %w", wErr)
+		}
+		fmt.Fprintf(out, "wrote %s\n", path)
+	}
+	fmt.Fprintln(out, plan.Instructions)
+	return nil
 }

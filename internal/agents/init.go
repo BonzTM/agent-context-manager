@@ -19,10 +19,10 @@ type InitPlan struct {
 	Instructions string
 }
 
-// drillDownDoc is the shared instruction block teaching the model how to recover
+// DrillDownDoc is the shared instruction block teaching the model how to recover
 // compacted context through its own shell tool. acm init writes it for each
 // agent so the model knows the drill-down commands exist.
-const drillDownDoc = `## acm — lossless long-context
+const DrillDownDoc = `## acm — lossless long-context
 
 This project uses acm (agent-context-manager) for long-context management. Older
 conversation is compacted into ` + "`<summary id=\"sum_...\">`" + ` pointers and surfaced via
@@ -76,7 +76,7 @@ func BuildInit(agent core.Agent) (InitPlan, error) {
 		return InitPlan{
 			Assets: []Asset{
 				{RelPath: "settings.snippet.json", Content: claudeSettings},
-				{RelPath: "CLAUDE.acm.md", Content: drillDownDoc},
+				{RelPath: "CLAUDE.acm.md", Content: DrillDownDoc},
 			},
 			Instructions: instructions(core.AgentClaude,
 				"Merge settings.snippet.json into .claude/settings.json (hooks + the Bash(acm:*) permission),",
@@ -86,7 +86,7 @@ func BuildInit(agent core.Agent) (InitPlan, error) {
 		return InitPlan{
 			Assets: []Asset{
 				{RelPath: "hooks.snippet.toml", Content: codexHooks},
-				{RelPath: "AGENTS.acm.md", Content: drillDownDoc},
+				{RelPath: "AGENTS.acm.md", Content: DrillDownDoc},
 			},
 			Instructions: instructions(core.AgentCodex,
 				"Wire hooks.snippet.toml into your Codex hooks config (project .codex/config.toml requires trust;",
@@ -96,7 +96,7 @@ func BuildInit(agent core.Agent) (InitPlan, error) {
 		return InitPlan{
 			Assets: []Asset{
 				{RelPath: "opencode.snippet.json", Content: opencodeConfig},
-				{RelPath: "AGENTS.acm.md", Content: drillDownDoc},
+				{RelPath: "AGENTS.acm.md", Content: DrillDownDoc},
 			},
 			Instructions: instructions(core.AgentOpenCode,
 				"Merge opencode.snippet.json into your opencode.json (the acm-opencode plugin in plugins/opencode-acm),",

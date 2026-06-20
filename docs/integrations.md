@@ -16,6 +16,42 @@ Two integration surfaces are common to all agents:
   `acm grep`, and `acm describe` through its shell tool. `acm init` writes an
   instruction block that documents these commands for the model.
 
+## Global install (recommended)
+
+Instead of per-project setup, install once into the agent's user-level
+configuration to cover every project:
+
+```sh
+acm init <agent> --global          # dry run: preview the exact changes
+acm init <agent> --global --apply  # safely merge the changes
+```
+
+`--global --apply` is **safe and idempotent**: it parses your existing config,
+adds only acm's entries (preserving everything else), and re-running makes no
+further changes. It never overwrites a config it cannot parse. Because acm
+resolves the database from the working directory at hook time, one global install
+captures into whichever project you are working in, creating a `.acm/` directory
+on first use.
+
+What it touches per agent:
+
+| Agent | Config merged | Instructions appended |
+|-------|---------------|-----------------------|
+| Claude Code | `~/.claude/settings.json` (hooks + `Bash(acm:*)` permission) | `~/.claude/CLAUDE.md` |
+| Codex | `~/.codex/config.toml` (`notify` for assistant-turn capture) | `~/.codex/AGENTS.md` |
+| OpenCode | `~/.config/opencode/opencode.json` (plugin entry) | `~/.config/opencode/AGENTS.md` |
+
+Notes:
+
+- **Codex** per-prompt recall additionally needs a `UserPromptSubmit` hook wired
+  into your Codex hooks configuration (its format varies by version); the global
+  install sets up assistant-turn capture and the drill-down instructions.
+- **OpenCode** requires the `acm-opencode` plugin to be installed so OpenCode can
+  load it (npm package, or link `plugins/opencode-acm`).
+
+The per-project setup below remains available (omit `--global`) when you prefer
+committable, repo-scoped configuration.
+
 ---
 
 ## Claude Code

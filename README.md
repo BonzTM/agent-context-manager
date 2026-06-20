@@ -84,16 +84,29 @@ CGO_ENABLED=0 go build -o acm ./cmd/acm
 
 ## Quick start
 
-Generate the integration assets for your agent and follow the printed steps:
+Install acm once into an agent's global configuration and it covers every
+project — the per-project database is resolved from the working directory at hook
+time, and a `.acm/` directory is created on first use:
+
+```sh
+acm init claude-code --global          # preview the changes (dry run)
+acm init claude-code --global --apply  # install for every project
+```
+
+The install is safe and idempotent: it merges acm's hooks and drill-down
+instructions into your existing config without overwriting other settings, and
+re-running changes nothing. Repeat for `codex` and `opencode` as needed.
+
+Prefer per-project, committable setup instead? Omit `--global` to generate
+snippets under `.acm/init/<agent>/` for you to merge:
 
 ```sh
 cd your-project
-acm init claude-code      # or: codex | opencode
+acm init claude-code      # writes snippets + instructions, never edits your config
 ```
 
-That wires capture-and-recall hooks and tells the agent how to recover compacted
-context. From then on, `acm` runs automatically as you work. You can also drive
-it directly:
+Either way, `acm` then runs automatically as you work. You can also drive it
+directly:
 
 ```sh
 acm stats                 # what's stored
