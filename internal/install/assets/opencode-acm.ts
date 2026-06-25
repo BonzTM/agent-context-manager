@@ -8,31 +8,36 @@
 // Drill-down (acm expand/grep/describe) is documented for the model in the
 // AGENTS.md block acm init also writes.
 //
-// IMPORTANT loader constraints (verified against OpenCode 1.17.1):
-//   - This module must export ONLY the default plugin function. OpenCode treats
-//     every export as a plugin and rejects any non-function export
-//     ("Plugin export is not a function"), so do NOT add `export const id`, etc.
-//   - OpenCode may run from a different working directory than your project
-//     (e.g. the web/server process), so we run `acm` with cwd set to the
-//     plugin's worktree/directory; otherwise capture would land in the wrong
-//     .acm/ database.
+// Works in BOTH OpenCode modes:
+//   - TUI (one project per process): the plugin context's directory is the
+//     project, used as a fallback.
+//   - Web/server (one process, many projects): the process cwd is NOT the
+//     project, so we learn each session's directory from `session.updated`
+//     events (event.properties.info.directory) and run `acm` with that
+//     session's directory as cwd — routing each session to the correct
+//     per-project .acm database.
 //
-// How capture works: OpenCode carries message TEXT in `message.part.updated`
-// events (part.type === "text"), not on the `message.updated` info object. So we
-// buffer text parts per message id and ingest a message's joined text once it is
-// final — user messages as soon as their text is known, assistant messages only
-// when info.time.completed is set (so we store the full streamed reply, not a
-// partial). Ingestion is idempotent (keyed on the message id). Capture is
-// best-effort: it must never throw into the agent loop.
+// Loader constraint (OpenCode 1.17.1): export ONLY the default plugin function;
+// OpenCode rejects any non-function module export.
+//
+// Capture detail: OpenCode carries message TEXT in `message.part.updated` events
+// (part.type === "text"), not on `message.updated`'s info object. We buffer text
+// parts per message id and ingest a message's joined text once final — user
+// messages as soon as their text is known, assistant messages only when
+// info.time.completed is set. Ingestion is idempotent (keyed on message id).
+// Capture is best-effort: it must never throw into the agent loop.
 import { spawnSync } from "node:child_process"
 
-// The project directory acm should resolve its database from, learned from the
-// plugin context at load time (OpenCode's process cwd is not reliable).
-let projectDir: string | undefined
+// Per-session project directory, learned from session.updated events. This is
+// what makes web/server mode (many projects, one process) route correctly.
+const dirBySession = new Map<string, string>()
+// Fallback directory from the plugin context (correct for single-project TUI).
+let fallbackDir: string | undefined
 
-function acm(args: string[], input?: string): void {
+function acm(args: string[], input: string, sessionID?: string): void {
   try {
-    spawnSync("acm", args, { input: input ?? "", encoding: "utf8", cwd: projectDir || undefined })
+    const cwd = (sessionID ? dirBySession.get(sessionID) : undefined) ?? fallbackDir ?? undefined
+    spawnSync("acm", args, { input, encoding: "utf8", cwd })
   } catch {
     /* best-effort: never break the agent */
   }
@@ -71,18 +76,24 @@ function flush(messageID: string): void {
       session_id: sessionID,
       messages: [{ role, content: text, external_id: messageID }],
     }),
+    sessionID,
   )
   ingested.add(messageID)
   partsByMessage.delete(messageID)
 }
 
 export default async function acmPlugin(ctx: any) {
-  projectDir = ctx?.worktree ?? ctx?.directory ?? undefined
+  fallbackDir = ctx?.directory ?? ctx?.worktree ?? undefined
   return {
     event: async ({ event }: any) => {
       try {
         const type = event?.type
         const props = event?.properties
+        if (type === "session.updated") {
+          const info = props?.info
+          if (info?.id && typeof info.directory === "string") dirBySession.set(info.id, info.directory)
+          return
+        }
         if (type === "message.part.updated") {
           const part = props?.part
           rememberPart(part)
