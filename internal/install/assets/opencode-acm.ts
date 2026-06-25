@@ -8,20 +8,31 @@
 // Drill-down (acm expand/grep/describe) is documented for the model in the
 // AGENTS.md block acm init also writes.
 //
+// IMPORTANT loader constraints (verified against OpenCode 1.17.1):
+//   - This module must export ONLY the default plugin function. OpenCode treats
+//     every export as a plugin and rejects any non-function export
+//     ("Plugin export is not a function"), so do NOT add `export const id`, etc.
+//   - OpenCode may run from a different working directory than your project
+//     (e.g. the web/server process), so we run `acm` with cwd set to the
+//     plugin's worktree/directory; otherwise capture would land in the wrong
+//     .acm/ database.
+//
 // How capture works: OpenCode carries message TEXT in `message.part.updated`
 // events (part.type === "text"), not on the `message.updated` info object. So we
 // buffer text parts per message id and ingest a message's joined text once it is
 // final — user messages as soon as their text is known, assistant messages only
 // when info.time.completed is set (so we store the full streamed reply, not a
-// partial). Ingestion is idempotent (keyed on the message id), so re-delivery is
-// harmless. Capture is best-effort: it must never throw into the agent loop.
+// partial). Ingestion is idempotent (keyed on the message id). Capture is
+// best-effort: it must never throw into the agent loop.
 import { spawnSync } from "node:child_process"
 
-export const id = "acm"
+// The project directory acm should resolve its database from, learned from the
+// plugin context at load time (OpenCode's process cwd is not reliable).
+let projectDir: string | undefined
 
 function acm(args: string[], input?: string): void {
   try {
-    spawnSync("acm", args, { input: input ?? "", encoding: "utf8" })
+    spawnSync("acm", args, { input: input ?? "", encoding: "utf8", cwd: projectDir || undefined })
   } catch {
     /* best-effort: never break the agent */
   }
@@ -65,7 +76,8 @@ function flush(messageID: string): void {
   partsByMessage.delete(messageID)
 }
 
-export default async function acmPlugin(_input: any) {
+export default async function acmPlugin(ctx: any) {
+  projectDir = ctx?.worktree ?? ctx?.directory ?? undefined
   return {
     event: async ({ event }: any) => {
       try {
