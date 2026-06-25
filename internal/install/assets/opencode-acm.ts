@@ -17,7 +17,8 @@
 // so capture lands in the correct per-project .acm even when one server process
 // serves many projects from a non-project cwd. Messages that arrive before their
 // session's directory is known are queued and flushed once it is — so nothing is
-// ever written to the wrong database.
+// ever written to the wrong database. On session open the project's .acm database
+// is initialized immediately (open + migrate) so it exists from the first turn.
 //
 // Capture detail: OpenCode carries message TEXT in `message.part.updated` events
 // (part.type === "text"), not on `message.updated`'s info object, and tool calls
@@ -32,6 +33,8 @@ import { spawnSync } from "node:child_process"
 const dirBySession = new Map<string, string>()
 // sessionID -> queued ingest payloads awaiting that session's directory.
 const pendingBySession = new Map<string, Record<string, unknown>[]>()
+// project directories whose .acm database has already been initialized.
+const initializedDirs = new Set<string>()
 
 // Per-message text buffers.
 const partsByMessage = new Map<string, Map<string, string>>() // messageID -> partID -> text
@@ -69,6 +72,17 @@ function enqueue(sessionID: string, message: Record<string, unknown>): void {
 function learnDirectory(sessionID: string, dir: string): void {
   if (!sessionID || !dir) return
   dirBySession.set(sessionID, dir)
+  // Initialize the project's .acm database on session open (open + migrate), so
+  // it exists from the first turn even before anything is captured — once per
+  // directory. `acm doctor` is the open-and-migrate command.
+  if (!initializedDirs.has(dir)) {
+    initializedDirs.add(dir)
+    try {
+      spawnSync("acm", ["doctor"], { cwd: dir, encoding: "utf8" })
+    } catch {
+      /* best-effort */
+    }
+  }
   const queued = pendingBySession.get(sessionID)
   if (queued?.length) {
     for (const message of queued) runIngest(dir, sessionID, message)
