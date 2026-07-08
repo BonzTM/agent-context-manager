@@ -53,8 +53,12 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		return nil, errors.New("store: empty database path")
 	}
 	if path != ":memory:" {
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return nil, fmt.Errorf("store: create db dir: %w", err)
+		}
+		if err := ensureSelfIgnore(dir); err != nil {
+			return nil, err
 		}
 	}
 
@@ -78,6 +82,26 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		return nil, fmt.Errorf("store: ping sqlite: %w", err)
 	}
 	return &DB{sql: sqldb, path: path}, nil
+}
+
+// ensureSelfIgnore writes a `*`-only .gitignore into a freshly ensured .acm
+// state directory so per-project databases never end up committed. Directories
+// with any other name (an explicit --db elsewhere) are left alone, and an
+// existing .gitignore is never touched.
+func ensureSelfIgnore(dir string) error {
+	if filepath.Base(dir) != ".acm" {
+		return nil
+	}
+	ignorePath := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(ignorePath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("store: stat %s: %w", ignorePath, err)
+	}
+	if err := os.WriteFile(ignorePath, []byte("*\n"), 0o600); err != nil {
+		return fmt.Errorf("store: write %s: %w", ignorePath, err)
+	}
+	return nil
 }
 
 // dsnFor builds a modernc DSN that starts every transaction as BEGIN IMMEDIATE
