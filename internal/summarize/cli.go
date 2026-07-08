@@ -90,10 +90,24 @@ func (c *CLISummarizer) Summarize(ctx context.Context, in core.SummarizeInput) (
 func buildPrompt(in core.SummarizeInput) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Compress the following %s context into at most %d tokens. ", in.Kind, in.TargetTokens)
-	fmt.Fprint(&b, "Preserve key decisions, identifiers, file paths, error messages, and unresolved questions. ")
+	fmt.Fprint(&b, depthGuidance(in.Depth))
 	fmt.Fprint(&b, "Output only the summary, no preamble.\n\n")
 	for i, s := range in.Sources {
 		fmt.Fprintf(&b, "--- source %d ---\n%s\n", i+1, s)
 	}
 	return b.String()
+}
+
+// depthGuidance tailors what a summary should preserve to its level in the DAG:
+// leaves keep concrete detail, low condensed levels keep the narrative arc, and
+// deep levels keep only what stays true for the whole project.
+func depthGuidance(depth int) string {
+	switch {
+	case depth <= 0:
+		return "Preserve key decisions, identifiers, file paths, commands, error messages, and unresolved questions. "
+	case depth == 1:
+		return "Summarize the arc of work: goals, decisions and their outcomes, files touched, and anything still unresolved. Drop step-by-step detail. "
+	default:
+		return "Produce a durable, self-contained narrative: the goal, the final outcome, lasting decisions, and what carries forward. Drop transient detail. "
+	}
 }
