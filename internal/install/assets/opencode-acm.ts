@@ -43,6 +43,14 @@ const sessionByMessage = new Map<string, string>() // messageID -> sessionID
 const ingestedMsgs = new Set<string>() // messageIDs already stored
 const ingestedTools = new Set<string>() // tool callIDs already stored
 
+// Dedup sets and per-message maps would grow forever in a long-lived server
+// process. acm's ingest is idempotent (keyed on external_id), so clearing a
+// full set only risks a harmless re-ingest attempt, never a duplicate row.
+const MAX_TRACKED = 20_000
+function bound(collection: Set<string> | Map<string, unknown>): void {
+  if (collection.size > MAX_TRACKED) collection.clear()
+}
+
 function runIngest(dir: string, sessionID: string, message: Record<string, unknown>): void {
   try {
     spawnSync("acm", ["ingest"], {
@@ -98,9 +106,11 @@ function forgetSession(sessionID: string): void {
 
 function rememberPart(part: any): void {
   if (!part || part.type !== "text" || typeof part.text !== "string" || !part.messageID) return
+  if (ingestedMsgs.has(part.messageID)) return // already flushed; don't re-buffer
   const buf = partsByMessage.get(part.messageID) ?? new Map<string, string>()
   // Streaming text parts re-fire for the same id with growing text; latest wins.
   buf.set(part.id ?? String(buf.size), part.text)
+  bound(partsByMessage)
   partsByMessage.set(part.messageID, buf)
   if (typeof part.sessionID === "string") sessionByMessage.set(part.messageID, part.sessionID)
 }
@@ -116,8 +126,11 @@ function flushMessage(messageID: string): void {
   const text = joinedText(messageID)
   if (!role || !sessionID || !text) return
   enqueue(sessionID, { role, content: text, external_id: messageID })
+  bound(ingestedMsgs)
   ingestedMsgs.add(messageID)
   partsByMessage.delete(messageID)
+  roleByMessage.delete(messageID)
+  sessionByMessage.delete(messageID)
 }
 
 function safeJSON(value: unknown): string {
@@ -141,6 +154,7 @@ function captureToolPart(part: any): void {
   const output = status === "error" ? state.error ?? "" : typeof state.output === "string" ? state.output : safeJSON(state.output)
   const content = `[tool ${name}]\ninput: ${safeJSON(state.input)}\noutput: ${output}`
   enqueue(part.sessionID, { role: "tool", content, external_id: id, tool_name: name })
+  bound(ingestedTools)
   ingestedTools.add(id)
 }
 
@@ -174,6 +188,8 @@ export default async function acmPlugin(_ctx: any) {
         if (type === "message.updated") {
           const info = props?.info
           if (!info?.id || !info?.role) return
+          bound(roleByMessage)
+          bound(sessionByMessage)
           roleByMessage.set(info.id, info.role)
           if (typeof info.sessionID === "string") sessionByMessage.set(info.id, info.sessionID)
           if (info.role === "user") {
