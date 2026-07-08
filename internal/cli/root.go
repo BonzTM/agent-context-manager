@@ -43,18 +43,32 @@ type app struct {
 	logger *slog.Logger
 }
 
-// Execute builds the root command and runs it against ctx. ctx is the
-// signal-cancelled root context from main.
-func Execute(ctx context.Context) error {
-	if err := newRootCmd().ExecuteContext(ctx); err != nil {
-		return fmt.Errorf("acm: %w", err)
+// Execute builds the root command, runs it against ctx (the signal-cancelled
+// root context from main), and logs any failure exactly once through the
+// configured logger — so --log-json and --log-level apply to the boundary log
+// too. It returns the process exit code.
+func Execute(ctx context.Context) int {
+	a := &app{}
+	if err := newRootCmdWith(a).ExecuteContext(ctx); err != nil {
+		logger := a.logger
+		if logger == nil {
+			// Config load failed before the logger existed; fall back to defaults.
+			logger = newLogger(config.Config{LogLevel: slog.LevelInfo})
+		}
+		logger.Error("acm failed", "error", fmt.Errorf("acm: %w", err))
+		return 1
 	}
-	return nil
+	return 0
 }
 
+// newRootCmd builds the command tree with a fresh app holder (test entrypoint).
 func newRootCmd() *cobra.Command {
-	a := &app{}
+	return newRootCmdWith(&app{})
+}
 
+// newRootCmdWith builds the command tree around an existing app holder so the
+// caller (Execute) can reach the configured logger after a failed run.
+func newRootCmdWith(a *app) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "acm",
 		Short: "Lossless long-context management for AI coding agents",
