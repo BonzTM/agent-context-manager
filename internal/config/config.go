@@ -25,7 +25,11 @@ const (
 	// DBFileName is the SQLite database inside DirName.
 	DBFileName = "acm.db"
 	// EnvDBPath overrides the resolved database path outright.
-	EnvDBPath = "LCM_DB"
+	EnvDBPath = "ACM_DB"
+	// EnvLogLevel sets the minimum log level when --log-level is not given.
+	EnvLogLevel = "ACM_LOG_LEVEL"
+	// EnvLogJSON enables JSON logs when --log-json is not given.
+	EnvLogJSON = "ACM_LOG_JSON"
 	// EnvClaudeProjectDir is set by Claude Code in a spawned tool's environment
 	// and points at the project root; we trust it over the working directory.
 	EnvClaudeProjectDir = "CLAUDE_PROJECT_DIR"
@@ -36,9 +40,9 @@ const (
 type Options struct {
 	// DBPath is the value of --db ("" means resolve via the precedence chain).
 	DBPath string
-	// LogLevel is the value of --log-level ("" means env LOG_LEVEL or "info").
+	// LogLevel is the value of --log-level ("" means env ACM_LOG_LEVEL or "info").
 	LogLevel string
-	// LogJSON forces JSON logs; env LOG_JSON can also enable it.
+	// LogJSON forces JSON logs; env ACM_LOG_JSON can also enable it.
 	LogJSON bool
 }
 
@@ -66,7 +70,7 @@ func Load(opts Options) (Config, error) {
 
 	levelStr := opts.LogLevel
 	if levelStr == "" {
-		levelStr = envOr("LOG_LEVEL", "info")
+		levelStr = envOr(EnvLogLevel, "info")
 	}
 	level, err := parseLevel(levelStr)
 	if err != nil {
@@ -77,7 +81,7 @@ func Load(opts Options) (Config, error) {
 		DBPath:      dbPath,
 		ProjectRoot: projectRoot,
 		LogLevel:    level,
-		LogJSON:     opts.LogJSON || envBool(os.Getenv("LOG_JSON")),
+		LogJSON:     opts.LogJSON || envBool(os.Getenv(EnvLogJSON)),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -99,7 +103,7 @@ func (c Config) Validate() error {
 // resolveDBPath selects the SQLite database path. Precedence, highest first:
 //
 //  1. the --db flag (flagVal),
-//  2. the LCM_DB environment variable,
+//  2. the ACM_DB environment variable,
 //  3. $CLAUDE_PROJECT_DIR/.acm/acm.db (Claude Code sets this for tools),
 //  4. the nearest ancestor directory of the cwd that already contains .acm,
 //  5. <cwd>/.acm/acm.db.

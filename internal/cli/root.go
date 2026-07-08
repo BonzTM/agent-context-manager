@@ -76,7 +76,7 @@ Concepts:
   summary        A compacted span in the summary DAG.  (id prefix: sum_)
   window         The active context: recent raw messages plus summary pointers.
 
-The database is resolved from --db, then $LCM_DB, then $CLAUDE_PROJECT_DIR/.acm,
+The database is resolved from --db, then $ACM_DB, then $CLAUDE_PROJECT_DIR/.acm,
 then the nearest ancestor .acm/ directory. Run 'acm <command> --help' for full
 details on any command.`,
 		Example: `  acm init claude-code           # wire up an agent

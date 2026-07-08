@@ -39,7 +39,7 @@ func TestLoadEnvDBPathTakesPrecedenceOverClaudeProjectDir(t *testing.T) {
 func TestLoadClaudeProjectDirResolvesUnderDotAcm(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(EnvClaudeProjectDir, dir)
-	// Ensure LCM_DB is not set in this test's environment.
+	// Ensure ACM_DB is not set in this test's environment.
 	t.Setenv(EnvDBPath, "")
 
 	cfg, err := Load(Options{})
@@ -86,7 +86,7 @@ func TestLoadInvalidLogLevelFails(t *testing.T) {
 }
 
 func TestLoadDefaultLogLevelIsInfo(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "")
+	t.Setenv(EnvLogLevel, "")
 	cfg, err := Load(Options{DBPath: "x.db"})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
