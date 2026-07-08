@@ -68,8 +68,11 @@ func newCompactCmd(a *app) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&cfg.ModelContextTokens, "model-context-tokens", cfg.ModelContextTokens, "the host model's context window in tokens")
 	cmd.Flags().Float64Var(&cfg.SoftFraction, "soft-fraction", cfg.SoftFraction, "compact when the window exceeds this fraction of the model window")
+	cmd.Flags().Float64Var(&cfg.HardFraction, "hard-fraction", cfg.HardFraction, "warn when a finished pass is still above this fraction of the model window")
 	cmd.Flags().IntVar(&cfg.FreshTailMessages, "fresh-tail", cfg.FreshTailMessages, "most recent messages always kept raw")
 	cmd.Flags().IntVar(&cfg.LeafChunkTokens, "leaf-chunk-tokens", cfg.LeafChunkTokens, "max source tokens folded into one leaf summary")
+	cmd.Flags().IntVar(&cfg.LeafTargetTokens, "leaf-target-tokens", cfg.LeafTargetTokens, "target size of a leaf summary (keep well under leaf-chunk-tokens)")
+	cmd.Flags().IntVar(&cfg.CondensedTargetTokens, "condensed-target-tokens", cfg.CondensedTargetTokens, "target size of a condensed summary")
 	cmd.Flags().StringVar(&summarizerName, "summarizer", "deterministic", "summarizer: deterministic|claude|codex")
 	return cmd
 }
