@@ -9,13 +9,16 @@ import (
 
 	"github.com/bonztm/agent-context-manager/internal/agents"
 	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/engine"
+	"github.com/bonztm/agent-context-manager/internal/tokens"
 )
 
 func newHookCmd(a *app) *cobra.Command {
 	var (
-		agentStr string
-		event    string
-		recall   int
+		agentStr  string
+		event     string
+		recall    int
+		noCompact bool
 	)
 	cmd := &cobra.Command{
 		Use:     "hook",
@@ -29,10 +32,18 @@ func newHookCmd(a *app) *cobra.Command {
 			"Recognized events:\n" +
 			"  UserPromptSubmit       capture the prompt and inject recalled context\n" +
 			"  PostToolUse            capture a tool result\n" +
-			"  agent-turn-complete    (Codex notify) capture user + final assistant message\n" +
-			"  SessionStart, Stop     no-op for capture\n\n" +
+			"  Stop                   (Claude Code) capture assistant turns from the\n" +
+			"                         session transcript, then compact if over budget\n" +
+			"  agent-turn-complete    (Codex notify) capture user + final assistant\n" +
+			"                         message, then compact if over budget\n" +
+			"  SessionStart           no-op for capture\n\n" +
 			"Recall searches the project history (OR over prompt terms) before the prompt\n" +
-			"is stored, so the prompt cannot match itself.",
+			"is stored, so the prompt cannot match itself. Recall is best-effort: a search\n" +
+			"failure is logged and never blocks capture.\n\n" +
+			"After capturing a turn-ending event, the conversation is opportunistically\n" +
+			"compacted (deterministic summarizer, default budget) when it exceeds the soft\n" +
+			"token threshold, so the summary DAG builds as you work with no manual step.\n" +
+			"Disable with --no-compact; run 'acm compact' for tuned or LLM summarization.",
 		Example: `  echo '{"session_id":"s","prompt":"hi"}' | acm hook --agent claude-code --event UserPromptSubmit
   echo '{"session_id":"s","tool_name":"Bash","tool_response":{}}' | acm hook --agent codex --event PostToolUse`,
 		Args: cobra.NoArgs,
@@ -56,35 +67,52 @@ func newHookCmd(a *app) *cobra.Command {
 			}
 
 			ctx := cmd.Context()
-			svc, db, err := a.newService(ctx)
+			sq, db, err := a.newStore(ctx)
 			if err != nil {
 				return err
 			}
 			defer func() { _ = db.Close() }()
+			svc := core.NewService(sq, clock, tokens.Heuristic{}, a.logger)
 
 			// Recall runs BEFORE capturing the current prompt so the prompt cannot
-			// match itself.
+			// match itself. It is best-effort: capture is the invariant, so a
+			// recall failure is logged and never aborts the hook.
 			if event == agents.EventUserPromptSubmit && len(req.Messages) > 0 {
 				prompt := req.Messages[0].Content
 				hits, sErr := svc.Search(ctx, core.SearchQuery{Text: prompt, Limit: recall, Any: true})
-				if sErr != nil {
-					return sErr
-				}
-				if block := agents.RecallBlock(hits); block != "" {
-					out, mErr := agents.AdditionalContextJSON(event, block)
-					if mErr != nil {
-						return mErr
-					}
-					if _, wErr := fmt.Fprintln(cmd.OutOrStdout(), string(out)); wErr != nil {
-						return wErr
+				switch {
+				case sErr != nil:
+					a.logger.Warn("recall search failed; continuing with capture", "error", sErr)
+				default:
+					if block := agents.RecallBlock(hits); block != "" {
+						out, mErr := agents.AdditionalContextJSON(event, block)
+						if mErr != nil {
+							return mErr
+						}
+						if _, wErr := fmt.Fprintln(cmd.OutOrStdout(), string(out)); wErr != nil {
+							return wErr
+						}
 					}
 				}
 			}
 
 			// Capture.
-			if req.SessionID != "" && len(req.Messages) > 0 {
-				if _, iErr := svc.Ingest(ctx, req); iErr != nil {
-					return iErr
+			if req.SessionID == "" || len(req.Messages) == 0 {
+				return nil
+			}
+			res, err := svc.Ingest(ctx, req)
+			if err != nil {
+				return err
+			}
+
+			// Opportunistic compaction on turn-ending events keeps the summary DAG
+			// current without a manual 'acm compact' step. Compact is a cheap no-op
+			// below the soft threshold, and a failure here is best-effort by
+			// design: the messages are already safely captured.
+			if !noCompact && (event == agents.EventStop || event == agents.EventTurnComplete) {
+				comp := a.newCompactor(sq, engine.DefaultConfig(), nil)
+				if _, cErr := comp.Compact(ctx, res.ConversationID); cErr != nil {
+					a.logger.Warn("opportunistic compaction failed", "conversation", res.ConversationID, "error", cErr)
 				}
 			}
 			return nil
@@ -93,5 +121,6 @@ func newHookCmd(a *app) *cobra.Command {
 	cmd.Flags().StringVar(&agentStr, "agent", "", "host agent: claude-code|codex|opencode")
 	cmd.Flags().StringVar(&event, "event", "", "hook event name (e.g. UserPromptSubmit, PostToolUse, agent-turn-complete)")
 	cmd.Flags().IntVar(&recall, "recall", 5, "max recalled context items to inject on prompt events")
+	cmd.Flags().BoolVar(&noCompact, "no-compact", false, "skip opportunistic compaction after turn-ending events")
 	return cmd
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,5 +59,35 @@ func TestInitWritesAssets(t *testing.T) {
 	settings := filepath.Join(dir, ".acm", "init", "claude-code", "settings.snippet.json")
 	if _, err := os.Stat(settings); err != nil {
 		t.Fatalf("expected settings snippet at %s: %v", settings, err)
+	}
+}
+
+func TestHookStopCapturesTranscriptAndCompacts(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "acm.db")
+
+	// Build a transcript with enough assistant text to exceed a default-config
+	// no-op (content volume is irrelevant to the assertion; compaction is a
+	// cheap no-op below threshold and must not error either way).
+	transcript := filepath.Join(dir, "session.jsonl")
+	lines := `{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"first answer"}]}}
+{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"text","text":"second answer"}]}}`
+	if err := os.WriteFile(transcript, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	payload := fmt.Sprintf(`{"session_id":"s1","transcript_path":%q}`, transcript)
+	runACM(t, dbPath, payload, "hook", "--agent", "claude-code", "--event", "Stop")
+
+	stats := runACM(t, dbPath, "", "stats")
+	if !strings.Contains(stats, "messages:      2") {
+		t.Fatalf("stats after Stop hook = %q, want 2 assistant messages", stats)
+	}
+
+	// Re-running the same Stop hook must not duplicate (transcript re-read).
+	runACM(t, dbPath, payload, "hook", "--agent", "claude-code", "--event", "Stop")
+	stats = runACM(t, dbPath, "", "stats")
+	if !strings.Contains(stats, "messages:      2") {
+		t.Fatalf("stats after repeated Stop hook = %q, want still 2", stats)
 	}
 }

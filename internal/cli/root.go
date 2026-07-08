@@ -162,12 +162,17 @@ func (a *app) newEngine(ctx context.Context, cfg engine.Config, summarizer core.
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	return a.newCompactor(sq, cfg, summarizer), sq, db, nil
+}
+
+// newCompactor wires a compaction engine over an already-open store. A nil
+// summarizer selects the deterministic default.
+func (a *app) newCompactor(sq *store.SQLite, cfg engine.Config, summarizer core.Summarizer) *engine.Compactor {
 	if summarizer == nil {
 		summarizer = summarize.Deterministic{}
 	}
 	filesDir := filepath.Join(filepath.Dir(a.cfg.DBPath), "files")
-	comp := engine.New(sq, summarizer, tokens.Heuristic{}, clock, cfg, filesDir, a.logger)
-	return comp, sq, db, nil
+	return engine.New(sq, summarizer, tokens.Heuristic{}, clock, cfg, filesDir, a.logger)
 }
 
 // summarizerByName builds the configured summarizer. "claude"/"codex" reuse the
