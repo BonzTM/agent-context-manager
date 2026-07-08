@@ -2,6 +2,7 @@ package core_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -129,7 +130,7 @@ func TestDescribeMissingReturnsNotFound(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
 	_, err := svc.DescribeMessage(ctx, "msg_does_not_exist")
-	if err == nil {
-		t.Fatal("expected error for missing message")
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("err = %v, want errors.Is core.ErrNotFound (the sentinel must survive wrapping)", err)
 	}
 }
