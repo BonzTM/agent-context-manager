@@ -1,0 +1,47 @@
+# Release gate. Pushing a canonical Go module tag (v1.2.3) builds stamped,
+# static binaries for the common platforms and attaches them to a GitHub
+# release. CI (ci.yml) proves the commit; this workflow only packages it.
+# `go install github.com/bonztm/agent-context-manager/cmd/acm@<tag>` remains
+# the primary install path and needs no artifact from here.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"] # canonical Go module tags: v1.2.3 (the v prefix is required)
+
+permissions:
+  contents: write # create the release and upload assets
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build stamped static binaries
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          COMMIT="${GITHUB_SHA}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          PKG="github.com/bonztm/agent-context-manager/internal/buildinfo"
+          LDFLAGS="-s -w -X ${PKG}.Version=${VERSION} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0
+            go build -trimpath -ldflags "${LDFLAGS}" -o "dist/acm-${GOOS}-${GOARCH}" ./cmd/acm
+          done
+          unset GOOS GOARCH
+          (cd dist && sha256sum acm-* > SHA256SUMS)
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "See CHANGELOG.md for the changes in this release."

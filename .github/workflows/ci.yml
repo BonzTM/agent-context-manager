@@ -1,0 +1,27 @@
+# CI gate. The single source of truth is the committed Makefile: this workflow
+# is a thin caller that runs the SAME `make verify` you run locally.
+# (acm's shape is a CLI whose only store is SQLite opened on temp files, so the
+# offline verify job already proves the real database path — there is no
+# separate integration job.)
+
+name: ci
+
+on:
+  push:
+    branches: [main] # default branch only; PR builds cover the rest
+  pull_request:
+
+# Least privilege. Read source; grant nothing else.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod # single source of truth for the Go version
+          cache: true # build + module cache, keyed off go.sum
+      - run: make verify # the entire gate: tidy/fmt-check/lint/vet/test/race/vuln/build
