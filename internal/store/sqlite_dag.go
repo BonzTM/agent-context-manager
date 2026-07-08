@@ -162,6 +162,87 @@ func (s *SQLite) ListConversationIDs(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
+// SearchSummaries runs an FTS MATCH over summary content and returns ranked
+// hits, mirroring SearchMessages for the DAG so grep covers compacted spans
+// too. Substring mode falls back to a case-insensitive scan.
+func (s *SQLite) SearchSummaries(ctx context.Context, q core.SearchQuery) ([]core.SummaryHit, error) {
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	var query string
+	args := make([]any, 0, 3)
+	if q.Mode == core.SearchSubstr {
+		if q.Text == "" {
+			return nil, nil
+		}
+		query = "SELECT " + prefixedSummaryColumns("s") + `, '' AS snip, 0.0 AS score
+FROM summaries s
+WHERE instr(lower(s.content), lower(?)) > 0`
+		args = append(args, q.Text)
+		if q.ConversationID != "" {
+			query += " AND s.conversation_id = ?"
+			args = append(args, q.ConversationID)
+		}
+		query += " ORDER BY s.conversation_id, s.earliest_seq LIMIT ?"
+	} else {
+		expr := ftsMatchExpr(q.Text, q.Any)
+		if expr == "" {
+			return nil, nil
+		}
+		query = "SELECT " + prefixedSummaryColumns("s") + `,
+       snippet(summaries_fts, 0, '[', ']', '…', 12) AS snip,
+       bm25(summaries_fts) AS score
+FROM summaries_fts
+JOIN summaries s ON s.id = summaries_fts.summary_id
+WHERE summaries_fts MATCH ?`
+		args = append(args, expr)
+		if q.ConversationID != "" {
+			query += " AND s.conversation_id = ?"
+			args = append(args, q.ConversationID)
+		}
+		query += " ORDER BY score ASC LIMIT ?"
+	}
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: search summaries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []core.SummaryHit
+	for rows.Next() {
+		var (
+			sum       core.Summary
+			kind      string
+			createdAt string
+			snip      string
+			score     float64
+		)
+		if sErr := rows.Scan(&sum.ID, &sum.ConversationID, &kind, &sum.Depth, &sum.Content, &sum.TokenCount,
+			&sum.SourceCount, &sum.DescendantMessageCount, &sum.EarliestSeq, &sum.LatestSeq, &createdAt,
+			&snip, &score); sErr != nil {
+			return nil, fmt.Errorf("store: scan summary hit: %w", sErr)
+		}
+		sum.Kind = core.SummaryKind(kind)
+		t, tErr := parseTime(createdAt)
+		if tErr != nil {
+			return nil, tErr
+		}
+		sum.CreatedAt = t
+		if snip == "" {
+			snip = truncate(sum.Content, 200)
+		}
+		out = append(out, core.SummaryHit{Summary: sum, Snippet: snip, Score: score})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate summary hits: %w", err)
+	}
+	return out, nil
+}
+
 // GetSummary loads a summary by ID.
 func (s *SQLite) GetSummary(ctx context.Context, id string) (core.Summary, error) {
 	sum, err := scanSummary(s.db.QueryRowContext(ctx, "SELECT "+summaryColumns+" FROM summaries WHERE id = ?", id))
@@ -177,6 +258,7 @@ func (s *SQLite) GetSummary(ctx context.Context, id string) (core.Summary, error
 // SummaryMessages returns the source messages of a leaf summary, ordered by seq.
 func (s *SQLite) SummaryMessages(ctx context.Context, summaryID string) ([]core.Message, error) {
 	rows, err := s.db.QueryContext(ctx,
+		//nolint:gosec // G202: concatenates only the fixed column list through the alias helper; every value is parameterized.
 		"SELECT "+prefixedMessageColumns("m")+" FROM summary_messages sm JOIN messages m ON m.id = sm.message_id WHERE sm.summary_id = ? ORDER BY m.seq ASC",
 		summaryID)
 	if err != nil {
@@ -202,6 +284,7 @@ func (s *SQLite) SummaryMessages(ctx context.Context, summaryID string) ([]core.
 // their earliest covered position.
 func (s *SQLite) SummaryChildren(ctx context.Context, summaryID string) ([]core.Summary, error) {
 	rows, err := s.db.QueryContext(ctx,
+		//nolint:gosec // G202: concatenates only the fixed column list through the alias helper; every value is parameterized.
 		"SELECT "+prefixedSummaryColumns("s")+" FROM summary_parents sp JOIN summaries s ON s.id = sp.child_id WHERE sp.parent_id = ? ORDER BY s.earliest_seq ASC",
 		summaryID)
 	if err != nil {
@@ -275,24 +358,32 @@ func (s *SQLite) ReplaceContextItems(ctx context.Context, conversationID string,
 }
 
 // CreateLargeFile records an offloaded large file. It is idempotent on the
-// derived ID.
+// derived ID; an existing row keeps its original created_at, which is what the
+// returned value reports.
 func (s *SQLite) CreateLargeFile(ctx context.Context, lf core.LargeFile) (core.LargeFile, error) {
 	now := s.clock.Now().UTC()
 	if lf.ID == "" {
 		lf.ID = core.DeriveFileID(lf.ConversationID, lf.MessageID)
 	}
-	lf.CreatedAt = now
-	if _, err := s.db.ExecContext(ctx,
+	var createdAt string
+	if err := s.db.QueryRowContext(ctx,
 		`INSERT INTO large_files (id, conversation_id, message_id, storage_uri, byte_size, token_count, exploration_summary, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (id) DO UPDATE SET
 		   storage_uri = excluded.storage_uri,
 		   byte_size = excluded.byte_size,
 		   token_count = excluded.token_count,
-		   exploration_summary = excluded.exploration_summary`,
-		lf.ID, lf.ConversationID, lf.MessageID, lf.StorageURI, lf.ByteSize, lf.TokenCount, lf.ExplorationSummary, fmtTime(now)); err != nil {
+		   exploration_summary = excluded.exploration_summary
+		 RETURNING created_at`,
+		lf.ID, lf.ConversationID, lf.MessageID, lf.StorageURI, lf.ByteSize, lf.TokenCount, lf.ExplorationSummary, fmtTime(now)).
+		Scan(&createdAt); err != nil {
 		return core.LargeFile{}, fmt.Errorf("store: upsert large file: %w", err)
 	}
+	t, err := parseTime(createdAt)
+	if err != nil {
+		return core.LargeFile{}, err
+	}
+	lf.CreatedAt = t
 	return lf, nil
 }
 

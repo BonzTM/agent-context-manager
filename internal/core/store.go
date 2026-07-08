@@ -65,6 +65,13 @@ type SearchHit struct {
 	Score   float64
 }
 
+// SummaryHit is one ranked summary search result.
+type SummaryHit struct {
+	Summary Summary
+	Snippet string
+	Score   float64
+}
+
 // Store is acm's persistence contract, defined here by its consumer (the core
 // service) and implemented by internal/store. Methods take a context first and
 // wrap storage errors; lookups that miss return ErrNotFound.
