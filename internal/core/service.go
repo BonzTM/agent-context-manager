@@ -56,11 +56,10 @@ type IngestMessage struct {
 
 // IngestRequest captures one or more messages for a single agent session.
 type IngestRequest struct {
-	Agent      Agent
-	SessionID  string
-	SessionKey string
-	Title      string
-	Messages   []IngestMessage
+	Agent     Agent
+	SessionID string
+	Title     string
+	Messages  []IngestMessage
 }
 
 // IngestResult reports what an ingestion produced.
@@ -83,10 +82,9 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 	}
 
 	conv, err := s.store.EnsureConversation(ctx, ConversationInput{
-		Agent:      req.Agent,
-		SessionID:  req.SessionID,
-		SessionKey: req.SessionKey,
-		Title:      req.Title,
+		Agent:     req.Agent,
+		SessionID: req.SessionID,
+		Title:     req.Title,
 	})
 	if err != nil {
 		return IngestResult{}, fmt.Errorf("ingest: ensure conversation: %w", err)

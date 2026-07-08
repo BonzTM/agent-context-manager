@@ -30,7 +30,7 @@ func NewSQLite(d *DB, clock core.Clock) *SQLite {
 
 const (
 	messageColumns      = "id, conversation_id, seq, role, content, token_count, tool_name, external_id, identity_hash, raw, created_at"
-	conversationColumns = "id, agent, session_id, session_key, title, archived, created_at, updated_at"
+	conversationColumns = "id, agent, session_id, title, created_at, updated_at"
 )
 
 // rowScanner abstracts *sql.Row and *sql.Rows for the scan helpers.
@@ -39,20 +39,19 @@ type rowScanner interface {
 }
 
 // EnsureConversation upserts by (agent, session_id) in a single statement,
-// filling empty title/session_key without clobbering set values, then reads the
-// row back.
+// filling an empty title without clobbering a set value, then reads the row
+// back.
 func (s *SQLite) EnsureConversation(ctx context.Context, in core.ConversationInput) (core.Conversation, error) {
 	id := core.DeriveConversationID(in.Agent, in.SessionID)
 	now := fmtTime(s.clock.Now())
 
 	const q = `
-INSERT INTO conversations (id, agent, session_id, session_key, title, archived, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+INSERT INTO conversations (id, agent, session_id, title, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (agent, session_id) DO UPDATE SET
-    session_key = CASE WHEN excluded.session_key <> '' THEN excluded.session_key ELSE conversations.session_key END,
     title       = CASE WHEN excluded.title <> '' THEN excluded.title ELSE conversations.title END,
     updated_at  = excluded.updated_at`
-	if _, err := s.db.ExecContext(ctx, q, id, string(in.Agent), in.SessionID, in.SessionKey, in.Title, now, now); err != nil {
+	if _, err := s.db.ExecContext(ctx, q, id, string(in.Agent), in.SessionID, in.Title, now, now); err != nil {
 		return core.Conversation{}, fmt.Errorf("store: upsert conversation: %w", err)
 	}
 	return s.ConversationBySession(ctx, in.Agent, in.SessionID)
@@ -84,14 +83,7 @@ func (s *SQLite) AppendMessage(ctx context.Context, in core.MessageInput) (msgOu
 	if err != nil {
 		return core.Message{}, false, fmt.Errorf("store: begin tx: %w", err)
 	}
-	// Roll back unless we committed; a rollback after Commit returns ErrTxDone
-	// and is expected. Surface an unexpected rollback failure only when the
-	// operation otherwise succeeded, so it never masks the real error.
-	defer func() {
-		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) && err == nil {
-			err = fmt.Errorf("store: rollback: %w", rbErr)
-		}
-	}()
+	defer rollbackOnErr(tx, &err)
 
 	// Idempotency: return the existing row untouched if we have already stored it.
 	existing, err := scanMessage(tx.QueryRowContext(ctx,
@@ -209,7 +201,7 @@ func (s *SQLite) searchFTS(ctx context.Context, q core.SearchQuery, limit int) (
 	if expr == "" {
 		return nil, nil
 	}
-	sql := `
+	query := `
 SELECT m.id, m.conversation_id, m.seq, m.role, m.content, m.token_count, m.tool_name,
        m.external_id, m.identity_hash, m.raw, m.created_at,
        snippet(messages_fts, 0, '[', ']', '…', 12) AS snip,
@@ -219,19 +211,19 @@ JOIN messages m ON m.id = messages_fts.message_id
 WHERE messages_fts MATCH ?`
 	args := []any{expr}
 	if q.ConversationID != "" {
-		sql += " AND m.conversation_id = ?"
+		query += " AND m.conversation_id = ?"
 		args = append(args, q.ConversationID)
 	}
-	sql += " ORDER BY score ASC LIMIT ?"
+	query += " ORDER BY score ASC LIMIT ?"
 	args = append(args, limit)
-	return s.queryHits(ctx, sql, args, true)
+	return s.queryHits(ctx, query, args, true)
 }
 
 func (s *SQLite) searchSubstr(ctx context.Context, q core.SearchQuery, limit int) ([]core.SearchHit, error) {
 	if q.Text == "" {
 		return nil, nil
 	}
-	sql := `
+	query := `
 SELECT m.id, m.conversation_id, m.seq, m.role, m.content, m.token_count, m.tool_name,
        m.external_id, m.identity_hash, m.raw, m.created_at,
        '' AS snip, 0.0 AS score
@@ -239,12 +231,12 @@ FROM messages m
 WHERE instr(lower(m.content), lower(?)) > 0`
 	args := []any{q.Text}
 	if q.ConversationID != "" {
-		sql += " AND m.conversation_id = ?"
+		query += " AND m.conversation_id = ?"
 		args = append(args, q.ConversationID)
 	}
-	sql += " ORDER BY m.conversation_id, m.seq LIMIT ?"
+	query += " ORDER BY m.conversation_id, m.seq LIMIT ?"
 	args = append(args, limit)
-	return s.queryHits(ctx, sql, args, false)
+	return s.queryHits(ctx, query, args, false)
 }
 
 func (s *SQLite) queryHits(ctx context.Context, query string, args []any, withSnippet bool) ([]core.SearchHit, error) {
@@ -320,15 +312,13 @@ func scanConversation(sc rowScanner) (core.Conversation, error) {
 	var (
 		c         core.Conversation
 		agent     string
-		archived  int64
 		createdAt string
 		updatedAt string
 	)
-	if err := sc.Scan(&c.ID, &agent, &c.SessionID, &c.SessionKey, &c.Title, &archived, &createdAt, &updatedAt); err != nil {
+	if err := sc.Scan(&c.ID, &agent, &c.SessionID, &c.Title, &createdAt, &updatedAt); err != nil {
 		return core.Conversation{}, err
 	}
 	c.Agent = core.Agent(agent)
-	c.Archived = archived != 0
 	created, err := parseTime(createdAt)
 	if err != nil {
 		return core.Conversation{}, err

@@ -28,10 +28,9 @@ const (
 
 // ConversationInput is the upsert payload for EnsureConversation.
 type ConversationInput struct {
-	Agent      Agent
-	SessionID  string
-	SessionKey string
-	Title      string
+	Agent     Agent
+	SessionID string
+	Title     string
 }
 
 // MessageInput is the append payload for AppendMessage. TokenCount is supplied

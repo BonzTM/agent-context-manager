@@ -13,11 +13,10 @@ import (
 // ingestPayload is the JSON acm ingest reads from stdin. It is the generic
 // ingestion entrypoint the agent hook adapters pipe captured messages into.
 type ingestPayload struct {
-	Agent      string                 `json:"agent"`
-	SessionID  string                 `json:"session_id"`
-	SessionKey string                 `json:"session_key"`
-	Title      string                 `json:"title"`
-	Messages   []ingestMessagePayload `json:"messages"`
+	Agent     string                 `json:"agent"`
+	SessionID string                 `json:"session_id"`
+	Title     string                 `json:"title"`
+	Messages  []ingestMessagePayload `json:"messages"`
 }
 
 type ingestMessagePayload struct {
@@ -61,11 +60,10 @@ func newIngestCmd(a *app) *cobra.Command {
 			}
 
 			req := core.IngestRequest{
-				Agent:      core.Agent(p.Agent),
-				SessionID:  p.SessionID,
-				SessionKey: p.SessionKey,
-				Title:      p.Title,
-				Messages:   make([]core.IngestMessage, 0, len(p.Messages)),
+				Agent:     core.Agent(p.Agent),
+				SessionID: p.SessionID,
+				Title:     p.Title,
+				Messages:  make([]core.IngestMessage, 0, len(p.Messages)),
 			}
 			for _, m := range p.Messages {
 				req.Messages = append(req.Messages, core.IngestMessage{

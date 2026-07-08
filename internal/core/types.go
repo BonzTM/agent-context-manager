@@ -53,14 +53,12 @@ func (r Role) Valid() bool {
 // SessionID); the ID is derived deterministically from that pair so repeated
 // ingestion of the same session is idempotent.
 type Conversation struct {
-	ID         string
-	Agent      Agent
-	SessionID  string
-	SessionKey string
-	Title      string
-	Archived   bool
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID        string
+	Agent     Agent
+	SessionID string
+	Title     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Message is a single verbatim turn in a conversation. Content is the canonical
