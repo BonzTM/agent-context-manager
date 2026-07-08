@@ -1,10 +1,12 @@
 // Package llmmap implements the LCM paper's operator-level parallelism:
-// llm_map / agentic_map. A dataset is read from a JSONL file on disk, each item
-// is processed independently by a bounded worker pool, outputs are validated and
-// retried, and results are written back to a JSONL file — all entirely
-// off-context, so the agent can process datasets of arbitrary size without the
-// input or output ever entering its window. The paper credits this mechanism
-// for its long-context win over plan-your-own-chunking approaches.
+// llm_map. A dataset is read from a JSONL file on disk, each item is processed
+// independently by a fixed worker pool, outputs are validated and retried with
+// the failure fed back to the processor, and results are written back to a
+// JSONL file — all entirely off-context, so dataset size never affects the
+// agent's window. Items and results are held in memory for ordered output, so
+// practical dataset size is bounded by RAM, not by the agent's context. The
+// paper credits this mechanism for its long-context win over
+// plan-your-own-chunking approaches.
 package llmmap
 
 import (
@@ -16,10 +18,12 @@ import (
 	"sync"
 )
 
-// Processor handles a single item. attempt starts at 1 and increases on retry,
-// so a Processor may vary its prompt with attempt (e.g. feed back the prior
-// validation error). It returns the item's output as raw JSON.
-type Processor func(ctx context.Context, item json.RawMessage, attempt int) (json.RawMessage, error)
+// Processor handles a single item. attempt starts at 1 and increases on retry;
+// feedback is empty on the first attempt and carries the previous attempt's
+// processing or validation error afterwards, so an LLM-backed Processor can
+// correct itself (the paper's validation-feedback re-prompt). It returns the
+// item's output as raw JSON.
+type Processor func(ctx context.Context, item json.RawMessage, attempt int, feedback string) (json.RawMessage, error)
 
 // Validator checks an output. A nil return means valid; a non-nil error triggers
 // a retry (up to MaxRetries). A nil Validator accepts any valid JSON.
@@ -60,26 +64,28 @@ func (m *Mapper) Run(ctx context.Context, inputPath, outputPath string) (Result,
 		return Result{}, err
 	}
 
-	concurrency := max(m.Concurrency, 1)
+	// A fixed pool of workers drains an index channel, so memory stays bounded
+	// by the pool size regardless of item count (never a goroutine per item).
+	concurrency := min(max(m.Concurrency, 1), len(items))
 
 	outputs := make([]Output, len(items))
-	sem := make(chan struct{}, concurrency)
+	work := make(chan int)
 	var wg sync.WaitGroup
-
-	for i, raw := range items {
-		wg.Add(1)
-		go func(idx int, item json.RawMessage) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				outputs[idx] = Output{Index: idx, OK: false, Error: ctx.Err().Error()}
-				return
+	for range concurrency {
+		wg.Go(func() {
+			for idx := range work {
+				if ctx.Err() != nil {
+					outputs[idx] = Output{Index: idx, OK: false, Error: ctx.Err().Error()}
+					continue
+				}
+				outputs[idx] = m.processOne(ctx, idx, items[idx])
 			}
-			outputs[idx] = m.processOne(ctx, idx, item)
-		}(i, raw)
+		})
 	}
+	for i := range items {
+		work <- i
+	}
+	close(work)
 	wg.Wait()
 
 	if err := writeOutputs(outputPath, outputs); err != nil {
@@ -104,7 +110,11 @@ func (m *Mapper) processOne(ctx context.Context, idx int, item json.RawMessage) 
 		if ctx.Err() != nil {
 			return Output{Index: idx, OK: false, Error: ctx.Err().Error(), Attempts: attempt - 1}
 		}
-		out, err := m.Process(ctx, item, attempt)
+		feedback := ""
+		if lastErr != nil {
+			feedback = lastErr.Error()
+		}
+		out, err := m.Process(ctx, item, attempt, feedback)
 		if err != nil {
 			lastErr = err
 			continue
@@ -143,7 +153,7 @@ func RequireFields(fields ...string) Validator {
 }
 
 func readItems(path string) ([]json.RawMessage, error) {
-	f, err := os.Open(path) //nolint:gosec // G304: input path is a user-supplied CLI argument; reading it is the command's purpose.
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("llmmap: open input: %w", err)
 	}
@@ -172,7 +182,7 @@ func readItems(path string) ([]json.RawMessage, error) {
 }
 
 func writeOutputs(path string, outputs []Output) error {
-	f, err := os.Create(path) //nolint:gosec // G304: output path is a user-supplied CLI argument.
+	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("llmmap: create output: %w", err)
 	}

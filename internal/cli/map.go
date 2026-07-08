@@ -82,7 +82,7 @@ func newMapCmd(_ *app) *cobra.Command {
 func buildProcessor(name, prompt string) (llmmap.Processor, error) {
 	switch name {
 	case "passthrough":
-		return func(_ context.Context, item json.RawMessage, _ int) (json.RawMessage, error) {
+		return func(_ context.Context, item json.RawMessage, _ int, _ string) (json.RawMessage, error) {
 			return item, nil
 		}, nil
 	case "claude":
@@ -95,10 +95,14 @@ func buildProcessor(name, prompt string) (llmmap.Processor, error) {
 }
 
 // execProcessor reuses a host agent's model to process each item in headless
-// mode, prepending the instruction prompt to the item JSON.
+// mode, prepending the instruction prompt to the item JSON. On retries the
+// previous attempt's error is fed back so the model can correct its output.
 func execProcessor(argv []string, promptOnStdin bool, prompt string) llmmap.Processor {
-	return func(ctx context.Context, item json.RawMessage, _ int) (json.RawMessage, error) {
+	return func(ctx context.Context, item json.RawMessage, _ int, feedback string) (json.RawMessage, error) {
 		full := prompt + "\n\nITEM:\n" + string(item)
+		if feedback != "" {
+			full += "\n\nYour previous attempt failed: " + feedback + "\nCorrect the output."
+		}
 		runArgv := argv
 		stdin := ""
 		if promptOnStdin {

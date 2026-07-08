@@ -23,7 +23,7 @@ func TestMapPassthroughCommand(t *testing.T) {
 		t.Fatalf("map output = %q, want '2 ok'", stdout)
 	}
 
-	f, err := os.Open(out) //nolint:gosec // test-controlled path
+	f, err := os.Open(out)
 	if err != nil {
 		t.Fatalf("open output: %v", err)
 	}
