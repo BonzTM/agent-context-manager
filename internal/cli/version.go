@@ -17,8 +17,9 @@ func newVersionCmd() *cobra.Command {
 		Example: "  acm version",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			version, commit, date := buildinfo.Info()
 			_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s (commit %s, built %s)\n",
-				buildinfo.Name, buildinfo.Version, buildinfo.Commit, buildinfo.Date)
+				buildinfo.Name, version, commit, date)
 			return err
 		},
 	}
