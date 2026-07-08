@@ -90,7 +90,8 @@ content remains recoverable both from the store and from the on-disk file.
 
 The agent recovers detail through its normal shell tool:
 
-- `acm grep` — full-text or substring search across the entire history.
+- `acm grep` — full-text or substring search across the entire history,
+  including summary content (compacted spans stay findable).
 - `acm expand` — reverse compaction: a summary's direct sources, or a full walk
   down to every verbatim message.
 - `acm describe` — metadata and content for any message, summary, or offloaded
@@ -126,6 +127,9 @@ database is opened.
 ## Storage and concurrency
 
 The database is pure-Go SQLite (`modernc.org/sqlite`), so the binary builds
-statically with no C toolchain. SQLite is single-writer; the connection pool is
-capped at one connection with WAL journaling and a busy timeout, which serializes
-access and eliminates lock contention for a local single-user tool.
+statically with no C toolchain. SQLite is single-writer; within a process the
+connection pool is capped at one connection, and every transaction begins as
+`BEGIN IMMEDIATE` so concurrent acm processes (agent hooks routinely fire in
+parallel) queue on the busy timeout instead of failing a deferred read-to-write
+upgrade. Concurrent capture is therefore lossless across processes, which is
+covered by a dedicated regression test.

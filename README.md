@@ -33,19 +33,28 @@ each project.
 
 ## Key capabilities
 
-- **Lossless capture** — every user, assistant, and tool message is persisted
-  verbatim. Ingestion is idempotent, so re-reading a transcript never duplicates.
+- **Lossless capture** — everything each agent's capture surface exposes is
+  persisted verbatim: user prompts, tool results, and assistant turns (Claude
+  Code reconciles assistant text from the session transcript on Stop; Codex
+  captures each turn's final assistant message via notify; the OpenCode plugin
+  captures full messages and tool calls). Ingestion is idempotent, so re-reading
+  a transcript never duplicates, and concurrent hook invocations never lose a
+  message.
 - **Summary DAG compaction** — older context is folded into leaf and condensed
   summaries under a configurable token budget, while a protected "fresh tail" of
-  recent messages is always kept raw.
+  recent messages is always kept raw. Compaction runs opportunistically from the
+  capture hooks (deterministic summarizer), so the DAG builds as you work;
+  `acm compact` remains available for tuned or LLM-backed passes.
 - **On-demand recovery** — any summary expands back to its exact source messages.
-  The agent drills down through its normal shell tool (`acm expand`, `acm grep`).
-- **Automatic recall** — relevant prior context is surfaced into each new turn.
+  The agent drills down through its normal shell tool (`acm expand`, `acm grep` —
+  which searches summaries as well as messages).
+- **Automatic recall** — relevant prior context is surfaced into each new turn
+  on Claude Code and Codex prompt hooks.
 - **Large-file offload** — oversized payloads are moved to disk with a compact
   exploration summary, keeping the working context lean.
-- **Off-context batch processing** — `acm map` processes arbitrarily large
-  datasets through a bounded worker pool without the data ever entering the
-  agent's context window.
+- **Off-context batch processing** — `acm map` processes large JSONL datasets
+  through a fixed worker pool with validated, feedback-driven retries, without
+  the data ever entering the agent's context window.
 - **Bring-your-own model** — optional LLM summarization reuses the host agent's
   own model in headless mode, so `acm` holds no separate credentials. A fully
   offline deterministic summarizer is the default and the fallback.
@@ -123,11 +132,13 @@ acm expand <summary-id>   # recover a summary's verbatim sources
 
 | Agent | Capture | Automatic recall | Drill-down | Active-window control |
 |-------|:-------:|:----------------:|:----------:|:---------------------:|
-| Claude Code | ✅ hooks | ✅ | ✅ shell tool | augment |
-| Codex | ✅ hooks | ✅ | ✅ shell tool | augment |
-| OpenCode | ✅ plugin | ✅ | ✅ shell tool | full (plugin) |
+| Claude Code | ✅ hooks (prompts, tools, assistant transcript) | ✅ | ✅ shell tool | augment |
+| Codex | ✅ hooks + notify (prompts, tools, final assistant message) | ✅ | ✅ shell tool | augment |
+| OpenCode | ✅ plugin (messages + tool calls) | — (drill-down only) | ✅ shell tool | capture only |
 
-Setup for each agent is in [docs/integrations.md](docs/integrations.md).
+Setup for each agent is in [docs/integrations.md](docs/integrations.md). How acm's
+surface compares to the other LCM implementations (volt, lossless-claw,
+hermes-lcm, opencode-lcm) is mapped in [docs/comparison.md](docs/comparison.md).
 
 ## Commands
 
@@ -136,7 +147,7 @@ Setup for each agent is in [docs/integrations.md](docs/integrations.md).
 | `acm init <agent>` | Generate integration assets for an agent |
 | `acm hook` | Handle an agent hook event (capture + recall injection) |
 | `acm ingest` | Ingest captured messages (JSON on stdin) |
-| `acm grep <query>` | Search the lossless message history |
+| `acm grep <query>` | Search the lossless message history and summary DAG |
 | `acm describe <id>` | Show a message, summary, or offloaded file |
 | `acm compact` | Compact conversations into the summary DAG |
 | `acm expand <id>` | Expand a summary to its verbatim sources |
@@ -144,15 +155,17 @@ Setup for each agent is in [docs/integrations.md](docs/integrations.md).
 | `acm window <id>` | Show a conversation's assembled active context |
 | `acm map` | Process a JSONL dataset off-context (bounded worker pool) |
 | `acm stats` | Report aggregate store counts |
-| `acm doctor` | Open the database, migrate, and report health |
+| `acm doctor` | Open the database, migrate, check integrity, report health |
+| `acm backup` | Write a consistent snapshot copy of the database |
 | `acm version` | Print version information |
 
 ## Configuration
 
-`acm` stores per-project state under `<project>/.acm/`. The database path resolves
-automatically (`$LCM_DB` → `$CLAUDE_PROJECT_DIR/.acm/acm.db` → nearest ancestor
-`.acm/` → `<cwd>/.acm/acm.db`). Compaction thresholds and the summarizer are
-tunable via flags. See [docs/configuration.md](docs/configuration.md).
+`acm` stores per-project state under `<project>/.acm/` (created with a
+self-excluding `.gitignore`). The database path resolves automatically
+(`$ACM_DB` → `$CLAUDE_PROJECT_DIR/.acm/acm.db` → nearest ancestor `.acm/` →
+`<cwd>/.acm/acm.db`). Compaction thresholds and the summarizer are tunable via
+flags. See [docs/configuration.md](docs/configuration.md).
 
 ## Data and privacy
 

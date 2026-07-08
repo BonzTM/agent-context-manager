@@ -10,15 +10,15 @@ These are available on every command:
 
 | Flag | Env | Default | Description |
 |------|-----|---------|-------------|
-| `--db` | `LCM_DB` | resolved (see below) | Path to the SQLite database |
-| `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |
-| `--log-json` | `LOG_JSON` | `false` | Emit JSON logs instead of text |
+| `--db` | `ACM_DB` | resolved (see below) | Path to the SQLite database |
+| `--log-level` | `ACM_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |
+| `--log-json` | `ACM_LOG_JSON` | `false` | Emit JSON logs instead of text |
 
 ## Database path resolution
 
 When `--db` is not given, the database path is resolved in this order:
 
-1. `$LCM_DB`
+1. `$ACM_DB`
 2. `$CLAUDE_PROJECT_DIR/.acm/acm.db` (Claude Code sets this for spawned tools)
 3. The nearest ancestor directory containing a `.acm/` directory
 4. `<current working directory>/.acm/acm.db`
@@ -33,12 +33,15 @@ All state lives under `<project>/.acm/`:
 
 ```
 .acm/
+  .gitignore      Written on creation (`*`) so the directory self-excludes
   acm.db          SQLite database (created automatically)
+  backups/        Snapshots written by `acm backup`
   files/          Offloaded large-file payloads
   init/<agent>/   Integration assets written by `acm init`
 ```
 
-The `.acm/` directory should be excluded from version control.
+The `.acm/` directory is excluded from version control automatically: acm writes
+a `*` `.gitignore` into it on first use.
 
 ## Compaction tuning
 
@@ -51,7 +54,16 @@ The `.acm/` directory should be excluded from version control.
 | `--soft-fraction` | `0.6` | Compact when the window exceeds this fraction of the model window |
 | `--fresh-tail` | `8` | Most recent messages always kept raw |
 | `--leaf-chunk-tokens` | `4000` | Maximum source tokens folded into one leaf summary |
+| `--leaf-target-tokens` | `600` | Target size of a leaf summary |
+| `--condensed-target-tokens` | `1000` | Target size of a condensed summary |
+| `--hard-fraction` | `0.8` | Warn when a finished pass is still above this fraction |
 | `--summarizer` | `deterministic` | `deterministic`, `claude`, or `codex` |
+
+Compaction also runs opportunistically from the capture hooks on turn-ending
+events (`Stop`, `agent-turn-complete`) with the deterministic summarizer and
+default budget; pass `--no-compact` to `acm hook` to disable it. When you lower
+`--model-context-tokens`, lower the two target sizes with it — summaries larger
+than the remaining budget cannot bring the window under the threshold.
 
 For meaningful compression, the leaf chunk size should comfortably exceed the
 summary target, so that many tokens of input fold into a smaller summary.
