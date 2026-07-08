@@ -224,3 +224,54 @@ func truncate(s string, n int) string {
 	}
 	return string(r[:n])
 }
+
+// TestWindowGrowsAfterCompaction is the regression test for the frozen-window
+// bug: messages ingested after a compaction pass must appear in the assembled
+// window and be compactible by later passes.
+func TestWindowGrowsAfterCompaction(t *testing.T) {
+	ctx := context.Background()
+	comp, sq, conv := setup(t, testConfig())
+	appendMessages(t, sq, conv.ID, 12)
+
+	if _, err := comp.Compact(ctx, conv.ID); err != nil {
+		t.Fatalf("first compact: %v", err)
+	}
+
+	// Ingest three more messages AFTER the window was persisted.
+	counter := tokens.Heuristic{}
+	for i := range 3 {
+		content := fmt.Sprintf("late message %02d %s", i, strings.Repeat("newtok ", 60))
+		if _, _, err := sq.AppendMessage(ctx, core.MessageInput{
+			ConversationID: conv.ID,
+			Role:           core.RoleUser,
+			Content:        content,
+			TokenCount:     counter.Count(content),
+			ExternalID:     fmt.Sprintf("late%d", i),
+		}); err != nil {
+			t.Fatalf("append late %d: %v", i, err)
+		}
+	}
+
+	items, err := comp.Assemble(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	late := 0
+	for _, it := range items {
+		if strings.HasPrefix(it.Content, "late message") {
+			late++
+		}
+	}
+	if late != 3 {
+		t.Fatalf("assembled window shows %d late messages, want 3", late)
+	}
+
+	// A second compact must see (and be able to fold) the late messages too.
+	res, err := comp.Compact(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("second compact: %v", err)
+	}
+	if res.BeforeTokens <= 0 || !res.Compacted {
+		t.Fatalf("second compact ignored the late messages: %+v", res)
+	}
+}

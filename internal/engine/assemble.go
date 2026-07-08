@@ -22,37 +22,27 @@ type RenderedItem struct {
 	IsSummary bool
 }
 
-// Assemble renders the conversation's active window. If no window has been
-// persisted yet (never compacted) it renders the raw messages in order, so the
-// assembled view always reflects what the model would currently see.
+// Assemble renders the conversation's active window: the persisted context
+// items plus any messages ingested since the window was last persisted, so the
+// assembled view always reflects what the model would currently see. Before any
+// compaction it is simply the raw messages in order.
 func (c *Compactor) Assemble(ctx context.Context, conversationID string) ([]RenderedItem, error) {
-	items, err := c.store.ListContextItems(ctx, conversationID)
+	w, err := c.buildWindow(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
-	if len(items) == 0 {
-		msgs, mErr := c.store.ListMessages(ctx, conversationID, 0, 0)
-		if mErr != nil {
-			return nil, mErr
-		}
-		out := make([]RenderedItem, 0, len(msgs))
-		for _, m := range msgs {
-			out = append(out, messageItem(m))
-		}
-		return out, nil
-	}
 
-	out := make([]RenderedItem, 0, len(items))
-	for _, it := range items {
-		switch it.Type {
+	out := make([]RenderedItem, 0, len(w))
+	for _, it := range w {
+		switch it.typ {
 		case core.ContextMessage:
-			m, gErr := c.store.GetMessage(ctx, it.RefID)
+			m, gErr := c.store.GetMessage(ctx, it.refID)
 			if gErr != nil {
 				return nil, gErr
 			}
 			out = append(out, messageItem(m))
 		case core.ContextSummary:
-			s, gErr := c.store.GetSummary(ctx, it.RefID)
+			s, gErr := c.store.GetSummary(ctx, it.refID)
 			if gErr != nil {
 				return nil, gErr
 			}
@@ -66,7 +56,7 @@ func (c *Compactor) Assemble(ctx context.Context, conversationID string) ([]Rend
 				IsSummary: true,
 			})
 		default:
-			return nil, fmt.Errorf("engine: unknown context item type %q", it.Type)
+			return nil, fmt.Errorf("engine: unknown context item type %q", it.typ)
 		}
 	}
 	return out, nil

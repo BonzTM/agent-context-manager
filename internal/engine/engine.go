@@ -37,7 +37,7 @@ type Store interface {
 type Config struct {
 	ModelContextTokens    int
 	SoftFraction          float64 // begin compacting above this
-	HardFraction          float64 // must get under this (informational here; the loop targets soft)
+	HardFraction          float64 // warn when a finished pass is still above this
 	FreshTailMessages     int     // most recent messages always kept raw
 	LeafChunkTokens       int     // max source tokens folded into one leaf
 	LeafTargetTokens      int     // target size of a leaf summary
@@ -163,29 +163,30 @@ func (c *Compactor) Compact(ctx context.Context, conversationID string) (Result,
 	}
 	res.AfterTokens = windowTokens(w)
 	res.Compacted = res.Leaves > 0 || res.Condensed > 0
+	if hard := int(c.cfg.HardFraction * float64(c.cfg.ModelContextTokens)); hard > 0 && res.AfterTokens > hard {
+		c.logger.Warn("window still above hard threshold after compaction",
+			"conversation", conversationID, "tokens", res.AfterTokens, "hard", hard,
+			"hint", "lower --leaf-target-tokens/--condensed-target-tokens or raise --fresh-tail limits")
+	}
 	c.logger.Debug("compacted", "conversation", conversationID,
 		"before", res.BeforeTokens, "after", res.AfterTokens, "leaves", res.Leaves, "condensed", res.Condensed)
 	return res, nil
 }
 
+// buildWindow reconstructs the conversation's active window: the persisted
+// context items (if any), extended with every message that arrived after the
+// last persisted item so the window always tracks the live conversation. With
+// no persisted window it is simply all messages in order.
 func (c *Compactor) buildWindow(ctx context.Context, conversationID string) ([]windowItem, error) {
 	items, err := c.store.ListContextItems(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
-	if len(items) == 0 {
-		msgs, mErr := c.store.ListMessages(ctx, conversationID, 0, 0)
-		if mErr != nil {
-			return nil, mErr
-		}
-		w := make([]windowItem, 0, len(msgs))
-		for _, m := range msgs {
-			w = append(w, windowItem{typ: core.ContextMessage, refID: m.ID, tokens: m.TokenCount, earliestSeq: m.Seq, latestSeq: m.Seq})
-		}
-		return w, nil
-	}
 
-	w := make([]windowItem, 0, len(items))
+	var (
+		w       []windowItem
+		lastSeq int64
+	)
 	for _, it := range items {
 		switch it.Type {
 		case core.ContextMessage:
@@ -194,15 +195,27 @@ func (c *Compactor) buildWindow(ctx context.Context, conversationID string) ([]w
 				return nil, mErr
 			}
 			w = append(w, windowItem{typ: core.ContextMessage, refID: m.ID, tokens: m.TokenCount, earliestSeq: m.Seq, latestSeq: m.Seq})
+			lastSeq = max(lastSeq, m.Seq)
 		case core.ContextSummary:
 			s, sErr := c.store.GetSummary(ctx, it.RefID)
 			if sErr != nil {
 				return nil, sErr
 			}
 			w = append(w, windowItem{typ: core.ContextSummary, refID: s.ID, tokens: s.TokenCount, earliestSeq: s.EarliestSeq, latestSeq: s.LatestSeq, depth: s.Depth})
+			lastSeq = max(lastSeq, s.LatestSeq)
 		default:
 			return nil, fmt.Errorf("engine: unknown context item type %q", it.Type)
 		}
+	}
+
+	// Messages ingested after the window was last persisted are appended so
+	// compaction and assembly never operate on a stale, frozen window.
+	msgs, err := c.store.ListMessages(ctx, conversationID, lastSeq, 0)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range msgs {
+		w = append(w, windowItem{typ: core.ContextMessage, refID: m.ID, tokens: m.TokenCount, earliestSeq: m.Seq, latestSeq: m.Seq})
 	}
 	return w, nil
 }
