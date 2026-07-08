@@ -46,6 +46,9 @@ const claudeSettings = `{
     ],
     "PostToolUse": [
       { "matcher": "*", "hooks": [ { "type": "command", "command": "acm hook --agent claude-code --event PostToolUse" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "acm hook --agent claude-code --event Stop" } ] }
     ]
   }
 }

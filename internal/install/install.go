@@ -103,6 +103,9 @@ func claudeSettings(home string, apply bool) (Change, error) {
 	changed := ensureAllow(m, "Bash(acm:*)")
 	changed = ensureHookEntry(m, "UserPromptSubmit", "", "acm hook --agent claude-code --event UserPromptSubmit") || changed
 	changed = ensureHookEntry(m, "PostToolUse", "*", "acm hook --agent claude-code --event PostToolUse") || changed
+	// Stop reconciles assistant turns from the transcript and triggers
+	// opportunistic compaction — without it, capture is user+tool only.
+	changed = ensureHookEntry(m, "Stop", "", "acm hook --agent claude-code --event Stop") || changed
 	return finishJSON(path, m, changed, apply, "hooks + Bash(acm:*) permission")
 }
 
@@ -310,7 +313,7 @@ func hasString(s []any, want string) bool {
 }
 
 func readJSON(path string) (map[string]any, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: path is the user's home dir plus a fixed config filename, not external input.
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return map[string]any{}, nil
 	}
@@ -339,7 +342,7 @@ func writeJSON(path string, m map[string]any) error {
 }
 
 func readText(path string) (string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: path is the user's home dir plus a fixed config filename, not external input.
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}

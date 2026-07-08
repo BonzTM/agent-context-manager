@@ -3,10 +3,11 @@
 // formats recalled context for injection ("push"), and generates the per-agent
 // integration assets that acm init writes.
 //
-// Capture here is hook-payload based — the surface acm is confident about across
-// agents. Full transcript reconciliation (e.g. assistant text that some Stop
-// hooks omit) is a documented follow-up; Codex's agent-turn-complete payload
-// already carries the final assistant message, which this package captures.
+// Capture is hook-payload based, plus transcript reconciliation where a hook
+// alone cannot see the assistant's turns: Claude Code's Stop hook carries a
+// transcript_path, which is re-read (idempotently, keyed on line uuid) to
+// capture assistant text; Codex's agent-turn-complete payload carries the
+// turn's final assistant message directly.
 package agents
 
 import (
@@ -21,9 +22,10 @@ import (
 const (
 	EventUserPromptSubmit = "UserPromptSubmit"
 	EventPostToolUse      = "PostToolUse"
-	EventPostToolUseFail  = "PostToolUseFailure"
-	EventStop             = "Stop"
-	EventSessionStart     = "SessionStart"
+	// EventStop fires when a Claude Code turn ends; its payload carries
+	// transcript_path, from which assistant text is reconciled.
+	EventStop         = "Stop"
+	EventSessionStart = "SessionStart"
 	// EventTurnComplete is Codex's agent-turn-complete notify event, which
 	// carries the turn's user input messages and the final assistant message.
 	EventTurnComplete = "agent-turn-complete"
@@ -41,6 +43,7 @@ type rawHook struct {
 	ToolInput            json.RawMessage `json:"tool_input"`
 	ToolResponse         json.RawMessage `json:"tool_response"`
 	ToolOutput           json.RawMessage `json:"tool_output"`
+	TranscriptPath       string          `json:"transcript_path"`
 	LastAssistantMessage string          `json:"last-assistant-message"`
 	InputMessages        []string        `json:"input-messages"`
 }
@@ -66,7 +69,7 @@ func Capture(agent core.Agent, event string, payload []byte) (core.IngestRequest
 				Raw:     string(payload),
 			})
 		}
-	case EventPostToolUse, EventPostToolUseFail:
+	case EventPostToolUse:
 		if h.ToolName != "" {
 			req.Messages = append(req.Messages, core.IngestMessage{
 				Role:     core.RoleTool,
@@ -74,6 +77,17 @@ func Capture(agent core.Agent, event string, payload []byte) (core.IngestRequest
 				Content:  formatTool(h.ToolName, h.ToolInput, toolOutput(h)),
 				Raw:      string(payload),
 			})
+		}
+	case EventStop:
+		// Claude Code's Stop payload does not carry the assistant's text, but it
+		// points at the session transcript; reconcile assistant turns from it.
+		// Ingestion dedupes on the transcript line uuid, so re-reads are no-ops.
+		if h.TranscriptPath != "" {
+			msgs, tErr := captureTranscriptAssistant(h.TranscriptPath)
+			if tErr != nil {
+				return core.IngestRequest{}, tErr
+			}
+			req.Messages = append(req.Messages, msgs...)
 		}
 	case EventTurnComplete:
 		for _, m := range h.InputMessages {
