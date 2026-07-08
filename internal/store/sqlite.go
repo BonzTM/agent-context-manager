@@ -4,9 +4,14 @@
 // store and summary DAG.
 //
 // SQLite is single-writer: the pool is capped at one connection so reads and
-// writes serialize and "database is locked" cannot occur, per
-// golang/services/database.md ("set all four pool limits; SQLite is
-// single-writer"). WAL + a busy timeout keep that single connection responsive.
+// writes serialize within a process, per golang/services/database.md ("set all
+// four pool limits; SQLite is single-writer"). Because multiple acm processes
+// can write the same database concurrently (agent hooks fire in parallel),
+// every transaction starts as BEGIN IMMEDIATE (_txlock=immediate): the write
+// lock is taken up front, where the busy timeout applies, instead of on a
+// deferred read->write upgrade, which fails immediately with
+// SQLITE_BUSY_SNAPSHOT and would lose the write. WAL + the busy timeout keep
+// concurrent processes responsive.
 package store
 
 import (
@@ -75,10 +80,13 @@ func Open(ctx context.Context, path string) (*DB, error) {
 	return &DB{sql: sqldb, path: path}, nil
 }
 
-// dsnFor builds a modernc DSN that turns on foreign keys, WAL journaling, a
+// dsnFor builds a modernc DSN that starts every transaction as BEGIN IMMEDIATE
+// (so concurrent processes queue on the busy timeout instead of failing a
+// deferred read->write upgrade) and turns on foreign keys, WAL journaling, a
 // busy timeout, and NORMAL synchronous mode via the driver's _pragma params.
 func dsnFor(path string) string {
-	const pragmas = "_pragma=busy_timeout(5000)" +
+	const pragmas = "_txlock=immediate" +
+		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=journal_mode(WAL)" +
 		"&_pragma=foreign_keys(1)" +
 		"&_pragma=synchronous(1)"
