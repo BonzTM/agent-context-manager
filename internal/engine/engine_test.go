@@ -23,10 +23,12 @@ func testConfig() engine.Config {
 		SoftFraction:          0.5, // soft = 500 tokens
 		HardFraction:          0.8,
 		FreshTailMessages:     2,
+		FreshTailTokens:       80,
 		LeafChunkTokens:       250,
 		LeafTargetTokens:      40,
 		CondensedTargetTokens: 60,
 		CondenseFanout:        2,
+		CondenseChunkTokens:   250,
 		MaxDepth:              3,
 		TruncateTokens:        64,
 		LargeFileThreshold:    1_000_000, // effectively disabled
@@ -150,6 +152,86 @@ func TestCompactShrinksWindowAndIsLossless(t *testing.T) {
 	want := "message 00 " + strings.Repeat("token ", 60)
 	if recovered[0].Content != want {
 		t.Fatalf("recovered content not verbatim:\n got %q", recovered[0].Content)
+	}
+}
+
+func TestToolHeavyCompactionProtectsConversationalTail(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	cfg.LargeFileThreshold = 100
+	comp, sq, conv := setup(t, cfg)
+	counter := tokens.Heuristic{}
+
+	for i := range 4 {
+		appendRoleMessage(t, sq, conv.ID, core.RoleUser, fmt.Sprintf("old-%d ", i)+strings.Repeat("history ", 80), fmt.Sprintf("old-%d", i))
+	}
+	recentUser := appendRoleMessage(t, sq, conv.ID, core.RoleUser, strings.Repeat("recent-user ", 20), "recent-user")
+	tool := appendRoleMessage(t, sq, conv.ID, core.RoleTool, strings.Repeat("tool-output ", 600), "recent-tool")
+	recentAssistant := appendRoleMessage(t, sq, conv.ID, core.RoleAssistant, strings.Repeat("recent-assistant ", 20), "recent-assistant")
+
+	res, err := comp.Compact(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if res.AfterTokens > int(cfg.SoftFraction*float64(cfg.ModelContextTokens)) {
+		t.Fatalf("after tokens = %d, soft budget exceeded", res.AfterTokens)
+	}
+	items, err := comp.Assemble(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	assertRawMessages(t, items, recentUser.ID, recentAssistant.ID)
+	for _, item := range items {
+		if item.RefID == tool.ID {
+			t.Fatal("oversized tool result remained raw in the protected tail")
+		}
+	}
+	if counter.Count(tool.Content) <= cfg.LargeFileThreshold {
+		t.Fatal("tool fixture did not exceed offload threshold")
+	}
+}
+
+func TestInvalidConfigFailsBeforePersistingWindow(t *testing.T) {
+	ctx := context.Background()
+	cfg := engine.DefaultConfig()
+	cfg.ModelContextTokens = 1_000
+	comp, sq, conv := setup(t, cfg)
+	appendRoleMessage(t, sq, conv.ID, core.RoleUser, "unchanged", "invalid-config")
+
+	if _, err := comp.Compact(ctx, conv.ID); err == nil {
+		t.Fatal("Compact() accepted targets outside the soft budget")
+	}
+	items, err := sq.ListContextItems(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("list context items: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("invalid config persisted %d context items", len(items))
+	}
+}
+
+func appendRoleMessage(t *testing.T, sq *store.SQLite, conversationID string, role core.Role, content, externalID string) core.Message {
+	t.Helper()
+	message, _, err := sq.AppendMessage(context.Background(), core.MessageInput{
+		ConversationID: conversationID, Role: role, Content: content,
+		TokenCount: tokens.Heuristic{}.Count(content), ExternalID: externalID,
+	})
+	if err != nil {
+		t.Fatalf("append %s: %v", externalID, err)
+	}
+	return message
+}
+
+func assertRawMessages(t *testing.T, items []engine.RenderedItem, ids ...string) {
+	t.Helper()
+	found := make(map[string]bool, len(ids))
+	for _, item := range items {
+		found[item.RefID] = true
+	}
+	for _, id := range ids {
+		if !found[id] {
+			t.Fatalf("protected message %s was compacted", id)
+		}
 	}
 }
 

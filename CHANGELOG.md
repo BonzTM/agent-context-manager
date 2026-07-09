@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gaps/overlaps, offload references, and the active token estimator. Existing
   `--json` item output remains compatible and gains additive per-item rendered
   cost and coverage fields.
+- Compaction configuration now fails fast on unreachable budgets, invalid
+  fractions, unsafe loop/fanout/depth limits, and summary targets that cannot
+  fit their chunks. New flags expose token-based fresh-tail protection,
+  condensation input caps, and the engine's existing finite safety bounds.
+
+### Changed
+
+- The protected fresh tail now covers recent conversational messages by both
+  count and tokens while leaving tool results eligible for early compaction and
+  offload. Condensed nodes consume exactly the configured fanout and never more
+  than the configured token cap.
 
 ## [1.1.1] - 2026-07-09
 
