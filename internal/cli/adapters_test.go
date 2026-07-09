@@ -49,6 +49,17 @@ func TestHookPostToolUseCapturesWithoutRecall(t *testing.T) {
 	}
 }
 
+func TestHookCapturesCodexNotifyArgument(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "acm.db")
+	payload := `{"type":"agent-turn-complete","thread-id":"thread-1","turn-id":"turn-1","input-messages":["test prompt"],"last-assistant-message":"test response"}`
+	runACM(t, dbPath, "", "hook", "--agent", "codex", "--event", "agent-turn-complete", payload)
+
+	stats := runACM(t, dbPath, "", "stats")
+	if !strings.Contains(stats, "messages:      2") {
+		t.Fatalf("stats after Codex notify = %q, want user and assistant messages", stats)
+	}
+}
+
 func TestInitWritesAssets(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "acm.db")

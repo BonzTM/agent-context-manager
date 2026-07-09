@@ -23,11 +23,12 @@ func newHookCmd(a *app) *cobra.Command {
 		noCompact bool
 	)
 	cmd := &cobra.Command{
-		Use:     "hook",
+		Use:     "hook [notification-json]",
 		GroupID: groupCapture,
 		Short:   "Handle an agent hook event: capture messages, inject recalled context",
-		Long: "Reads a hook payload (JSON) on stdin for the given --agent and --event,\n" +
-			"captures any messages it carries into the lossless store, and — for prompt\n" +
+		Long: "Reads a hook payload (JSON) on stdin, or from the single positional argument\n" +
+			"used by Codex notify, for the given --agent and --event. It captures any\n" +
+			"messages it carries into the lossless store, and — for prompt\n" +
 			"events — prints a hookSpecificOutput JSON object injecting relevant recalled\n" +
 			"context. This is the entrypoint the per-agent hook configs (written by\n" +
 			"'acm init') invoke; you rarely run it by hand.\n\n" +
@@ -48,8 +49,8 @@ func newHookCmd(a *app) *cobra.Command {
 			"Disable with --no-compact; run 'acm compact' for tuned or LLM summarization.",
 		Example: `  echo '{"session_id":"s","prompt":"hi"}' | acm hook --agent claude-code --event UserPromptSubmit
   echo '{"session_id":"s","tool_name":"Bash","tool_response":{}}' | acm hook --agent codex --event PostToolUse`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			agent := core.Agent(agentStr)
 			if !agent.Valid() {
 				return fmt.Errorf("hook: invalid --agent %q", agentStr)
@@ -61,7 +62,7 @@ func newHookCmd(a *app) *cobra.Command {
 				return errors.New("hook: --recall must be non-negative")
 			}
 
-			payload, err := io.ReadAll(cmd.InOrStdin())
+			payload, err := hookPayload(cmd.InOrStdin(), args)
 			if err != nil {
 				return fmt.Errorf("hook: read payload: %w", err)
 			}
@@ -136,4 +137,15 @@ func newHookCmd(a *app) *cobra.Command {
 	cmd.Flags().IntVar(&recall, "recall", 5, "max recalled context items to inject on prompt events")
 	cmd.Flags().BoolVar(&noCompact, "no-compact", false, "skip opportunistic compaction after turn-ending events")
 	return cmd
+}
+
+func hookPayload(stdin io.Reader, args []string) ([]byte, error) {
+	if len(args) == 1 {
+		return []byte(args[0]), nil
+	}
+	payload, err := io.ReadAll(stdin)
+	if err != nil {
+		return nil, fmt.Errorf("hook: read payload: %w", err)
+	}
+	return payload, nil
 }

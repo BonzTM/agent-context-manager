@@ -91,6 +91,8 @@ Codex loads hooks from `hooks.json` (user-level `~/.codex/hooks.json`, or
 2. For assistant-turn capture, add `notify` as a top-level key in the global
    `~/.codex/config.toml` (Codex ignores `notify` in project config):
    `notify = ["acm", "hook", "--agent", "codex", "--event", "agent-turn-complete"]`.
+   Codex appends its notification JSON as one positional argument; `acm hook`
+   accepts that form in addition to the stdin payload used by lifecycle hooks.
 3. Append `AGENTS.acm.md` to your project's `AGENTS.md`.
 
 Codex's shell tool may be sandboxed or gated; on a trusted project the `acm`

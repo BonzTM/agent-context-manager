@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-07-09
+
+Codex assistant-turn capture patch. The `notify` command installed by 1.1.0
+was correctly placed at the top level, but `acm hook` read only stdin while
+Codex supplies notification JSON as one positional argument.
+
+### Fixed
+
+- `acm hook` now accepts Codex's single positional notification payload while
+  retaining stdin payloads for lifecycle hooks. `agent-turn-complete` events
+  therefore persist both the input messages and final assistant response.
+
+See [docs/release-notes/RELEASE_NOTES_1.1.1.md](docs/release-notes/RELEASE_NOTES_1.1.1.md) for the full release notes.
+
 ## [1.1.0] - 2026-07-09
 
 Capture-correctness and operational-hardening release: Codex assistant turns
@@ -158,7 +172,8 @@ budget, and recoverable on demand through the agent's own shell tool.
 
 See [docs/release-notes/RELEASE_NOTES_1.0.0.md](docs/release-notes/RELEASE_NOTES_1.0.0.md) for the full release notes.
 
-[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.1.1
 [1.1.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.1.0
 [1.0.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.0.1
 [1.0.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.0.0
