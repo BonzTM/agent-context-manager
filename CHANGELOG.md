@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Release assets now match the sibling repos: publishing a GitHub release
+  triggers a per-architecture matrix (linux/darwin/windows on amd64/arm64)
+  that uploads `acm-<version>-<os>-<arch>.tar.gz` archives (`.zip` on
+  Windows) with per-archive `.sha256` checksums, replacing the previous raw
+  per-platform binaries. The workflow also mirrors whichever tag form is
+  missing (bare `X.Y.Z` or `vX.Y.Z`) onto the release commit, and CI gains a
+  cross-compile check for every released platform.
+
 - Displayed versions are v-less everywhere: `acm version` strips the module
   version's `v` prefix, and release titles and stamped binaries use bare
   `X.Y.Z`. The `v` exists only on git tags, where the Go toolchain requires it

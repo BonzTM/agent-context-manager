@@ -1,64 +1,116 @@
-# Release gate. Pushing a canonical Go module tag (v1.2.3) builds stamped,
-# static binaries for the common platforms and attaches them to a GitHub
-# release. CI (ci.yml) proves the commit; this workflow only packages it.
-# `go install github.com/bonztm/agent-context-manager/cmd/acm@<tag>` remains
-# the primary install path and needs no artifact from here.
+# Release pipeline. Publishing a GitHub release (from the release notes, per
+# the house flow) triggers a per-architecture matrix that builds stamped,
+# static binaries, packages them as archives, and uploads them to that release
+# — the same shape as the sibling agent-workflow-manager repo. CI (ci.yml)
+# proves the commit; this workflow only packages it.
 #
-# Tag convention: the v-prefixed tag is the trigger (the Go toolchain requires
-# it for canonical version resolution — @latest and pkg.go.dev only see
-# vX.Y.Z tags), and this workflow mirrors a bare X.Y.Z alias onto the same
-# commit for the house no-v style, so `go install ...@1.2.3` also resolves to
-# the canonical release. Display strings (release title, stamped version) drop
-# the v everywhere.
+# Tag convention: releases are cut from either tag form; the mirror job
+# guarantees BOTH exist on the release commit — bare X.Y.Z (house style, what
+# humans type) and vX.Y.Z (required by the Go toolchain for canonical module
+# resolution, so `go install ...@latest` sees the release). Display strings
+# drop the v everywhere.
 
 name: release
 
 on:
-  push:
-    tags: ["v*"] # canonical Go module tags: v1.2.3 (the v prefix is required)
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)build assets for"
+        required: true
 
 permissions:
-  contents: write # create the release, upload assets, push the bare alias tag
+  contents: write # push the mirror tag, upload release assets
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
-  publish:
+  mirror-tags:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Ensure both bare and v-prefixed tags exist
+        run: |
+          BARE="${TAG#v}"
+          COMMIT="$(git rev-parse HEAD)"
+          for ref in "${BARE}" "v${BARE}"; do
+            if git ls-remote --exit-code origin "refs/tags/${ref}" > /dev/null 2>&1; then
+              echo "tag ${ref} already exists"
+            else
+              git tag "${ref}" "${COMMIT}"
+              git push origin "refs/tags/${ref}"
+            fi
+          done
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Mirror bare version tag
+      - name: Build stamped static binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
         run: |
-          BARE="${GITHUB_REF_NAME#v}"
-          if git ls-remote --exit-code origin "refs/tags/${BARE}" > /dev/null 2>&1; then
-            echo "bare tag ${BARE} already exists"
-          else
-            git tag "${BARE}" "${GITHUB_SHA}"
-            git push origin "refs/tags/${BARE}"
-          fi
-
-      - name: Build stamped static binaries
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          COMMIT="${GITHUB_SHA}"
+          VERSION="${TAG#v}"
+          COMMIT="$(git rev-parse HEAD)"
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           PKG="github.com/bonztm/agent-context-manager/internal/buildinfo"
           LDFLAGS="-s -w -X ${PKG}.Version=${VERSION} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           mkdir -p dist
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
-            export GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0
-            go build -trimpath -ldflags "${LDFLAGS}" -o "dist/acm-${GOOS}-${GOARCH}" ./cmd/acm
-          done
-          unset GOOS GOARCH
-          (cd dist && sha256sum acm-* > SHA256SUMS)
+          go build -trimpath -ldflags "${LDFLAGS}" -o "dist/acm${EXT}" ./cmd/acm
 
-      - name: Create GitHub release
+      - name: Package release archive
+        run: |
+          VERSION="${TAG#v}"
+          ARCHIVE="acm-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          cd dist
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "../${ARCHIVE}.zip" acm.exe
+            cd .. && sha256sum "${ARCHIVE}.zip" > "${ARCHIVE}.zip.sha256"
+          else
+            tar czf "../${ARCHIVE}.tar.gz" acm
+            cd .. && sha256sum "${ARCHIVE}.tar.gz" > "${ARCHIVE}.tar.gz.sha256"
+          fi
+
+      - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --title "${GITHUB_REF_NAME#v}" \
-            --notes "See CHANGELOG.md for the changes in this release."
+          VERSION="${TAG#v}"
+          ARCHIVE="acm-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            gh release upload "${TAG}" "${ARCHIVE}.zip" "${ARCHIVE}.zip.sha256" --clobber
+          else
+            gh release upload "${TAG}" "${ARCHIVE}.tar.gz" "${ARCHIVE}.tar.gz.sha256" --clobber
+          fi
