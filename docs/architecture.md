@@ -83,8 +83,13 @@ falling back to deterministic on any error.
 
 Message content above a token threshold is written to disk under `.acm/files/`,
 recorded in `large_files` with a compact exploration summary, and represented in
-the working context by that summary rather than the full payload. The verbatim
-content remains recoverable both from the store and from the on-disk file.
+the working context by that summary rather than the full payload. Exploration
+summaries are type-aware: JSON, CSV/TSV, SQL, and source code get a
+deterministic schema- or structure-level description with no model call
+(recorded in the row's `extractor` column and shown by `acm describe`);
+unstructured content falls to the configured summarizer, then to truncation.
+The verbatim content remains recoverable both from the store and from the
+on-disk file.
 
 ### Retrieval
 

@@ -50,8 +50,10 @@ each project.
   which searches summaries as well as messages).
 - **Automatic recall** — relevant prior context is surfaced into each new turn
   on Claude Code and Codex prompt hooks.
-- **Large-file offload** — oversized payloads are moved to disk with a compact
-  exploration summary, keeping the working context lean.
+- **Large-file offload** — oversized payloads are moved to disk with a compact,
+  type-aware exploration summary (JSON/CSV/SQL/code get deterministic
+  schema-level descriptions; prose uses the summarizer), keeping the working
+  context lean.
 - **Off-context batch processing** — `acm map` processes large JSONL datasets
   through a fixed worker pool with validated, feedback-driven retries, without
   the data ever entering the agent's context window.
@@ -151,7 +153,7 @@ hermes-lcm, opencode-lcm) is mapped in [docs/comparison.md](docs/comparison.md).
 | `acm describe <id>` | Show a message, summary, or offloaded file |
 | `acm compact` | Compact conversations into the summary DAG |
 | `acm expand <id>` | Expand a summary to its verbatim sources |
-| `acm expand-query <id> <query>` | Expand a summary, filtered to matching messages |
+| `acm expand-query <id> <query>` | Expand a summary, filtered to matching messages; `--synthesize` answers with the agent model |
 | `acm window <id>` | Show a conversation's assembled active context |
 | `acm map` | Process a JSONL dataset off-context (bounded worker pool) |
 | `acm stats` | Report aggregate store counts |

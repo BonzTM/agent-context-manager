@@ -33,7 +33,8 @@ The implementations compared:
 | Automatic recall injection on prompt | ✅ (Claude Code, Codex) | ✗ (pull only) | ✗ (pull only) | ✗ (summaries in window) | ✅ (scope-escalating) |
 | Drill-down retrieval (grep/expand/describe) | ✅ shell commands | ✅ agent tools | ✅ agent tools | ✅ agent tools + slash cmds | ✅ agent tools |
 | Search covers summaries | ✅ | ✅ (grouped by summary) | ✅ | ✅ | ✅ |
-| Large-content offload | ✅ (token threshold, disk + exploration summary) | ✅ (type-aware exploration summaries) | ✅ | ✗ (truncation only) | ✅ (artifact blobs, dedup, previews) |
+| Large-content offload | ✅ (token threshold, disk + type-aware exploration summaries) | ✅ (type-aware exploration summaries) | ✅ | ✗ (truncation only) | ✅ (artifact blobs, dedup, previews) |
+| LLM-synthesized `expand-query` | ✅ (`--synthesize`, cited msg ids, filter fallback) | ✗ | ✅ (sub-agent, grants) | ✅ (separate model/timeout) | ✗ |
 | Off-context batch map (`llm_map`) | ✅ (worker pool, validation-feedback retries) | ✅ (+ `agentic_map`, exactly-once item states) | ✗ | ✗ | ✗ |
 | Works with zero infrastructure (one binary, no host fork) | ✅ | ✗ | ✗ | ✗ | ✗ (needs OpenCode runtime) |
 | Multi-project routing from one install | ✅ | n/a | ✗ | ✗ | ✗ |
@@ -73,13 +74,7 @@ These are real deltas, tracked as roadmap items rather than claimed away:
 - **No `agentic_map`.** acm ships `llm_map` mechanics (worker pool, required
   fields, validation-feedback retries); volt's tool-using per-item sub-agents
   and exactly-once DB-backed item states are out of scope for a hookable CLI.
-- **No LLM-synthesized `expand-query`.** acm's `expand-query` filters expanded
-  messages; lossless-claw and hermes-lcm can additionally run a focused model
-  call over the expansion to answer a question directly.
 - **Coarser session lifecycle.** Session filtering patterns, retention pruning,
   pinning, and cross-session carry-over (lossless-claw, hermes-lcm,
   opencode-lcm) are not implemented; acm's per-project databases keep the blast
   radius small, but offer no per-session policy.
-- **Exploration summaries are not type-aware.** volt dispatches JSON/CSV/SQL to
-  schema extraction and code to structural analysis; acm summarizes offloaded
-  content with the configured summarizer regardless of type.
