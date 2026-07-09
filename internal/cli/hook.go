@@ -11,6 +11,7 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/agents"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/engine"
+	"github.com/bonztm/agent-context-manager/internal/privacy"
 )
 
 func newHookCmd(a *app) *cobra.Command {
@@ -60,7 +61,6 @@ func newHookCmd(a *app) *cobra.Command {
 			if recall < 0 {
 				return errors.New("hook: --recall must be non-negative")
 			}
-
 			payload, err := hookPayload(cmd.InOrStdin(), args)
 			if err != nil {
 				return fmt.Errorf("hook: read payload: %w", err)
@@ -70,6 +70,7 @@ func newHookCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			sessionMode := a.policy.Mode(req.SessionID)
 
 			ctx := cmd.Context()
 			sq, db, err := a.newStore(ctx)
@@ -82,7 +83,7 @@ func newHookCmd(a *app) *cobra.Command {
 			// Recall runs BEFORE capturing the current prompt so the prompt cannot
 			// match itself. It is best-effort: capture is the invariant, so a
 			// recall failure is logged and never aborts the hook.
-			if event == agents.EventUserPromptSubmit && len(req.Messages) > 0 && recall > 0 {
+			if event == agents.EventUserPromptSubmit && len(req.Messages) > 0 && recall > 0 && sessionMode != privacy.SessionIgnore {
 				prompt := req.Messages[0].Content
 				terms := agents.RecallTerms(prompt)
 				candidateLimit := min(recall, maxRecallCandidates/5) * 5

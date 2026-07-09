@@ -96,3 +96,19 @@ type ConversationRoleCounts struct {
 	Tools          int
 	UpdatedAt      time.Time
 }
+
+// PruneCandidate describes a retention-eligible conversation without loading
+// message bodies.
+type PruneCandidate struct {
+	Conversation      Conversation
+	Pinned            bool
+	SummaryCount      int
+	UnexpandedSummary int
+}
+
+// DeleteConversationsResult lists external files whose owning database rows
+// were deleted and must be removed after the transaction commits.
+type DeleteConversationsResult struct {
+	Deleted      int
+	OffloadPaths []string
+}

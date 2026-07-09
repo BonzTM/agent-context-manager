@@ -28,6 +28,7 @@ type Store interface {
 	CreateCondensedSummary(ctx context.Context, in core.CondensedSummaryInput) (core.Summary, error)
 	SummaryMessages(ctx context.Context, summaryID string) ([]core.Message, error)
 	SummaryChildren(ctx context.Context, summaryID string) ([]core.Summary, error)
+	MarkSummaryExpanded(ctx context.Context, summaryID string) error
 	ListContextItems(ctx context.Context, conversationID string) ([]core.ContextItem, error)
 	ReplaceContextItems(ctx context.Context, conversationID string, items []core.ContextItem) error
 	CreateLargeFile(ctx context.Context, lf core.LargeFile) (core.LargeFile, error)

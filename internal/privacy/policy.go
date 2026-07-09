@@ -25,19 +25,44 @@ type redactionPattern struct {
 
 // Policy is an immutable, validated capture policy.
 type Policy struct {
-	redact         bool
-	sessionGlobs   []string
-	toolGlobs      []string
-	pathGlobs      []string
-	excludedClass  map[string]bool
-	allowedValues  []string
-	redactions     []redactionPattern
-	classDetectors map[string]*regexp.Regexp
+	redact                bool
+	ignoreSessionGlobs    []string
+	statelessSessionGlobs []string
+	toolGlobs             []string
+	pathGlobs             []string
+	excludedClass         map[string]bool
+	allowedValues         []string
+	redactions            []redactionPattern
+	classDetectors        map[string]*regexp.Regexp
+}
+
+// SessionMode controls recall and persistence for a host session.
+type SessionMode string
+
+const (
+	// SessionCapture persists messages and permits recall.
+	SessionCapture SessionMode = "capture"
+	// SessionIgnore permits neither recall nor persistence.
+	SessionIgnore SessionMode = "ignore"
+	// SessionStateless permits recall but does not persist.
+	SessionStateless SessionMode = "stateless"
+)
+
+// Mode returns the deterministic policy mode for sessionID. Ignore takes
+// precedence when patterns overlap.
+func (policy *Policy) Mode(sessionID string) SessionMode {
+	if matchesAny(policy.ignoreSessionGlobs, sessionID) {
+		return SessionIgnore
+	}
+	if matchesAny(policy.statelessSessionGlobs, sessionID) {
+		return SessionStateless
+	}
+	return SessionCapture
 }
 
 // Apply implements core.MessagePolicy.
 func (policy *Policy) Apply(request core.IngestRequest) (core.IngestRequest, core.PolicyDecision, error) {
-	if matchesAny(policy.sessionGlobs, request.SessionID) {
+	if policy.Mode(request.SessionID) != SessionCapture {
 		return request, core.PolicyDecision{SessionExcluded: true, MessagesExcluded: len(request.Messages)}, nil
 	}
 	filtered := request

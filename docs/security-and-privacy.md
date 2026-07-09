@@ -31,7 +31,8 @@ only the explicit `redact = false` setting disables it.
 # Secure default: true. Set false only when the storage boundary is acceptable.
 redact = true
 
-exclude_sessions = ["scratch-*", "vendor-audit-*"]
+ignore_sessions = ["scratch-*"]
+stateless_sessions = ["vendor-audit-*"]
 exclude_tools = ["SecretRead", "PasswordManager*"]
 exclude_paths = ["/private/*", "*/.env"]
 exclude_content_classes = ["private-key", "personal-data"]
@@ -70,6 +71,6 @@ Privacy filtering runs in `core.Service.Ingest` before `EnsureConversation` and
 Excluded sessions create no conversation or message rows. Operational logs and
 CLI results report counts and redaction classes, never the matched values.
 
-Changing policy is prospective. Run an appropriate lifecycle prune after `#5`
-if older retained data must be removed; until then, restore from a pre-capture
-backup or delete the project state only through documented ACM operations.
+Changing policy is prospective. Use dry-run-first `acm prune` when older retained
+data must be removed; see [Session lifecycle](session-lifecycle.md) for pins,
+expansion gates, verified backups, and rollback.

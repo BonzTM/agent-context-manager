@@ -100,6 +100,10 @@ path, and content-class exclusions prevent matching messages from creating
 rows. See [Security and privacy](security-and-privacy.md) for the full schema,
 detectors, bounds, threat model, and false-positive handling.
 
+Use `ignore_sessions` for sessions that receive neither recall nor writes, and
+`stateless_sessions` for recall-enabled sessions that create no rows. See
+[Session lifecycle](session-lifecycle.md) for retention and carry-over.
+
 ## Summarizers
 
 - **`deterministic`** (default) — a structural, no-LLM summarizer. Fully offline
