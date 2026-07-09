@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `acm window --breakdown` reports exact rendered versus stored token estimates,
+  raw/summary and role/depth subtotals, represented-message counts, sequence
+  gaps/overlaps, offload references, and the active token estimator. Existing
+  `--json` item output remains compatible and gains additive per-item rendered
+  cost and coverage fields.
+
 ## [1.1.1] - 2026-07-09
 
 Codex assistant-turn capture patch. The `notify` command installed by 1.1.0

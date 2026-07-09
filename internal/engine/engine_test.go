@@ -100,8 +100,17 @@ func TestCompactShrinksWindowAndIsLossless(t *testing.T) {
 	}
 	var summaries int
 	for _, it := range items {
+		if it.RenderedTokens != (tokens.Heuristic{}).Count(it.Content) {
+			t.Fatalf("rendered tokens = %d, want exact content count", it.RenderedTokens)
+		}
+		if it.EarliestSeq <= 0 || it.LatestSeq < it.EarliestSeq || it.RepresentedMessages <= 0 {
+			t.Fatalf("invalid coverage metadata: %+v", it)
+		}
 		if it.IsSummary {
 			summaries++
+			if it.RenderedTokens <= it.Tokens {
+				t.Fatalf("summary wrapper cost missing: rendered=%d stored=%d", it.RenderedTokens, it.Tokens)
+			}
 		}
 	}
 	if summaries == 0 {

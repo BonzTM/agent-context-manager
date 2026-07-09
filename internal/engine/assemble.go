@@ -13,13 +13,18 @@ import (
 // RenderedItem is one entry of an assembled active window, ready to send to a
 // model: a raw message or a summary rendered as a self-describing pseudo-message.
 type RenderedItem struct {
-	Type      core.ContextItemType
-	RefID     string
-	Role      core.Role
-	Content   string
-	Tokens    int
-	Depth     int
-	IsSummary bool
+	Type                core.ContextItemType
+	RefID               string
+	Role                core.Role
+	Content             string
+	Tokens              int
+	RenderedTokens      int
+	Depth               int
+	EarliestSeq         int64
+	LatestSeq           int64
+	RepresentedMessages int
+	IsSummary           bool
+	HasOffloadReference bool
 }
 
 // Assemble renders the conversation's active window: the persisted context
@@ -40,20 +45,26 @@ func (c *Compactor) Assemble(ctx context.Context, conversationID string) ([]Rend
 			if gErr != nil {
 				return nil, gErr
 			}
-			out = append(out, messageItem(m))
+			out = append(out, c.messageItem(m))
 		case core.ContextSummary:
 			s, gErr := c.store.GetSummary(ctx, it.refID)
 			if gErr != nil {
 				return nil, gErr
 			}
+			content := renderSummary(s)
 			out = append(out, RenderedItem{
-				Type:      core.ContextSummary,
-				RefID:     s.ID,
-				Role:      core.RoleUser,
-				Content:   renderSummary(s),
-				Tokens:    s.TokenCount,
-				Depth:     s.Depth,
-				IsSummary: true,
+				Type:                core.ContextSummary,
+				RefID:               s.ID,
+				Role:                core.RoleUser,
+				Content:             content,
+				Tokens:              s.TokenCount,
+				RenderedTokens:      c.counter.Count(content),
+				Depth:               s.Depth,
+				EarliestSeq:         s.EarliestSeq,
+				LatestSeq:           s.LatestSeq,
+				RepresentedMessages: s.DescendantMessageCount,
+				IsSummary:           true,
+				HasOffloadReference: hasOffloadReference(content),
 			})
 		default:
 			return nil, fmt.Errorf("engine: unknown context item type %q", it.typ)
@@ -62,8 +73,17 @@ func (c *Compactor) Assemble(ctx context.Context, conversationID string) ([]Rend
 	return out, nil
 }
 
-func messageItem(m core.Message) RenderedItem {
-	return RenderedItem{Type: core.ContextMessage, RefID: m.ID, Role: m.Role, Content: m.Content, Tokens: m.TokenCount}
+func (c *Compactor) messageItem(m core.Message) RenderedItem {
+	return RenderedItem{
+		Type: core.ContextMessage, RefID: m.ID, Role: m.Role, Content: m.Content,
+		Tokens: m.TokenCount, RenderedTokens: c.counter.Count(m.Content),
+		EarliestSeq: m.Seq, LatestSeq: m.Seq, RepresentedMessages: 1,
+		HasOffloadReference: hasOffloadReference(m.Content),
+	}
+}
+
+func hasOffloadReference(content string) bool {
+	return strings.Contains(content, "[large content offloaded ->")
 }
 
 // renderSummary wraps a summary as a self-describing pseudo-message so the model
