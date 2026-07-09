@@ -102,3 +102,43 @@ func TestHookStopCapturesTranscriptAndCompacts(t *testing.T) {
 		t.Fatalf("stats after repeated Stop hook = %q, want still 2", stats)
 	}
 }
+
+func TestCodexBackfillIsDryRunFirstAndIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "acm.db")
+	transcript := filepath.Join(dir, "rollout.jsonl")
+	lines := `{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","id":"response-1","content":[{"type":"output_text","text":"recovered answer"}]}}
+{"type":"response_item","payload":
+{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`
+	if err := os.WriteFile(transcript, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rawHook := fmt.Sprintf(`{"session_id":"codex-session","transcript_path":%q}`, transcript)
+	payload := fmt.Sprintf(`{"agent":"codex","session_id":"codex-session","messages":[{"role":"user","content":"recover this","external_id":"turn-1:input:0","raw":%q}]}`, rawHook)
+	runACM(t, dbPath, payload, "ingest")
+
+	dryRun := runACM(t, dbPath, "", "backfill")
+	if !strings.Contains(dryRun, "missing=1 appended=0 malformed=1 mode=dry-run") {
+		t.Fatalf("dry-run output = %q", dryRun)
+	}
+	assertMessageCount(t, dbPath, 1)
+	apply := runACM(t, dbPath, "", "backfill", "--apply")
+	if !strings.Contains(apply, "missing=1 appended=1 malformed=1 mode=apply") {
+		t.Fatalf("apply output = %q", apply)
+	}
+	assertMessageCount(t, dbPath, 2)
+	second := runACM(t, dbPath, "", "backfill", "--apply")
+	if !strings.Contains(second, "missing=0 appended=0 malformed=1 mode=apply") {
+		t.Fatalf("second apply output = %q", second)
+	}
+}
+
+func assertMessageCount(t *testing.T, dbPath string, count int) {
+	t.Helper()
+	stats := runACM(t, dbPath, "", "stats")
+	want := fmt.Sprintf("messages:      %d", count)
+	if !strings.Contains(stats, want) {
+		t.Fatalf("stats = %q, want %q", stats, want)
+	}
+}

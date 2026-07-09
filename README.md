@@ -150,6 +150,7 @@ hermes-lcm, opencode-lcm) is mapped in [docs/comparison.md](docs/comparison.md).
 | `acm init <agent>` | Generate integration assets for an agent |
 | `acm hook` | Handle an agent hook event (capture + recall injection) |
 | `acm ingest` | Ingest captured messages (JSON on stdin) |
+| `acm backfill` | Preview/reconcile missing Codex assistant turns from rollouts |
 | `acm grep <query>` | Search the lossless message history and summary DAG |
 | `acm describe <id>` | Show a message, summary, or offloaded file |
 | `acm compact` | Compact conversations into the summary DAG |
@@ -158,7 +159,7 @@ hermes-lcm, opencode-lcm) is mapped in [docs/comparison.md](docs/comparison.md).
 | `acm window <id>` | Show a conversation's assembled active context |
 | `acm map` | Process a JSONL dataset off-context (bounded worker pool) |
 | `acm stats` | Report aggregate store counts |
-| `acm doctor` | Open the database, migrate, check integrity, report health |
+| `acm doctor` | Check database integrity, permissions, integrations, and capture gaps |
 | `acm backup` | Write a consistent snapshot copy of the database |
 | `acm version` | Print version information |
 

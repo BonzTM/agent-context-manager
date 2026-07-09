@@ -72,6 +72,82 @@ func (s *SQLite) ConversationBySession(ctx context.Context, agent core.Agent, se
 	return conv, nil
 }
 
+// ListConversations returns conversations ordered by creation time.
+func (s *SQLite) ListConversations(ctx context.Context, agent core.Agent) ([]core.Conversation, error) {
+	query := "SELECT " + conversationColumns + " FROM conversations"
+	var args []any
+	if agent != "" {
+		query += " WHERE agent = ?"
+		args = append(args, string(agent))
+	}
+	query += " ORDER BY created_at ASC"
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: list conversations: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	return scanConversations(rows)
+}
+
+func scanConversations(rows *sql.Rows) ([]core.Conversation, error) {
+	var conversations []core.Conversation
+	for rows.Next() {
+		conversation, err := scanConversation(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: scan conversation: %w", err)
+		}
+		conversations = append(conversations, conversation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate conversations: %w", err)
+	}
+	return conversations, nil
+}
+
+// ConversationRoleCounts returns bounded per-conversation capture aggregates,
+// newest first, without loading message bodies.
+func (s *SQLite) ConversationRoleCounts(ctx context.Context, agent core.Agent, limit int) ([]core.ConversationRoleCounts, error) {
+	const query = `
+SELECT c.id, c.agent, c.updated_at,
+       COALESCE(SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END), 0),
+       COALESCE(SUM(CASE WHEN m.role = 'assistant' THEN 1 ELSE 0 END), 0),
+       COALESCE(SUM(CASE WHEN m.role = 'tool' THEN 1 ELSE 0 END), 0)
+FROM conversations c
+LEFT JOIN messages m ON m.conversation_id = c.id
+WHERE c.agent = ?
+GROUP BY c.id, c.agent, c.updated_at
+ORDER BY c.updated_at DESC
+LIMIT ?`
+	rows, err := s.db.QueryContext(ctx, query, string(agent), limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: conversation role counts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	return scanRoleCounts(rows)
+}
+
+func scanRoleCounts(rows *sql.Rows) ([]core.ConversationRoleCounts, error) {
+	var results []core.ConversationRoleCounts
+	for rows.Next() {
+		var result core.ConversationRoleCounts
+		var agent, updated string
+		if err := rows.Scan(&result.ConversationID, &agent, &updated, &result.Users, &result.Assistants, &result.Tools); err != nil {
+			return nil, fmt.Errorf("store: scan conversation role counts: %w", err)
+		}
+		result.Agent = core.Agent(agent)
+		parsed, err := parseTime(updated)
+		if err != nil {
+			return nil, fmt.Errorf("store: parse conversation role counts time: %w", err)
+		}
+		result.UpdatedAt = parsed
+		results = append(results, result)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate conversation role counts: %w", err)
+	}
+	return results, nil
+}
+
 // AppendMessage appends a message inside a transaction (message row + FTS row +
 // conversation touch). It is idempotent: a message whose deterministic ID
 // already exists is returned with created=false and nothing is written.

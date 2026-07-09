@@ -125,7 +125,7 @@ func TestCodexHooksInstalledAndIdempotent(t *testing.T) {
 		t.Fatalf("parse hooks.json: %v", err)
 	}
 	hooks := asMap(t, m["hooks"])
-	for _, ev := range []string{"UserPromptSubmit", "PostToolUse"} {
+	for _, ev := range []string{"UserPromptSubmit", "PostToolUse", "Stop"} {
 		if len(asSlice(t, hooks[ev])) == 0 {
 			t.Fatalf("no %s hook installed", ev)
 		}

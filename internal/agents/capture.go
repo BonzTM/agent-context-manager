@@ -83,11 +83,11 @@ func Capture(agent core.Agent, event string, payload []byte) (core.IngestRequest
 			})
 		}
 	case EventStop:
-		// Claude Code's Stop payload does not carry the assistant's text, but it
-		// points at the session transcript; reconcile assistant turns from it.
+		// Stop payloads do not carry the assistant's text, but point at the host
+		// transcript; reconcile assistant turns from it.
 		// Ingestion dedupes on the transcript line uuid, so re-reads are no-ops.
 		if h.TranscriptPath != "" {
-			msgs, tErr := captureTranscriptAssistant(h.TranscriptPath)
+			msgs, _, tErr := ReconcileTranscriptAssistant(agent, h.TranscriptPath)
 			if tErr != nil {
 				return core.IngestRequest{}, tErr
 			}

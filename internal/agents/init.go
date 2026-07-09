@@ -61,6 +61,9 @@ const codexHooksSnippet = `{
     ],
     "PostToolUse": [
       { "hooks": [ { "type": "command", "command": "acm hook --agent codex --event PostToolUse" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "acm hook --agent codex --event Stop" } ] }
     ]
   }
 }

@@ -81,6 +81,9 @@ type Store interface {
 	EnsureConversation(ctx context.Context, in ConversationInput) (Conversation, error)
 	// ConversationBySession loads a conversation by (Agent, SessionID).
 	ConversationBySession(ctx context.Context, agent Agent, sessionID string) (Conversation, error)
+	// ListConversations returns conversations ordered by creation time. An empty
+	// agent includes every supported host.
+	ListConversations(ctx context.Context, agent Agent) ([]Conversation, error)
 	// AppendMessage appends a message, returning it and whether it was newly
 	// created (false means an identical message already existed — idempotent).
 	AppendMessage(ctx context.Context, in MessageInput) (msg Message, created bool, err error)

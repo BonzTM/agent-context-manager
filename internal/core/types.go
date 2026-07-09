@@ -85,3 +85,14 @@ type Stats struct {
 	Messages      int64
 	TotalTokens   int64
 }
+
+// ConversationRoleCounts is an aggregate used by integration diagnostics to
+// detect sessions that capture prompts but no assistant completions.
+type ConversationRoleCounts struct {
+	ConversationID string
+	Agent          Agent
+	Users          int
+	Assistants     int
+	Tools          int
+	UpdatedAt      time.Time
+}
