@@ -20,7 +20,9 @@ const (
 
 type diskPolicy struct {
 	Redact                *bool    `toml:"redact"`
-	ExcludeSessions       []string `toml:"exclude_sessions"`
+	ExcludeSessions       []string `toml:"exclude_sessions"` // compatibility alias for stateless_sessions
+	IgnoreSessions        []string `toml:"ignore_sessions"`
+	StatelessSessions     []string `toml:"stateless_sessions"`
 	ExcludeTools          []string `toml:"exclude_tools"`
 	ExcludePaths          []string `toml:"exclude_paths"`
 	ExcludeContentClasses []string `toml:"exclude_content_classes"`
@@ -64,14 +66,15 @@ func newPolicy(config diskPolicy) (*Policy, error) {
 		excluded[class] = true
 	}
 	return &Policy{
-		redact: redact, sessionGlobs: config.ExcludeSessions, toolGlobs: config.ExcludeTools,
+		redact: redact, ignoreSessionGlobs: config.IgnoreSessions,
+		statelessSessionGlobs: append(config.StatelessSessions, config.ExcludeSessions...), toolGlobs: config.ExcludeTools,
 		pathGlobs: config.ExcludePaths, excludedClass: excluded, allowedValues: config.AllowValues,
 		redactions: redactions, classDetectors: detectors,
 	}, nil
 }
 
 func validateRules(config diskPolicy) error {
-	ruleSets := [][]string{config.ExcludeSessions, config.ExcludeTools, config.ExcludePaths}
+	ruleSets := [][]string{config.ExcludeSessions, config.IgnoreSessions, config.StatelessSessions, config.ExcludeTools, config.ExcludePaths}
 	for _, rules := range ruleSets {
 		if len(rules) > maxPolicyRules {
 			return fmt.Errorf("privacy: rule count exceeds %d", maxPolicyRules)

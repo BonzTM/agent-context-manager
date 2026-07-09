@@ -11,7 +11,8 @@ with a guarantee that every original message remains retrievable.
 
 - **Lossless after policy.** Retained canonical messages are never destroyed.
   Summaries are derived; excluded data is intentionally absent and recognized
-  secrets are replaced before the canonical source is created.
+  secrets are replaced before the canonical source is created. Explicit
+  backup-first retention is the documented destructive exception.
 - **Local and zero-infrastructure.** One binary, an embedded SQLite database per
   project, no service, no network listener.
 - **Deterministic.** Compaction is engine-owned and reproducible. Summarization

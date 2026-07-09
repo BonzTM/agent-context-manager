@@ -70,6 +70,19 @@ func TestPolicySupportsExplicitOptOutAndAllowValue(t *testing.T) {
 	}
 }
 
+func TestSessionModesHaveDeterministicPrecedence(t *testing.T) {
+	policy, err := newPolicy(diskPolicy{
+		IgnoreSessions: []string{"blocked-*"}, StatelessSessions: []string{"stateless-*", "blocked-*"},
+	})
+	if err != nil {
+		t.Fatalf("new policy: %v", err)
+	}
+	if policy.Mode("normal") != SessionCapture || policy.Mode("stateless-1") != SessionStateless || policy.Mode("blocked-1") != SessionIgnore {
+		t.Fatalf("unexpected modes: normal=%s stateless=%s blocked=%s",
+			policy.Mode("normal"), policy.Mode("stateless-1"), policy.Mode("blocked-1"))
+	}
+}
+
 func TestLoadRejectsInvalidGlobAndUnknownClass(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, FileName), []byte("exclude_sessions = [\"[\"]\n"), 0o600); err != nil {

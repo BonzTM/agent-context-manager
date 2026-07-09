@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Project-root `.acm-policy.toml` files can exclude session/tool/path/content
   classes and declare reviewed allow-values. Missing policy files retain secure
   default redaction.
+- `acm prune` provides dry-run-first, backup-verified retention with pins and
+  expansion gates; `acm pin` exempts conversations; and `acm carry-over` seeds
+  a new session from the deepest bounded summary layer while pinning its source.
 
 ### Changed
 
@@ -35,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Codex global installation now adds a `Stop` hook as a redundant transcript
   reconciliation path. Rollout capture keeps the final assistant message per
   task boundary and keys it by turn ID, matching notify deduplication.
+- Session policy now distinguishes ignored sessions (no recall or writes) from
+  stateless sessions (recall without writes). Successful summary traversal is
+  recorded as a conservative retention acknowledgement.
 
 ### Security
 

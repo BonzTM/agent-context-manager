@@ -113,10 +113,16 @@ func (c *Compactor) Expand(ctx context.Context, summaryID string) (Expansion, er
 		if mErr != nil {
 			return Expansion{}, mErr
 		}
+		if mErr = c.store.MarkSummaryExpanded(ctx, summaryID); mErr != nil {
+			return Expansion{}, mErr
+		}
 		return Expansion{Summary: s, Messages: msgs}, nil
 	}
 	children, cErr := c.store.SummaryChildren(ctx, summaryID)
 	if cErr != nil {
+		return Expansion{}, cErr
+	}
+	if cErr = c.store.MarkSummaryExpanded(ctx, summaryID); cErr != nil {
 		return Expansion{}, cErr
 	}
 	return Expansion{Summary: s, Children: children}, nil
@@ -160,6 +166,9 @@ func (c *Compactor) ExpandToMessages(ctx context.Context, summaryID string) ([]c
 	}
 
 	if err := walk(summaryID); err != nil {
+		return nil, err
+	}
+	if err := c.store.MarkSummaryExpanded(ctx, summaryID); err != nil {
 		return nil, err
 	}
 	slices.SortFunc(out, func(a, b core.Message) int { return cmp.Compare(a.Seq, b.Seq) })

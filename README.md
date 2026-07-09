@@ -154,6 +154,9 @@ hermes-lcm, opencode-lcm) is mapped in [docs/comparison.md](docs/comparison.md).
 | `acm grep <query>` | Search the lossless message history and summary DAG |
 | `acm describe <id>` | Show a message, summary, or offloaded file |
 | `acm compact` | Compact conversations into the summary DAG |
+| `acm prune` | Preview/apply backup-first retention pruning |
+| `acm pin` | Exempt a conversation from retention |
+| `acm carry-over` | Seed a session from prior deepest summaries |
 | `acm expand <id>` | Expand a summary to its verbatim sources |
 | `acm expand-query <id> <query>` | Expand a summary, filtered to matching messages; `--synthesize` answers with the agent model |
 | `acm window <id>` | Show a conversation's assembled active context |

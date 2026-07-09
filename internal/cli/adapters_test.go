@@ -161,6 +161,28 @@ func TestPrivacyPolicyExcludesSessionWithoutRows(t *testing.T) {
 	}
 }
 
+func TestIgnoreAndStatelessSessionModes(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "acm.db")
+	policy := "ignore_sessions = [\"ignored-*\"]\nstateless_sessions = [\"stateless-*\"]\n"
+	if err := os.WriteFile(filepath.Join(root, ".acm-policy.toml"), []byte(policy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prior := `{"agent":"codex","session_id":"prior","messages":[{"role":"assistant","content":"use cobalt migration strategy","external_id":"a1"}]}`
+	runACM(t, dbPath, prior, "ingest")
+
+	ignored := `{"session_id":"ignored-1","turn_id":"turn-i","prompt":"what was the cobalt strategy"}`
+	if output := runACM(t, dbPath, ignored, "hook", "--agent", "codex", "--event", "UserPromptSubmit"); output != "" {
+		t.Fatalf("ignored session received recall: %q", output)
+	}
+	stateless := `{"session_id":"stateless-1","turn_id":"turn-s","prompt":"what was the cobalt strategy"}`
+	output := runACM(t, dbPath, stateless, "hook", "--agent", "codex", "--event", "UserPromptSubmit")
+	if !strings.Contains(output, "acm-recall") || !strings.Contains(output, "cobalt") {
+		t.Fatalf("stateless session missed recall: %q", output)
+	}
+	assertMessageCount(t, dbPath, 1)
+}
+
 func TestPrivacyRedactionPrecedesAllPersistence(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "acm.db")
