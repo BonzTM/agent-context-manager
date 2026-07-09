@@ -44,7 +44,8 @@ What it installs per agent:
 Notes:
 
 - **Codex** hooks live in `~/.codex/hooks.json` (user-level, no project trust
-  required). `notify` must be global, and the install sets it there.
+  required). `notify` must be a top-level key in the global config, and the
+  installer parses the TOML and places it there.
 - **OpenCode** loads the plugin automatically from its plugin directory; the
   plugin is embedded in the `acm` binary and written on install — no npm step.
   Ensure `acm` is on `PATH` (the plugin shells out to it).
@@ -87,8 +88,8 @@ Codex loads hooks from `hooks.json` (user-level `~/.codex/hooks.json`, or
 **Setup** (or just run `acm init --global codex`, which does all of this)
 
 1. Merge `hooks.snippet.json` into `~/.codex/hooks.json`.
-2. For assistant-turn capture, add `notify` to the global `~/.codex/config.toml`
-   (it must be global — Codex ignores `notify` in project config):
+2. For assistant-turn capture, add `notify` as a top-level key in the global
+   `~/.codex/config.toml` (Codex ignores `notify` in project config):
    `notify = ["acm", "hook", "--agent", "codex", "--event", "agent-turn-complete"]`.
 3. Append `AGENTS.acm.md` to your project's `AGENTS.md`.
 

@@ -76,7 +76,7 @@ func (s *SQLite) ConversationBySession(ctx context.Context, agent core.Agent, se
 // conversation touch). It is idempotent: a message whose deterministic ID
 // already exists is returned with created=false and nothing is written.
 func (s *SQLite) AppendMessage(ctx context.Context, in core.MessageInput) (msgOut core.Message, created bool, err error) {
-	idHash := core.IdentityHash(in.ExternalID, string(in.Role), in.Content)
+	idHash := core.IdentityHash(in.ExternalID, string(in.Role), in.Content, in.Raw)
 	msgID := core.DeriveMessageID(in.ConversationID, idHash)
 
 	tx, err := s.db.BeginTx(ctx, nil)

@@ -79,6 +79,9 @@ summary target, so that many tokens of input fold into a smaller summary.
 The LLM summarizers reuse the host agent's existing authentication; `acm` stores
 no credentials of its own. Any failure (binary missing, authentication, rate
 limit) falls back to the deterministic summarizer, so compaction always succeeds.
+Every headless model call has a 120-second deadline. On Unix the entire process
+group is terminated at the deadline; inherited output pipes have a final
+one-second drain bound on every platform.
 
 > The exact headless invocation flags depend on the installed agent CLI version.
 > The deterministic fallback guarantees correct behavior if they differ.

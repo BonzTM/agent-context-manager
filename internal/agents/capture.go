@@ -37,6 +37,8 @@ type rawHook struct {
 	SessionID            string          `json:"session_id"`
 	ThreadID             string          `json:"thread-id"`
 	TurnID               string          `json:"turn-id"`
+	HookTurnID           string          `json:"turn_id"`
+	ToolUseID            string          `json:"tool_use_id"`
 	Cwd                  string          `json:"cwd"`
 	Prompt               string          `json:"prompt"`
 	ToolName             string          `json:"tool_name"`
@@ -64,18 +66,20 @@ func Capture(agent core.Agent, event string, payload []byte) (core.IngestRequest
 	case EventUserPromptSubmit:
 		if h.Prompt != "" {
 			req.Messages = append(req.Messages, core.IngestMessage{
-				Role:    core.RoleUser,
-				Content: h.Prompt,
-				Raw:     string(payload),
+				Role:       core.RoleUser,
+				Content:    h.Prompt,
+				ExternalID: inputMessageID(firstNonEmpty(h.HookTurnID, h.TurnID), 0),
+				Raw:        string(payload),
 			})
 		}
 	case EventPostToolUse:
 		if h.ToolName != "" {
 			req.Messages = append(req.Messages, core.IngestMessage{
-				Role:     core.RoleTool,
-				ToolName: h.ToolName,
-				Content:  formatTool(h.ToolName, h.ToolInput, toolOutput(h)),
-				Raw:      string(payload),
+				Role:       core.RoleTool,
+				ToolName:   h.ToolName,
+				Content:    formatTool(h.ToolName, h.ToolInput, toolOutput(h)),
+				ExternalID: h.ToolUseID,
+				Raw:        string(payload),
 			})
 		}
 	case EventStop:
@@ -90,9 +94,13 @@ func Capture(agent core.Agent, event string, payload []byte) (core.IngestRequest
 			req.Messages = append(req.Messages, msgs...)
 		}
 	case EventTurnComplete:
-		for _, m := range h.InputMessages {
+		for i, m := range h.InputMessages {
 			if m != "" {
-				req.Messages = append(req.Messages, core.IngestMessage{Role: core.RoleUser, Content: m})
+				req.Messages = append(req.Messages, core.IngestMessage{
+					Role:       core.RoleUser,
+					Content:    m,
+					ExternalID: inputMessageID(h.TurnID, i),
+				})
 			}
 		}
 		if h.LastAssistantMessage != "" {
@@ -106,6 +114,13 @@ func Capture(agent core.Agent, event string, payload []byte) (core.IngestRequest
 		// SessionStart, Stop, and unknown events carry nothing to capture here.
 	}
 	return req, nil
+}
+
+func inputMessageID(turnID string, index int) string {
+	if turnID == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:input:%d", turnID, index)
 }
 
 func toolOutput(h rawHook) json.RawMessage {

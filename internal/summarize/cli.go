@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
@@ -15,21 +16,40 @@ import (
 // CLISummarizer can be tested without invoking a real agent CLI.
 type Runner func(ctx context.Context, argv []string, stdin string) (string, error)
 
+// DefaultModelCallTimeout bounds every headless agent invocation. Compaction
+// and map have their own finite retry/iteration limits above this boundary.
+const DefaultModelCallTimeout = 120 * time.Second
+
 // ExecRunner runs argv as a subprocess (no shell), feeding stdin and capturing
 // stdout. exec.Command does not interpret a shell, and argv is built from a
 // fixed agent-CLI template plus the summarization prompt passed as data, so
 // there is no command injection here.
 func ExecRunner(ctx context.Context, argv []string, stdin string) (string, error) {
+	return execRunner(ctx, argv, stdin, DefaultModelCallTimeout)
+}
+
+func execRunner(ctx context.Context, argv []string, stdin string, timeout time.Duration) (string, error) {
 	if len(argv) == 0 {
 		return "", errors.New("summarize: empty command")
 	}
+	if timeout <= 0 {
+		return "", errors.New("summarize: model timeout must be positive")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	//nolint:gosec // G204: argv is a configured agent CLI (claude/codex); the prompt is passed as data (stdin/arg), not shell-interpreted — exec.Command runs no shell.
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := exec.CommandContext(callCtx, argv[0], argv[1:]...)
+	configureCommand(cmd)
+	cmd.WaitDelay = time.Second
 	cmd.Stdin = strings.NewReader(stdin)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
+		if callCtx.Err() != nil {
+			return "", fmt.Errorf("summarize: exec %s: %w", argv[0], callCtx.Err())
+		}
 		return "", fmt.Errorf("summarize: exec %s: %w: %s", argv[0], err, strings.TrimSpace(errBuf.String()))
 	}
 	return out.String(), nil

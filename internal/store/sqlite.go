@@ -60,6 +60,9 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		if err := ensureSelfIgnore(dir); err != nil {
 			return nil, err
 		}
+		if err := secureDatabaseFile(path); err != nil {
+			return nil, err
+		}
 	}
 
 	sqldb, err := sql.Open("sqlite", dsnFor(path))
@@ -81,7 +84,37 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		_ = sqldb.Close()
 		return nil, fmt.Errorf("store: ping sqlite: %w", err)
 	}
+	if path != ":memory:" {
+		if err := secureSQLiteFiles(path); err != nil {
+			_ = sqldb.Close()
+			return nil, err
+		}
+	}
 	return &DB{sql: sqldb, path: path}, nil
+}
+
+func secureDatabaseFile(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("store: create database file: %w", err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("store: secure database file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("store: close database file: %w", err)
+	}
+	return nil
+}
+
+func secureSQLiteFiles(path string) error {
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(candidate, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("store: secure %s: %w", candidate, err)
+		}
+	}
+	return nil
 }
 
 // ensureSelfIgnore writes a `*`-only .gitignore into a freshly ensured .acm

@@ -38,8 +38,8 @@ each project.
   Code reconciles assistant text from the session transcript on Stop; Codex
   captures each turn's final assistant message via notify; the OpenCode plugin
   captures full messages and tool calls). Ingestion is idempotent, so re-reading
-  a transcript never duplicates, and concurrent hook invocations never lose a
-  message.
+  a transcript never duplicates, equal text from distinct source events remains
+  distinct, and concurrent hook invocations never lose a message.
 - **Summary DAG compaction** — older context is folded into leaf and condensed
   summaries under a configurable token budget, while a protected "fresh tail" of
   recent messages is always kept raw. Compaction runs opportunistically from the
@@ -49,7 +49,8 @@ each project.
   The agent drills down through its normal shell tool (`acm expand`, `acm grep` —
   which searches summaries as well as messages).
 - **Automatic recall** — relevant prior context is surfaced into each new turn
-  on Claude Code and Codex prompt hooks.
+  on Claude Code and Codex prompt hooks through bounded salient-term search and
+  deterministic role, recency, session, and size-aware reranking.
 - **Large-file offload** — oversized payloads are moved to disk with a compact,
   type-aware exploration summary (JSON/CSV/SQL/code get deterministic
   schema-level descriptions; prose uses the summarizer), keeping the working
@@ -174,6 +175,8 @@ flags. See [docs/configuration.md](docs/configuration.md).
 All state is local to each project's `.acm/` directory. `acm` opens no network
 connections and runs no daemon. Optional LLM summarization invokes your already
 authenticated agent CLI; the deterministic default makes no external calls at all.
+The database, backups, and offloaded payloads are created with owner-only
+permissions (`0600`); opening an older database repairs a more permissive mode.
 
 ## Development
 

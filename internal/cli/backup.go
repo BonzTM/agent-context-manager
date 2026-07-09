@@ -44,6 +44,9 @@ func newBackupCmd(a *app) *cobra.Command {
 			if _, err := db.SQL().ExecContext(ctx, "VACUUM INTO ?", dest); err != nil {
 				return fmt.Errorf("backup: vacuum into %s: %w", dest, err)
 			}
+			if err := os.Chmod(dest, 0o600); err != nil {
+				return fmt.Errorf("backup: secure %s: %w", dest, err)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "backup written to %s\n", dest)
 			return nil
 		},

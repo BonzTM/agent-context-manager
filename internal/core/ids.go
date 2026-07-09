@@ -42,12 +42,16 @@ func DeriveFileID(conversationID, messageID string) string {
 }
 
 // IdentityHash is the stable fingerprint used to dedupe messages within a
-// conversation. When the source provides an external ID (an agent message or
-// transcript-line ID) it is authoritative; otherwise the role+content is
-// hashed so identical re-emitted turns collapse.
-func IdentityHash(externalID, role, content string) string {
+// conversation. A source-provided external ID is authoritative. Hook events
+// without one use their raw payload, which preserves equal text from distinct
+// events while still deduplicating replay of the same event. Content is the
+// final fallback for direct imports that provide neither source identity.
+func IdentityHash(externalID, role, content, raw string) string {
 	if externalID != "" {
 		return digest("ext", externalID)
+	}
+	if raw != "" {
+		return digest("raw", raw)
 	}
 	return digest(role, content)
 }

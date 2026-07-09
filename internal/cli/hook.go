@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +15,7 @@ import (
 )
 
 func newHookCmd(a *app) *cobra.Command {
+	const maxRecallCandidates = 50
 	var (
 		agentStr  string
 		event     string
@@ -55,6 +57,9 @@ func newHookCmd(a *app) *cobra.Command {
 			if event == "" {
 				return errors.New("hook: --event is required")
 			}
+			if recall < 0 {
+				return errors.New("hook: --recall must be non-negative")
+			}
 
 			payload, err := io.ReadAll(cmd.InOrStdin())
 			if err != nil {
@@ -77,13 +82,21 @@ func newHookCmd(a *app) *cobra.Command {
 			// Recall runs BEFORE capturing the current prompt so the prompt cannot
 			// match itself. It is best-effort: capture is the invariant, so a
 			// recall failure is logged and never aborts the hook.
-			if event == agents.EventUserPromptSubmit && len(req.Messages) > 0 {
+			if event == agents.EventUserPromptSubmit && len(req.Messages) > 0 && recall > 0 {
 				prompt := req.Messages[0].Content
-				hits, sErr := svc.Search(ctx, core.SearchQuery{Text: prompt, Limit: recall, Any: true})
+				terms := agents.RecallTerms(prompt)
+				candidateLimit := min(recall, maxRecallCandidates/5) * 5
+				hits, sErr := svc.Search(ctx, core.SearchQuery{
+					Text:  strings.Join(terms, " "),
+					Limit: candidateLimit,
+					Any:   true,
+				})
 				switch {
 				case sErr != nil:
 					a.logger.Warn("recall search failed; continuing with capture", "error", sErr)
+				case len(terms) == 0:
 				default:
+					hits = agents.RankRecall(hits, terms, core.DeriveConversationID(agent, req.SessionID), recall)
 					if block := agents.RecallBlock(hits); block != "" {
 						out, mErr := agents.AdditionalContextJSON(event, block)
 						if mErr != nil {

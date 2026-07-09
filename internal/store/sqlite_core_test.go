@@ -227,3 +227,39 @@ func TestOpenWritesSelfIgnoreIntoAcmDir(t *testing.T) {
 		t.Fatalf(".gitignore = %q, want %q", string(data), "*\n")
 	}
 }
+
+func TestOpenCreatesAndRepairsPrivateDatabaseFile(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), ".acm", "acm.db")
+
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	assertFileMode(t, path, 0o600)
+
+	if err = os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("weaken mode: %v", err)
+	}
+	db, err = Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	assertFileMode(t, path, 0o600)
+}
+
+func assertFileMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("mode %s = %o, want %o", path, got, want)
+	}
+}

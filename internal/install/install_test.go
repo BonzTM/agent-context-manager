@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/bonztm/agent-context-manager/internal/agents"
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
@@ -171,8 +173,47 @@ func TestCodexNotifyAddedWhenAbsent(t *testing.T) {
 		t.Fatalf("apply: %v", err)
 	}
 	cfg := readFile(t, filepath.Join(home, ".codex", "config.toml"))
-	if !strings.Contains(cfg, "agent-turn-complete") {
-		t.Fatalf("notify not added:\n%s", cfg)
+	assertTopLevelNotify(t, cfg)
+	if _, err := Run(core.AgentCodex, home, true); err != nil {
+		t.Fatalf("re-apply: %v", err)
+	}
+	if got := readFile(t, filepath.Join(home, ".codex", "config.toml")); got != cfg {
+		t.Fatalf("re-apply changed top-level notify:\n%s", got)
+	}
+}
+
+func TestCodexNotifyRelocatesLegacyNestedEntry(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	legacy := "[hooks.state]\ntrusted = true\n\n" + acmNotifyMarker + " (global)\n" + acmNotifyLine + "\n"
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Run(core.AgentCodex, home, true); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	got := readFile(t, path)
+	assertTopLevelNotify(t, got)
+	if strings.Count(got, acmNotifyLine) != 1 {
+		t.Fatalf("notify count = %d, want 1:\n%s", strings.Count(got, acmNotifyLine), got)
+	}
+	if !strings.Contains(got, "[hooks.state]\ntrusted = true") {
+		t.Fatalf("existing table was not preserved:\n%s", got)
+	}
+}
+
+func assertTopLevelNotify(t *testing.T, text string) {
+	t.Helper()
+	var config map[string]any
+	if _, err := toml.Decode(text, &config); err != nil {
+		t.Fatalf("parse config: %v\n%s", err, text)
+	}
+	if _, exists := config["notify"]; !exists {
+		t.Fatalf("top-level notify missing:\n%s", text)
 	}
 }
 

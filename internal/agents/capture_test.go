@@ -11,7 +11,7 @@ import (
 )
 
 func TestCaptureClaudeUserPrompt(t *testing.T) {
-	payload := []byte(`{"session_id":"s1","hook_event_name":"UserPromptSubmit","prompt":"refactor the auth module"}`)
+	payload := []byte(`{"session_id":"s1","turn_id":"turn-1","hook_event_name":"UserPromptSubmit","prompt":"refactor the auth module"}`)
 	req, err := Capture(core.AgentClaude, EventUserPromptSubmit, payload)
 	if err != nil {
 		t.Fatalf("capture: %v", err)
@@ -22,10 +22,13 @@ func TestCaptureClaudeUserPrompt(t *testing.T) {
 	if req.Messages[0].Role != core.RoleUser || req.Messages[0].Content != "refactor the auth module" {
 		t.Fatalf("unexpected message: %+v", req.Messages[0])
 	}
+	if req.Messages[0].ExternalID != "turn-1:input:0" {
+		t.Fatalf("external id = %q", req.Messages[0].ExternalID)
+	}
 }
 
 func TestCaptureClaudePostToolUse(t *testing.T) {
-	payload := []byte(`{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"a\nb"}}`)
+	payload := []byte(`{"session_id":"s1","tool_use_id":"tool-1","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"a\nb"}}`)
 	req, err := Capture(core.AgentClaude, EventPostToolUse, payload)
 	if err != nil {
 		t.Fatalf("capture: %v", err)
@@ -35,6 +38,9 @@ func TestCaptureClaudePostToolUse(t *testing.T) {
 	}
 	if req.Messages[0].ToolName != "Bash" {
 		t.Fatalf("tool name = %q", req.Messages[0].ToolName)
+	}
+	if req.Messages[0].ExternalID != "tool-1" {
+		t.Fatalf("external id = %q", req.Messages[0].ExternalID)
 	}
 }
 
@@ -55,6 +61,9 @@ func TestCaptureCodexTurnComplete(t *testing.T) {
 	}
 	if req.Messages[1].ExternalID != "u1" {
 		t.Fatalf("assistant external id = %q, want turn id u1", req.Messages[1].ExternalID)
+	}
+	if req.Messages[0].ExternalID != "u1:input:0" {
+		t.Fatalf("user external id = %q, want turn input id", req.Messages[0].ExternalID)
 	}
 }
 

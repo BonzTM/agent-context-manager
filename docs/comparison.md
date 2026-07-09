@@ -67,10 +67,10 @@ These are real deltas, tracked as roadmap items rather than claimed away:
   plugin captures messages and tool calls; it does not yet rewrite the outgoing
   prompt (`experimental.chat.messages.transform`) the way opencode-lcm does, and
   OpenCode recall is drill-down only.
-- **Retrieval ranking is plain bm25.** opencode-lcm layers TF-IDF token
-  filtering, scope escalation, and hand-tuned re-ranking; hermes-lcm adds
-  recency/hybrid sort modes and directness scoring. acm's recall is a single
-  OR-matched bm25 query.
+- **Retrieval remains lexical.** acm filters prompts to a bounded salient-term
+  query, obtains BM25 candidates, and reranks by coverage, current conversation,
+  role, recency, and payload size. It still lacks semantic embeddings, learned
+  ranking, and opencode-lcm's scope escalation.
 - **No `agentic_map`.** acm ships `llm_map` mechanics (worker pool, required
   fields, validation-feedback retries); volt's tool-using per-item sub-agents
   and exactly-once DB-backed item states are out of scope for a hookable CLI.

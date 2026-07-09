@@ -73,6 +73,34 @@ func TestIngestIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestIngestPreservesEqualContentFromDistinctRawEvents(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+
+	req := core.IngestRequest{
+		Agent:     core.AgentCodex,
+		SessionID: "session-repeated-content",
+		Messages: []core.IngestMessage{
+			{Role: core.RoleUser, Content: "yes", Raw: `{"turn_id":"turn-1","prompt":"yes"}`},
+			{Role: core.RoleUser, Content: "yes", Raw: `{"turn_id":"turn-2","prompt":"yes"}`},
+		},
+	}
+	first, err := svc.Ingest(ctx, req)
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if first.Appended != 2 || first.Deduped != 0 {
+		t.Fatalf("first ingest = %+v, want two distinct events", first)
+	}
+	second, err := svc.Ingest(ctx, req)
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if second.Appended != 0 || second.Deduped != 2 {
+		t.Fatalf("replay = %+v, want both events deduped", second)
+	}
+}
+
 func TestIngestRejectsInvalidAgent(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)

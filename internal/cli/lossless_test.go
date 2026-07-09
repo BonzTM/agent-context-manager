@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -66,6 +67,22 @@ func TestGrepNoMatches(t *testing.T) {
 	out := runACM(t, dbPath, "", "grep", "nonexistentterm")
 	if !strings.Contains(out, "no matches") {
 		t.Fatalf("expected no matches, got %q", out)
+	}
+}
+
+func TestBackupCreatesPrivateSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "acm.db")
+	dest := filepath.Join(dir, "backup.db")
+	runACM(t, dbPath, `{"agent":"codex","session_id":"backup","messages":[]}`, "ingest")
+	runACM(t, dbPath, "", "backup", dest)
+
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf("stat backup: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("backup mode = %o, want 600", got)
 	}
 }
 

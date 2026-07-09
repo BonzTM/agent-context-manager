@@ -3,8 +3,10 @@ package summarize
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
@@ -101,5 +103,19 @@ func TestAnswerErrorsPropagate(t *testing.T) {
 	}, Deterministic{})
 	if _, err := empty.Answer(context.Background(), "q", []string{"src"}, 100); err == nil {
 		t.Fatal("expected empty model output to be an error")
+	}
+}
+
+func TestExecRunnerTimesOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process-group timeout assertion uses a POSIX shell")
+	}
+	started := time.Now()
+	_, err := execRunner(context.Background(), []string{"sh", "-c", "sleep 10"}, "", 20*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("timeout returned after %s, want under 1s", elapsed)
 	}
 }

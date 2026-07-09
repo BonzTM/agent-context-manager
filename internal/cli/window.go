@@ -14,11 +14,13 @@ func newWindowCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "window <conversation-id>",
 		GroupID: groupRetrieval,
-		Short:   "Show the assembled active context window for a conversation",
-		Long: "Renders the active window the model would currently see for a conversation: a\n" +
+		Short:   "Show ACM's assembled context view for a conversation",
+		Long: "Renders ACM's persisted, synthetic window for a conversation: a\n" +
 			"mix of raw recent messages and summary pointers standing in for compacted\n" +
 			"spans, followed by a total item and token count. Before any compaction it is\n" +
-			"simply the raw messages in order. Get a conversation id from 'acm grep --json'\n" +
+			"simply the raw messages in order. Claude Code and Codex do not expose active-\n" +
+			"window replacement, so this is diagnostic rather than their live prompt.\n" +
+			"Get a conversation id from 'acm grep --json'\n" +
 			"or 'acm describe'.",
 		Example: `  acm window conv_1a2b3c
   acm window conv_1a2b3c --json`,

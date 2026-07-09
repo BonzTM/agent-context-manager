@@ -3,10 +3,10 @@
 // configuration. A single install applies to every project, because acm
 // resolves the per-project database from the working directory at hook time.
 //
-// Edits are safe by construction: JSON configs are parsed and merged (existing
-// keys are preserved; acm's entries are added only if absent), TOML is only
-// appended to (never rewritten), and instruction blocks are marker-guarded so
-// re-running updates in place. acm never overwrites a config it cannot parse.
+// Edits are safe by construction: JSON and TOML configs are parsed before they
+// are changed, existing keys are preserved, and instruction blocks are
+// marker-guarded so re-running updates in place. acm never overwrites a config
+// it cannot parse.
 package install
 
 import (
@@ -16,8 +16,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/bonztm/agent-context-manager/internal/agents"
 	"github.com/bonztm/agent-context-manager/internal/core"
@@ -200,11 +201,11 @@ func opencodePlugin(home string, apply bool) (Change, error) {
 	return Change{Path: path, Summary: verb(apply) + " " + what, Applied: apply}, nil
 }
 
-// --- Codex: ~/.codex/config.toml (append-only notify) ---
-
-var notifyRe = regexp.MustCompile(`(?m)^[ \t]*notify[ \t]*=`)
+// --- Codex: ~/.codex/config.toml (top-level notify) ---
 
 const acmNotifyMarker = "# acm: capture each turn's final assistant message"
+
+const acmNotifyLine = `notify = ["acm", "hook", "--agent", "codex", "--event", "agent-turn-complete"]`
 
 func codexNotify(home string, apply bool) (Change, error) {
 	path := filepath.Join(home, ".codex", "config.toml")
@@ -212,20 +213,48 @@ func codexNotify(home string, apply bool) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
-	if strings.Contains(text, acmNotifyMarker) {
-		return Change{Path: path, Summary: "notify already configured", Skipped: true}, nil
+	var config map[string]any
+	if _, err = toml.Decode(text, &config); err != nil {
+		return Change{}, fmt.Errorf("install: parse %s: %w", path, err)
 	}
-	if notifyRe.MatchString(text) {
-		return Change{Path: path, Summary: "existing notify left unchanged (point it at: acm hook --agent codex --event agent-turn-complete)", Skipped: true}, nil
+
+	if _, exists := config["notify"]; exists {
+		return Change{Path: path, Summary: "top-level notify already configured", Skipped: true}, nil
 	}
-	block := "\n" + acmNotifyMarker + " (global)\n" +
-		`notify = ["acm", "hook", "--agent", "codex", "--event", "agent-turn-complete"]` + "\n"
+
+	cleaned := removeLegacyACMNotify(text)
+	newText := acmNotifyMarker + " (global)\n" + acmNotifyLine + "\n\n" + strings.TrimLeft(cleaned, "\r\n")
+	var updated map[string]any
+	if _, err = toml.Decode(newText, &updated); err != nil {
+		return Change{}, fmt.Errorf("install: validate %s update: %w", path, err)
+	}
+	if _, exists := updated["notify"]; !exists {
+		return Change{}, fmt.Errorf("install: validate %s update: top-level notify missing", path)
+	}
 	if apply {
-		if wErr := writeText(path, text+block); wErr != nil {
+		if wErr := writeText(path, newText); wErr != nil {
 			return Change{}, wErr
 		}
 	}
 	return Change{Path: path, Summary: verb(apply) + " notify (assistant-turn capture)", Applied: apply}, nil
+}
+
+func removeLegacyACMNotify(text string) string {
+	lines := strings.SplitAfter(text, "\n")
+	out := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); i++ {
+		marker := strings.TrimSpace(lines[i])
+		if marker != acmNotifyMarker && marker != acmNotifyMarker+" (global)" {
+			out = append(out, lines[i])
+			continue
+		}
+		if i+1 < len(lines) && strings.TrimSpace(lines[i+1]) == acmNotifyLine {
+			i++
+			continue
+		}
+		out = append(out, lines[i])
+	}
+	return strings.Join(out, "")
 }
 
 // --- Drill-down instructions (marker-guarded markdown append) ---

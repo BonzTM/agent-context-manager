@@ -33,11 +33,12 @@ Claude Code and Codex are augmented alongside their own context handling.
 ### Lossless store
 
 Every message is written verbatim to the `messages` table before any compaction.
-Each message carries a content-derived identity hash; the message ID is derived
-from `(conversation, identity hash)`, so re-ingesting the same source line is a
-no-op. A conversation is keyed by `(agent, session id)` with a derived ID, making
-ingestion idempotent without read-back. Full-text search (SQLite FTS5) indexes all
-message content.
+Each message carries an identity hash derived from its source event ID, its raw
+hook payload, or finally its role and content for direct imports with neither.
+This makes source-event replay a no-op without collapsing equal text from two
+different hook events. A conversation is keyed by `(agent, session id)` with a
+derived ID, making ingestion idempotent without read-back. Full-text search
+(SQLite FTS5) indexes all message content.
 
 ### Summary DAG
 
@@ -103,7 +104,13 @@ The agent recovers detail through its normal shell tool:
   file.
 
 Relevant prior context is also surfaced automatically into new turns by the
-capture/recall hook.
+capture/recall hook. It extracts a bounded set of salient prompt terms, obtains
+BM25 candidates, then reranks them by lexical coverage, current conversation,
+role, recency, and payload size. Low-signal prompts inject no recall block.
+
+`acm window` renders ACM's persisted, synthetic active view. The current Claude
+Code and Codex adapters cannot replace the host's live message array, so this
+view is diagnostic on those hosts; they receive only supplemental recall.
 
 ### Off-context batch processing (`acm map`)
 
