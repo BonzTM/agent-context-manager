@@ -10,15 +10,19 @@ SHELL := bash
 
 .DEFAULT_GOAL := help
 
-.PHONY: help tidy fmt fmt-check lint vet test race cover vuln build run verify
+.PHONY: help tidy tidy-check fmt fmt-check lint vet test race cover vuln build run verify
 
 help: ## Show this help.
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| sort \
 		| awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-tidy: ## Sync go.mod/go.sum and verify the module graph.
+tidy: ## Sync go.mod/go.sum in place and verify the module graph.
 	go mod tidy
+	go mod verify
+
+tidy-check: ## Fail if go mod tidy would change go.mod/go.sum (CI-safe, no writes).
+	go mod tidy -diff
 	go mod verify
 
 fmt: ## Format all Go source in place (gofumpt + gci, per .golangci.yml).
@@ -57,5 +61,5 @@ build: ## Compile all packages (static, pure-Go SQLite).
 run: ## Run acm locally (e.g. `make run ARGS="doctor"`).
 	go run ./cmd/acm $(ARGS)
 
-verify: tidy fmt-check lint vet test race vuln build ## Full ordered safety gate (run before every push and in CI).
+verify: tidy-check fmt-check lint vet test race vuln build ## Full ordered safety gate (run before every push and in CI).
 	@echo "verify: OK"

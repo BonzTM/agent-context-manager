@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `make verify` now uses a read-only `tidy-check` (`go mod tidy -diff`) instead
+  of the in-place `tidy`, so CI fails on committed go.mod/go.sum drift rather
+  than silently auto-correcting it in the workspace; `make tidy` remains the
+  local fixer. (Found by agent-workflow-manager's cross-LLM review gate.)
 - Release assets now match the sibling repos: publishing a GitHub release
   triggers a per-architecture matrix (linux/darwin/windows on amd64/arm64)
   that uploads `acm-<version>-<os>-<arch>.tar.gz` archives (`.zip` on
