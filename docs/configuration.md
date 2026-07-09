@@ -68,6 +68,18 @@ than the remaining budget cannot bring the window under the threshold.
 For meaningful compression, the leaf chunk size should comfortably exceed the
 summary target, so that many tokens of input fold into a smaller summary.
 
+## Window diagnostics
+
+`acm window <conversation>` renders ACM's persisted synthetic view and counts
+the exact text shown, including summary wrappers. Stored summary estimates are
+retained alongside rendered costs so wrapper overhead remains visible.
+
+Use `--breakdown` for raw/summary and role/depth token subtotals, represented
+message counts, sequence gaps or overlaps, offload-reference counts, and the
+token estimator name. Combine it with `--json` for a structured report;
+`--json` without `--breakdown` retains the existing item-array shape with
+additive per-item diagnostic fields.
+
 ## Summarizers
 
 - **`deterministic`** (default) — a structural, no-LLM summarizer. Fully offline
