@@ -11,7 +11,6 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/agents"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/engine"
-	"github.com/bonztm/agent-context-manager/internal/tokens"
 )
 
 func newHookCmd(a *app) *cobra.Command {
@@ -78,7 +77,7 @@ func newHookCmd(a *app) *cobra.Command {
 				return err
 			}
 			defer func() { _ = db.Close() }()
-			svc := core.NewService(sq, clock, tokens.Heuristic{}, a.logger)
+			svc := a.coreService(sq)
 
 			// Recall runs BEFORE capturing the current prompt so the prompt cannot
 			// match itself. It is best-effort: capture is the invariant, so a

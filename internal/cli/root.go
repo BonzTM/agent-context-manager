@@ -19,6 +19,7 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/config"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/engine"
+	"github.com/bonztm/agent-context-manager/internal/privacy"
 	"github.com/bonztm/agent-context-manager/internal/store"
 	"github.com/bonztm/agent-context-manager/internal/summarize"
 	"github.com/bonztm/agent-context-manager/internal/tokens"
@@ -41,6 +42,7 @@ type app struct {
 	opts   config.Options
 	cfg    config.Config
 	logger *slog.Logger
+	policy *privacy.Policy
 }
 
 // Execute builds the root command, runs it against ctx (the signal-cancelled
@@ -75,9 +77,9 @@ func newRootCmdWith(a *app) *cobra.Command {
 		Long: `acm (agent-context-manager) is a local, lossless long-context manager for AI
 coding agents — Claude Code, Codex, and OpenCode.
 
-It records every conversation verbatim in a per-project SQLite database under
-.acm/, compacts older context into a recoverable hierarchy of summaries under a
-token budget, and lets the agent recover any original on demand. There is no
+It records every privacy-policy-permitted conversation in a per-project SQLite
+database under .acm/, compacts older context into a recoverable hierarchy of
+summaries under a token budget, and lets the agent recover any retained original on demand. There is no
 service to run and no network connection — just this binary, your agent's hooks,
 and a .acm/ directory in each project.
 
@@ -86,7 +88,7 @@ Getting started:
 
 Concepts:
   conversation   One agent session.            (id prefix: conv_)
-  message        A verbatim user/assistant/tool turn.  (id prefix: msg_)
+  message        A retained user/assistant/tool turn.  (id prefix: msg_)
   summary        A compacted span in the summary DAG.  (id prefix: sum_)
   window         The active context: recent raw messages plus summary pointers.
 
@@ -108,6 +110,10 @@ details on any command.`,
 			}
 			a.cfg = cfg
 			a.logger = newLogger(cfg)
+			a.policy, err = privacy.Load(cfg.ProjectRoot)
+			if err != nil {
+				return err
+			}
 			return nil
 		},
 	}
@@ -167,7 +173,11 @@ func (a *app) newService(ctx context.Context) (*core.Service, *store.DB, error) 
 	if err != nil {
 		return nil, nil, err
 	}
-	return core.NewService(sq, clock, tokens.Heuristic{}, a.logger), db, nil
+	return a.coreService(sq), db, nil
+}
+
+func (a *app) coreService(sq *store.SQLite) *core.Service {
+	return core.NewService(sq, clock, tokens.Heuristic{}, a.logger, a.policy)
 }
 
 // newEngine wires the compaction engine over the store with the given config.
