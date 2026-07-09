@@ -91,6 +91,15 @@ token estimator name. Combine it with `--json` for a structured report;
 `--json` without `--breakdown` retains the existing item-array shape with
 additive per-item diagnostic fields.
 
+## Privacy policy
+
+ACM loads `.acm-policy.toml` from the project root before opening the store.
+Secret redaction defaults on even when the file is absent; the explicit
+`redact = false` setting is required to disable it. Session, tool, structured
+path, and content-class exclusions prevent matching messages from creating
+rows. See [Security and privacy](security-and-privacy.md) for the full schema,
+detectors, bounds, threat model, and false-positive handling.
+
 ## Summarizers
 
 - **`deterministic`** (default) — a structural, no-LLM summarizer. Fully offline

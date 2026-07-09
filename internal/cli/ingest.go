@@ -33,8 +33,9 @@ func newIngestCmd(a *app) *cobra.Command {
 		Use:     "ingest",
 		GroupID: groupCapture,
 		Short:   "Ingest captured messages (JSON on stdin) into the lossless store",
-		Long: "Reads a JSON ingestion payload from stdin and stores its messages verbatim,\n" +
-			"computing token counts and skipping duplicates. This is the generic capture\n" +
+		Long: "Reads a JSON ingestion payload from stdin, applies the project privacy\n" +
+			"policy, and stores retained messages while computing token counts and skipping\n" +
+			"duplicates. This is the generic capture\n" +
 			"entrypoint the per-agent hook adapters and the OpenCode plugin pipe turns into.\n\n" +
 			"Payload shape:\n" +
 			"  {\n" +
@@ -91,8 +92,8 @@ func newIngestCmd(a *app) *cobra.Command {
 			if asJSON {
 				return json.NewEncoder(out).Encode(res)
 			}
-			fmt.Fprintf(out, "conversation %s: appended %d, deduped %d, tokens %d\n",
-				res.ConversationID, res.Appended, res.Deduped, res.Tokens)
+			fmt.Fprintf(out, "conversation %s: appended %d, deduped %d, excluded %d, redacted %d, tokens %d\n",
+				res.ConversationID, res.Appended, res.Deduped, res.Excluded, res.Redacted, res.Tokens)
 			return nil
 		},
 	}

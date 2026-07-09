@@ -35,14 +35,19 @@ type Service struct {
 	clock   Clock
 	counter TokenCounter
 	logger  *slog.Logger
+	policy  MessagePolicy
 }
 
 // NewService wires the core service. logger may be nil (a no-op logger is used).
-func NewService(store Store, clock Clock, counter TokenCounter, logger *slog.Logger) *Service {
+func NewService(store Store, clock Clock, counter TokenCounter, logger *slog.Logger, policies ...MessagePolicy) *Service {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Service{store: store, clock: clock, counter: counter, logger: logger}
+	var policy MessagePolicy
+	if len(policies) > 0 {
+		policy = policies[0]
+	}
+	return &Service{store: store, clock: clock, counter: counter, logger: logger, policy: policy}
 }
 
 // IngestMessage is one message in an ingestion request, in source order.
@@ -62,12 +67,28 @@ type IngestRequest struct {
 	Messages  []IngestMessage
 }
 
+// PolicyDecision reports only counts and exclusion state; it never carries
+// sensitive values into logs or diagnostics.
+type PolicyDecision struct {
+	SessionExcluded  bool
+	MessagesExcluded int
+	MessagesRedacted int
+}
+
+// MessagePolicy transforms or excludes untrusted capture input before any
+// conversation, message, FTS, summary, offload, or backup persistence occurs.
+type MessagePolicy interface {
+	Apply(IngestRequest) (IngestRequest, PolicyDecision, error)
+}
+
 // IngestResult reports what an ingestion produced.
 type IngestResult struct {
 	ConversationID string
 	Appended       int // newly stored messages
 	Deduped        int // messages that already existed
 	Tokens         int // tokens across newly stored messages
+	Excluded       int
+	Redacted       int
 }
 
 // Ingest ensures the conversation exists and appends each message, computing
@@ -80,6 +101,18 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 	if req.SessionID == "" {
 		return IngestResult{}, errors.New("ingest: empty session id")
 	}
+	originalMessages := len(req.Messages)
+	var decision PolicyDecision
+	if s.policy != nil {
+		var err error
+		req, decision, err = s.policy.Apply(req)
+		if err != nil {
+			return IngestResult{}, fmt.Errorf("ingest: apply privacy policy: %w", err)
+		}
+	}
+	if decision.SessionExcluded || (originalMessages > 0 && len(req.Messages) == 0) {
+		return IngestResult{Excluded: decision.MessagesExcluded, Redacted: decision.MessagesRedacted}, nil
+	}
 
 	conv, err := s.store.EnsureConversation(ctx, ConversationInput{
 		Agent:     req.Agent,
@@ -90,7 +123,7 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 		return IngestResult{}, fmt.Errorf("ingest: ensure conversation: %w", err)
 	}
 
-	var res IngestResult
+	res := IngestResult{Excluded: decision.MessagesExcluded, Redacted: decision.MessagesRedacted}
 	res.ConversationID = conv.ID
 	for i, m := range req.Messages {
 		if !m.Role.Valid() {
@@ -118,7 +151,7 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 	}
 	s.logger.Debug("ingested",
 		"conversation", conv.ID, "agent", req.Agent,
-		"appended", res.Appended, "deduped", res.Deduped, "tokens", res.Tokens)
+		"appended", res.Appended, "deduped", res.Deduped, "excluded", res.Excluded, "redacted", res.Redacted, "tokens", res.Tokens)
 	return res, nil
 }
 

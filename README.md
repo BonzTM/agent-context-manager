@@ -20,10 +20,10 @@ As an agent conversation grows, the model's context window fills and older turns
 are summarized away or dropped. Detail is lost, and the agent compensates by
 re-reading files and repeating work.
 
-`acm` solves this by maintaining a **lossless record** of every conversation in a
-small per-project SQLite database. As context grows, older spans are compacted
-into a hierarchy of summaries — but the verbatim originals are never destroyed,
-and the agent can recover any of them on demand. The approach follows the
+`acm` solves this by maintaining a **lossless record** of every retained
+conversation in a small per-project SQLite database. As context grows, older
+spans are compacted into a hierarchy of summaries, but retained originals are
+never destroyed and remain recoverable on demand. The approach follows the
 [Lossless Context Management](https://papers.voltropy.com/LCM) model: deterministic,
 engine-owned context management with a guarantee of lossless retrievability.
 
@@ -33,8 +33,8 @@ each project.
 
 ## Key capabilities
 
-- **Lossless capture** — everything each agent's capture surface exposes is
-  persisted verbatim: user prompts, tool results, and assistant turns (Claude
+- **Policy-aware lossless capture** — every permitted message is persisted after
+  deterministic secret redaction: user prompts, tool results, and assistant turns (Claude
   Code reconciles assistant text from the session transcript on Stop; Codex
   captures each turn's final assistant message via notify; the OpenCode plugin
   captures full messages and tool calls). Ingestion is idempotent, so re-reading
@@ -178,6 +178,10 @@ connections and runs no daemon. Optional LLM summarization invokes your already
 authenticated agent CLI; the deterministic default makes no external calls at all.
 The database, backups, and offloaded payloads are created with owner-only
 permissions (`0600`); opening an older database repairs a more permissive mode.
+Secret redaction is enabled by default before persistence. Project exclusions
+and reviewed false-positive exceptions live in `.acm-policy.toml`; see the
+[security and privacy contract](docs/security-and-privacy.md) for supported
+rules, residual risks, and the database-encryption decision.
 
 ## Development
 

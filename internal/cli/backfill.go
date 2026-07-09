@@ -11,7 +11,6 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/agents"
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/store"
-	"github.com/bonztm/agent-context-manager/internal/tokens"
 )
 
 const (
@@ -60,7 +59,7 @@ func runBackfill(cmd *cobra.Command, a *app, ids []string, apply bool, maxConver
 	if err != nil {
 		return err
 	}
-	service := core.NewService(sq, clock, tokens.Heuristic{}, a.logger)
+	service := a.coreService(sq)
 	for _, conversation := range conversations {
 		result, bErr := backfillConversation(ctx, service, sq, conversation, apply, maxTranscripts)
 		if bErr != nil {

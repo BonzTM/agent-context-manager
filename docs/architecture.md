@@ -1,16 +1,17 @@
 # Architecture
 
-`acm` is a local-first context manager for AI coding agents. It keeps a complete,
-verbatim record of every conversation and presents the agent with a compacted —
-but fully recoverable — view of that history. The design follows the
+`acm` is a local-first context manager for AI coding agents. It keeps a complete
+record of every privacy-policy-permitted conversation and presents the agent
+with a compacted, fully recoverable view of retained history. The design follows the
 [Lossless Context Management](https://papers.voltropy.com/LCM) model: context
 management is handled by a deterministic engine rather than left to the model,
 with a guarantee that every original message remains retrievable.
 
 ## Design goals
 
-- **Lossless.** Nothing the agent produces is ever destroyed. Summaries are a
-  derived view; the verbatim originals are the source of truth.
+- **Lossless after policy.** Retained canonical messages are never destroyed.
+  Summaries are derived; excluded data is intentionally absent and recognized
+  secrets are replaced before the canonical source is created.
 - **Local and zero-infrastructure.** One binary, an embedded SQLite database per
   project, no service, no network listener.
 - **Deterministic.** Compaction is engine-owned and reproducible. Summarization
@@ -32,7 +33,8 @@ Claude Code and Codex are augmented alongside their own context handling.
 
 ### Lossless store
 
-Every message is written verbatim to the `messages` table before any compaction.
+Every permitted message is filtered and redacted before it reaches the
+`messages` table or FTS. The resulting canonical message is retained before any compaction.
 Each message carries an identity hash derived from its source event ID, its raw
 hook payload, or finally its role and content for direct imports with neither.
 This makes source-event replay a no-op without collapsing equal text from two

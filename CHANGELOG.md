@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   turns from bounded rollout scans. `acm doctor` now verifies Codex notify/hook
   installation, executable resolution, file modes, capture freshness, and
   prompt-bearing conversations with no assistant rows.
+- Project-root `.acm-policy.toml` files can exclude session/tool/path/content
+  classes and declare reviewed allow-values. Missing policy files retain secure
+  default redaction.
 
 ### Changed
 
@@ -32,6 +35,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Codex global installation now adds a `Stop` hook as a redundant transcript
   reconciliation path. Rollout capture keeps the final assistant message per
   task boundary and keys it by turn ID, matching notify deduplication.
+
+### Security
+
+- Deterministic redaction now runs before conversation/message persistence and
+  transforms both canonical content and raw hook JSON. Common private keys,
+  access/API tokens, JWTs, bearer tokens, and credential assignments therefore
+  cannot reach FTS, summaries, offloads, logs, or subsequent backups.
+- The local-data threat model and ADR 0002 document the limits of owner-only
+  modes and defer database encryption until driver, licensing, key management,
+  migration, recovery, and rollback requirements are resolved.
 
 ## [1.1.1] - 2026-07-09
 
