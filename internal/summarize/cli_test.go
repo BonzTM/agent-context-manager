@@ -62,3 +62,44 @@ func TestCLISummarizerFallsBackOnEmpty(t *testing.T) {
 		t.Fatal("expected non-empty fallback output")
 	}
 }
+
+func TestAnswerUsesRunnerOutput(t *testing.T) {
+	var gotPrompt string
+	runner := func(_ context.Context, argv []string, stdin string) (string, error) {
+		gotPrompt = stdin
+		if stdin == "" && len(argv) > 0 {
+			gotPrompt = argv[len(argv)-1]
+		}
+		return "  because sqlite is zero-infrastructure [msg_abc]  ", nil
+	}
+	s := Claude(runner, Deterministic{})
+	out, err := s.Answer(context.Background(), "why sqlite?",
+		[]string{"[msg_abc seq=1 user] we want zero infrastructure"}, 500)
+	if err != nil {
+		t.Fatalf("answer: %v", err)
+	}
+	if out != "because sqlite is zero-infrastructure [msg_abc]" {
+		t.Fatalf("out = %q, want trimmed runner output", out)
+	}
+	for _, want := range []string{"why sqlite?", "msg_abc", "500 tokens", "Cite the message ids"} {
+		if !strings.Contains(gotPrompt, want) {
+			t.Errorf("answer prompt missing %q:\n%s", want, gotPrompt)
+		}
+	}
+}
+
+func TestAnswerErrorsPropagate(t *testing.T) {
+	s := Codex(func(_ context.Context, _ []string, _ string) (string, error) {
+		return "", errors.New("binary not found")
+	}, Deterministic{})
+	if _, err := s.Answer(context.Background(), "q", []string{"src"}, 100); err == nil {
+		t.Fatal("expected error to propagate (no deterministic fallback for answers)")
+	}
+
+	empty := NewCLISummarizer([]string{"x"}, true, func(_ context.Context, _ []string, _ string) (string, error) {
+		return "   ", nil
+	}, Deterministic{})
+	if _, err := empty.Answer(context.Background(), "q", []string{"src"}, 100); err == nil {
+		t.Fatal("expected empty model output to be an error")
+	}
+}

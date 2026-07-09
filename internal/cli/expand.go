@@ -1,14 +1,18 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/engine"
+	"github.com/bonztm/agent-context-manager/internal/summarize"
 )
 
 func newExpandCmd(a *app) *cobra.Command {
@@ -69,17 +73,35 @@ func newExpandCmd(a *app) *cobra.Command {
 	return cmd
 }
 
+// synthesisSourceCharBudget bounds how much expanded content is handed to the
+// model for a synthesized answer (~15K tokens), newest messages preferred.
+const synthesisSourceCharBudget = 60_000
+
+// synthesisTimeout bounds a synthesized answer; expansion answers are
+// interactive, so allow longer than a compaction summary but never unbounded.
+const synthesisTimeout = 120 * time.Second
+
 func newExpandQueryCmd(a *app) *cobra.Command {
-	var asJSON bool
+	var (
+		asJSON         bool
+		synthesize     bool
+		summarizerName string
+		maxTokens      int
+	)
 	cmd := &cobra.Command{
 		Use:     "expand-query <summary-id> <query>",
 		GroupID: groupRetrieval,
-		Short:   "Expand a summary and return only source messages matching a query",
+		Short:   "Expand a summary and return source messages matching a query",
 		Long: "Walks the DAG beneath a summary to its verbatim messages and returns only\n" +
 			"those whose content contains the query (case-insensitive). Use it for focused\n" +
-			"lossless recall when you know what you are looking for inside a compacted span.",
+			"lossless recall when you know what you are looking for inside a compacted span.\n\n" +
+			"With --synthesize, the host agent's model (claude or codex, in headless mode)\n" +
+			"answers the query directly over the expanded messages, citing the msg_ ids it\n" +
+			"drew on — resolve them with 'acm describe'. If the model is unavailable the\n" +
+			"command degrades to the plain filtered output.",
 		Example: `  acm expand-query sum_1a2b3c "client.go"
-  acm expand-query sum_1a2b3c retry backoff --json`,
+  acm expand-query sum_1a2b3c retry backoff --json
+  acm expand-query sum_1a2b3c "why did we pick sqlite" --synthesize`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -94,11 +116,66 @@ func newExpandQueryCmd(a *app) *cobra.Command {
 			if qErr != nil {
 				return qErr
 			}
-			return printMessages(cmd.OutOrStdout(), msgs, asJSON)
+			if !synthesize {
+				return printMessages(cmd.OutOrStdout(), msgs, asJSON)
+			}
+
+			// Substring filtering can miss semantically relevant messages; for
+			// synthesis, an empty match set falls back to the full expansion so
+			// the model can still answer.
+			if len(msgs) == 0 {
+				if msgs, qErr = comp.ExpandToMessages(ctx, args[0]); qErr != nil {
+					return qErr
+				}
+			}
+			answer, sErr := synthesizeAnswer(ctx, summarizerName, query, msgs, maxTokens)
+			if sErr != nil {
+				a.logger.Warn("synthesis unavailable; falling back to filtered output", "error", sErr)
+				return printMessages(cmd.OutOrStdout(), msgs, asJSON)
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintln(out, answer)
+			fmt.Fprintln(out, "---")
+			fmt.Fprintln(out, "cited msg_ ids resolve with: acm describe <id>")
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit matches as JSON")
+	cmd.Flags().BoolVar(&synthesize, "synthesize", false, "answer the query with the host agent's model over the expanded messages")
+	cmd.Flags().StringVar(&summarizerName, "summarizer", "claude", "model for --synthesize: claude|codex")
+	cmd.Flags().IntVar(&maxTokens, "max-tokens", 2000, "answer size budget for --synthesize")
 	return cmd
+}
+
+// synthesizeAnswer runs the question over the messages with the named agent
+// model. Sources are gathered newest-first against a character budget, then
+// restored to chronological order, so the freshest context survives when the
+// expansion is large.
+func synthesizeAnswer(ctx context.Context, name, question string, msgs []core.Message, maxTokens int) (string, error) {
+	summarizer, err := summarizerByName(name)
+	if err != nil {
+		return "", err
+	}
+	cliSum, ok := summarizer.(*summarize.CLISummarizer)
+	if !ok {
+		return "", fmt.Errorf("expand-query: --synthesize requires an LLM summarizer (claude|codex), got %q", name)
+	}
+
+	sources := make([]string, 0, len(msgs))
+	total := 0
+	for _, m := range slices.Backward(msgs) {
+		src := fmt.Sprintf("[%s seq=%d %s] %s", m.ID, m.Seq, m.Role, m.Content)
+		if total+len(src) > synthesisSourceCharBudget && len(sources) > 0 {
+			break
+		}
+		total += len(src)
+		sources = append(sources, src)
+	}
+	slices.Reverse(sources)
+
+	answerCtx, cancel := context.WithTimeout(ctx, synthesisTimeout)
+	defer cancel()
+	return cliSum.Answer(answerCtx, question, sources, maxTokens)
 }
 
 func printMessages(out io.Writer, msgs []core.Message, asJSON bool) error {

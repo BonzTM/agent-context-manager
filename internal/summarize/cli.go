@@ -87,6 +87,44 @@ func (c *CLISummarizer) Summarize(ctx context.Context, in core.SummarizeInput) (
 	return res, nil
 }
 
+// Answer asks the host agent's model a focused question over the sources and
+// returns the synthesized answer. Unlike Summarize it has no deterministic
+// fallback — there is no offline way to answer a question — so an error or
+// empty output is returned to the caller, which should degrade to showing the
+// raw sources instead.
+func (c *CLISummarizer) Answer(ctx context.Context, question string, sources []string, maxTokens int) (string, error) {
+	prompt := buildAnswerPrompt(question, sources, maxTokens)
+	argv := c.argv
+	stdin := ""
+	if c.promptOnStdin {
+		stdin = prompt
+	} else {
+		argv = append(append([]string{}, c.argv...), prompt)
+	}
+
+	out, err := c.run(ctx, argv, stdin)
+	if err != nil {
+		return "", fmt.Errorf("summarize: answer: %w", err)
+	}
+	res := strings.TrimSpace(out)
+	if res == "" {
+		return "", errors.New("summarize: answer: empty model output")
+	}
+	return res, nil
+}
+
+func buildAnswerPrompt(question string, sources []string, maxTokens int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Answer the question below using ONLY the sources that follow, in at most %d tokens. ", maxTokens)
+	fmt.Fprint(&b, "Cite the message ids (msg_...) you drew on. ")
+	fmt.Fprint(&b, "If the sources do not contain the answer, say so plainly. Output only the answer, no preamble.\n\n")
+	fmt.Fprintf(&b, "QUESTION: %s\n\n", question)
+	for i, s := range sources {
+		fmt.Fprintf(&b, "--- source %d ---\n%s\n", i+1, s)
+	}
+	return b.String()
+}
+
 func buildPrompt(in core.SummarizeInput) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Compress the following %s context into at most %d tokens. ", in.Kind, in.TargetTokens)

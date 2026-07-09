@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,5 +66,47 @@ func TestGrepNoMatches(t *testing.T) {
 	out := runACM(t, dbPath, "", "grep", "nonexistentterm")
 	if !strings.Contains(out, "no matches") {
 		t.Fatalf("expected no matches, got %q", out)
+	}
+}
+
+func TestExpandQuerySynthesizeFallsBackWithoutAgentCLI(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "acm.db")
+
+	payload := `{"agent":"codex","session_id":"syn","messages":[
+		{"role":"user","content":"we picked sqlite for zero infrastructure","external_id":"s1"},
+		{"role":"assistant","content":"agreed, sqlite it is","external_id":"s2"}]}`
+	runACM(t, dbPath, payload, "ingest")
+
+	// Build a leaf summary so there is a sum_ id to expand.
+	grepOut := runACM(t, dbPath, "", "grep", "--json", "sqlite")
+	var res struct {
+		Messages []struct {
+			Message struct{ ConversationID string }
+		}
+	}
+	if err := json.Unmarshal([]byte(grepOut), &res); err != nil || len(res.Messages) == 0 {
+		t.Fatalf("grep json: %v (%s)", err, grepOut)
+	}
+	conv := res.Messages[0].Message.ConversationID
+	runACM(t, dbPath, "", "compact", conv,
+		"--model-context-tokens", "40", "--soft-fraction", "0.1", "--fresh-tail", "0", "--leaf-chunk-tokens", "10", "--leaf-target-tokens", "8")
+	sumOut := runACM(t, dbPath, "", "grep", "sqlite")
+	sumID := ""
+	for f := range strings.FieldsSeq(sumOut) {
+		if strings.HasPrefix(f, "sum_") {
+			sumID = f
+			break
+		}
+	}
+	if sumID == "" {
+		t.Fatalf("no summary produced:\n%s", sumOut)
+	}
+
+	// With no agent CLI on PATH, --synthesize must degrade to the filtered
+	// message output instead of failing.
+	t.Setenv("PATH", t.TempDir())
+	out := runACM(t, dbPath, "", "expand-query", sumID, "sqlite", "--synthesize")
+	if !strings.Contains(out, "message msg_") || !strings.Contains(out, "sqlite") {
+		t.Fatalf("fallback output missing filtered messages:\n%s", out)
 	}
 }
