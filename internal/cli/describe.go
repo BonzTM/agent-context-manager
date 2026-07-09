@@ -112,6 +112,9 @@ func describeFile(ctx context.Context, out io.Writer, sq *store.SQLite, id strin
 	fmt.Fprintf(out, "path:         %s\n", lf.StorageURI)
 	fmt.Fprintf(out, "bytes:        %d\n", lf.ByteSize)
 	fmt.Fprintf(out, "tokens:       %d\n", lf.TokenCount)
+	if lf.Extractor != "" {
+		fmt.Fprintf(out, "extractor:    %s\n", lf.Extractor)
+	}
 	fmt.Fprintln(out, "--- exploration summary (read full content with: cat <path>) ---")
 	fmt.Fprintln(out, lf.ExplorationSummary)
 	return nil

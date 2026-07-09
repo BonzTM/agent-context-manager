@@ -50,7 +50,9 @@ type ContextItem struct {
 }
 
 // LargeFile is an offloaded oversized payload: the verbatim content lives on
-// disk at StorageURI, with only an exploration summary kept inline.
+// disk at StorageURI, with only an exploration summary kept inline. Extractor
+// records how that summary was produced (a type-aware deterministic extractor,
+// the configured summarizer, or the truncation fallback).
 type LargeFile struct {
 	ID                 string
 	ConversationID     string
@@ -59,6 +61,7 @@ type LargeFile struct {
 	ByteSize           int64
 	TokenCount         int
 	ExplorationSummary string
+	Extractor          string
 	CreatedAt          time.Time
 }
 

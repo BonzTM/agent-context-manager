@@ -367,15 +367,16 @@ func (s *SQLite) CreateLargeFile(ctx context.Context, lf core.LargeFile) (core.L
 	}
 	var createdAt string
 	if err := s.db.QueryRowContext(ctx,
-		`INSERT INTO large_files (id, conversation_id, message_id, storage_uri, byte_size, token_count, exploration_summary, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO large_files (id, conversation_id, message_id, storage_uri, byte_size, token_count, exploration_summary, extractor, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (id) DO UPDATE SET
 		   storage_uri = excluded.storage_uri,
 		   byte_size = excluded.byte_size,
 		   token_count = excluded.token_count,
-		   exploration_summary = excluded.exploration_summary
+		   exploration_summary = excluded.exploration_summary,
+		   extractor = excluded.extractor
 		 RETURNING created_at`,
-		lf.ID, lf.ConversationID, lf.MessageID, lf.StorageURI, lf.ByteSize, lf.TokenCount, lf.ExplorationSummary, fmtTime(now)).
+		lf.ID, lf.ConversationID, lf.MessageID, lf.StorageURI, lf.ByteSize, lf.TokenCount, lf.ExplorationSummary, lf.Extractor, fmtTime(now)).
 		Scan(&createdAt); err != nil {
 		return core.LargeFile{}, fmt.Errorf("store: upsert large file: %w", err)
 	}
@@ -394,8 +395,8 @@ func (s *SQLite) GetLargeFile(ctx context.Context, id string) (core.LargeFile, e
 		createdAt string
 	)
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, conversation_id, message_id, storage_uri, byte_size, token_count, exploration_summary, created_at FROM large_files WHERE id = ?", id).
-		Scan(&lf.ID, &lf.ConversationID, &lf.MessageID, &lf.StorageURI, &lf.ByteSize, &lf.TokenCount, &lf.ExplorationSummary, &createdAt)
+		"SELECT id, conversation_id, message_id, storage_uri, byte_size, token_count, exploration_summary, extractor, created_at FROM large_files WHERE id = ?", id).
+		Scan(&lf.ID, &lf.ConversationID, &lf.MessageID, &lf.StorageURI, &lf.ByteSize, &lf.TokenCount, &lf.ExplorationSummary, &lf.Extractor, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.LargeFile{}, core.ErrNotFound
 	}

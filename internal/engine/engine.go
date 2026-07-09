@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/explore"
 )
 
 // Store is the persistence surface the engine needs. It is a consumer-defined
@@ -316,8 +317,10 @@ func (c *Compactor) sourceText(ctx context.Context, m core.Message) (string, err
 }
 
 // offload writes a message's verbatim content to filesDir and records a
-// large_files row with a deterministic exploration summary. The stored URI is a
-// real path the agent can read directly.
+// large_files row with an exploration summary. Structured content (JSON, CSV,
+// SQL, code) gets a deterministic type-aware description with no model call;
+// everything else falls to the configured summarizer, then to truncation. The
+// stored URI is a real path the agent can read directly.
 func (c *Compactor) offload(ctx context.Context, m core.Message) (core.LargeFile, error) {
 	dir := filepath.Join(c.filesDir, m.ConversationID)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -327,14 +330,21 @@ func (c *Compactor) offload(ctx context.Context, m core.Message) (core.LargeFile
 	if err := os.WriteFile(path, []byte(m.Content), 0o600); err != nil {
 		return core.LargeFile{}, fmt.Errorf("engine: write large file: %w", err)
 	}
-	exploration, sErr := c.summarizer.Summarize(ctx, core.SummarizeInput{
-		Kind:         core.SummaryLeaf,
-		Sources:      []string{m.Content},
-		TargetTokens: 200,
-	})
-	if sErr != nil {
-		// Offload still proceeds; fall back to a truncated head as the summary.
-		exploration = truncateToTokens(m.Content, 200)
+
+	exploration, extractor, ok := explore.Describe(m.Content)
+	if !ok {
+		extractor = "summarizer"
+		var sErr error
+		exploration, sErr = c.summarizer.Summarize(ctx, core.SummarizeInput{
+			Kind:         core.SummaryLeaf,
+			Sources:      []string{m.Content},
+			TargetTokens: 200,
+		})
+		if sErr != nil {
+			// Offload still proceeds; fall back to a truncated head as the summary.
+			exploration = truncateToTokens(m.Content, 200)
+			extractor = "truncation"
+		}
 	}
 	return c.store.CreateLargeFile(ctx, core.LargeFile{
 		ConversationID:     m.ConversationID,
@@ -343,6 +353,7 @@ func (c *Compactor) offload(ctx context.Context, m core.Message) (core.LargeFile
 		ByteSize:           int64(len(m.Content)),
 		TokenCount:         m.TokenCount,
 		ExplorationSummary: exploration,
+		Extractor:          extractor,
 	})
 }
 

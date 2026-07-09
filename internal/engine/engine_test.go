@@ -275,3 +275,59 @@ func TestWindowGrowsAfterCompaction(t *testing.T) {
 		t.Fatalf("second compact ignored the late messages: %+v", res)
 	}
 }
+
+// TestOffloadUsesTypeAwareExtractor proves structured payloads get a
+// deterministic schema-level exploration summary with no summarizer call, while
+// unstructured content still goes through the configured summarizer.
+func TestOffloadUsesTypeAwareExtractor(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	cfg.LargeFileThreshold = 50
+	comp, sq, conv := setup(t, cfg)
+
+	counter := tokens.Heuristic{}
+	rows := make([]string, 0, 300)
+	for i := range 300 {
+		rows = append(rows, fmt.Sprintf(`{"id":%d,"label":"item-%d"}`, i, i))
+	}
+	jsonBig := "[" + strings.Join(rows, ",") + "]"
+	jsonMsg, _, err := sq.AppendMessage(ctx, core.MessageInput{
+		ConversationID: conv.ID, Role: core.RoleTool, Content: jsonBig,
+		TokenCount: counter.Count(jsonBig), ExternalID: "json-big",
+	})
+	if err != nil {
+		t.Fatalf("append json: %v", err)
+	}
+	proseBig := "PROSE " + strings.Repeat("wordy narrative filler ", 200)
+	proseMsg, _, err := sq.AppendMessage(ctx, core.MessageInput{
+		ConversationID: conv.ID, Role: core.RoleUser, Content: proseBig,
+		TokenCount: counter.Count(proseBig), ExternalID: "prose-big",
+	})
+	if err != nil {
+		t.Fatalf("append prose: %v", err)
+	}
+	appendMessages(t, sq, conv.ID, 11)
+
+	if _, err = comp.Compact(ctx, conv.ID); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+
+	jf, err := sq.GetLargeFile(ctx, core.DeriveFileID(conv.ID, jsonMsg.ID))
+	if err != nil {
+		t.Fatalf("get json file: %v", err)
+	}
+	if jf.Extractor != "json" {
+		t.Fatalf("json extractor = %q, want json", jf.Extractor)
+	}
+	if !strings.Contains(jf.ExplorationSummary, "array, 300 elements") {
+		t.Fatalf("json exploration summary lacks shape: %s", jf.ExplorationSummary)
+	}
+
+	pf, err := sq.GetLargeFile(ctx, core.DeriveFileID(conv.ID, proseMsg.ID))
+	if err != nil {
+		t.Fatalf("get prose file: %v", err)
+	}
+	if pf.Extractor != "summarizer" {
+		t.Fatalf("prose extractor = %q, want summarizer", pf.Extractor)
+	}
+}
