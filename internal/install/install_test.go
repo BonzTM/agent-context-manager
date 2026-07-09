@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bonztm/agent-context-manager/internal/agents"
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
@@ -226,4 +227,157 @@ func anySkipped(r Result) bool {
 		}
 	}
 	return false
+}
+
+func TestInstructionsWriteThroughSymlink(t *testing.T) {
+	home := t.TempDir()
+	dotfiles := filepath.Join(home, "dotfiles")
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dotfiles, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	realFile := filepath.Join(dotfiles, "CLAUDE.md")
+	if err := os.WriteFile(realFile, []byte("# My global instructions\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, ".claude", "CLAUDE.md")
+	if err := os.Symlink(realFile, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Run(core.AgentClaude, home, true); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	// The symlink must survive (not be replaced by a regular file)...
+	fi, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("CLAUDE.md symlink was orphaned into a regular file")
+	}
+	// ...the content must have landed in the dotfiles target...
+	content := readFile(t, realFile)
+	if !strings.Contains(content, markerStart) || !strings.Contains(content, "acm expand") {
+		t.Fatalf("dotfiles target missing drill-down block:\n%s", content)
+	}
+	if !strings.Contains(content, "# My global instructions") {
+		t.Fatal("existing dotfiles content was lost")
+	}
+	// ...and the target's original permissions are preserved.
+	tfi, err := os.Stat(realFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tfi.Mode().Perm() != 0o644 {
+		t.Fatalf("target mode changed to %v, want 0644 preserved", tfi.Mode().Perm())
+	}
+}
+
+func TestSettingsWriteThroughSymlink(t *testing.T) {
+	home := t.TempDir()
+	dotfiles := filepath.Join(home, "dotfiles")
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dotfiles, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	realFile := filepath.Join(dotfiles, "settings.json")
+	if err := os.WriteFile(realFile, []byte(`{"model":"sonnet"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, ".claude", "settings.json")
+	if err := os.Symlink(realFile, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Run(core.AgentClaude, home, true); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	fi, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("settings.json symlink was orphaned into a regular file")
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(readFile(t, realFile)), &m); err != nil {
+		t.Fatalf("parse target: %v", err)
+	}
+	if m["model"] != "sonnet" {
+		t.Fatal("existing settings lost through symlinked write")
+	}
+	if _, ok := m["hooks"]; !ok {
+		t.Fatal("hooks not written through the symlink")
+	}
+}
+
+func TestInstructionsSkipUnmanagedManualBlock(t *testing.T) {
+	home := t.TempDir()
+	claudeMd := filepath.Join(home, ".claude", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(claudeMd), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// A hand-pasted copy of the drill-down doc, without acm's markers.
+	manual := "# Global\n\n" + agents.DrillDownDoc
+	if err := os.WriteFile(claudeMd, []byte(manual), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Run(core.AgentClaude, home, true)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	content := readFile(t, claudeMd)
+	if strings.Count(content, "## acm — lossless long-context") != 1 {
+		t.Fatalf("manual block was duplicated:\n%s", content)
+	}
+	if strings.Contains(content, markerStart) {
+		t.Fatal("acm rewrote a hand-maintained block it should have left alone")
+	}
+	found := false
+	for _, c := range res.Changes {
+		if strings.Contains(c.Summary, "added manually") && c.Skipped {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected an unmanaged-block skip notice in changes: %+v", res.Changes)
+	}
+}
+
+func TestWriteThroughDanglingSymlink(t *testing.T) {
+	home := t.TempDir()
+	dotfiles := filepath.Join(home, "dotfiles")
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dotfiles, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// Link exists, target does not (fresh dotfiles checkout).
+	link := filepath.Join(home, ".claude", "CLAUDE.md")
+	target := filepath.Join(dotfiles, "CLAUDE.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Run(core.AgentClaude, home, true); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	fi, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("dangling symlink was replaced instead of populated")
+	}
+	if !strings.Contains(readFile(t, target), "acm expand") {
+		t.Fatal("content not created at the dangling link's target")
+	}
 }

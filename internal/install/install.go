@@ -240,7 +240,14 @@ func instructions(path string, apply bool) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
-	newText, changed := ensureInstructions(text, agents.DrillDownDoc)
+	newText, changed, unmanaged := ensureInstructions(text, agents.DrillDownDoc)
+	if unmanaged {
+		return Change{
+			Path:    path,
+			Summary: "drill-down instructions present (added manually, without acm's markers — left untouched; wrap the block in " + markerStart + " / " + markerEnd + " to let acm manage updates)",
+			Skipped: true,
+		}, nil
+	}
 	if !changed {
 		return Change{Path: path, Summary: "drill-down instructions present", Skipped: true}, nil
 	}
@@ -252,18 +259,28 @@ func instructions(path string, apply bool) (Change, error) {
 	return Change{Path: path, Summary: verb(apply) + " drill-down instructions", Applied: apply}, nil
 }
 
-func ensureInstructions(text, block string) (string, bool) {
+// instructionsHeading identifies the drill-down block even when a user pasted
+// it by hand without acm's markers, so init never appends a duplicate copy.
+var instructionsHeading = strings.SplitN(agents.DrillDownDoc, "\n", 2)[0]
+
+// ensureInstructions returns the updated file text. unmanaged reports that the
+// block's heading exists outside acm's markers (a hand-maintained copy), which
+// acm deliberately refuses to touch or duplicate.
+func ensureInstructions(text, block string) (newText string, changed, unmanaged bool) {
 	wrapped := markerStart + "\n" + strings.TrimRight(block, "\n") + "\n" + markerEnd
 	start := strings.Index(text, markerStart)
 	end := strings.Index(text, markerEnd)
 	if start >= 0 && end > start {
 		updated := text[:start] + wrapped + text[end+len(markerEnd):]
-		return updated, updated != text
+		return updated, updated != text, false
+	}
+	if strings.Contains(text, instructionsHeading) {
+		return text, false, true
 	}
 	if strings.TrimSpace(text) == "" {
-		return wrapped + "\n", true
+		return wrapped + "\n", true, false
 	}
-	return strings.TrimRight(text, "\n") + "\n\n" + wrapped + "\n", true
+	return strings.TrimRight(text, "\n") + "\n\n" + wrapped + "\n", true, false
 }
 
 // --- shared helpers ---
@@ -358,31 +375,75 @@ func writeText(path, text string) error {
 
 // writeFile writes atomically (temp file + rename in the same directory) so a
 // crash mid-write can never truncate or corrupt a user's live agent config.
+// Symlinks are followed first and the rename replaces the final TARGET, never
+// the link itself — users commonly symlink CLAUDE.md/AGENTS.md (or a whole
+// config) into a dotfiles repo, and a naive rename would orphan that link by
+// converting it into a regular file. An existing target's file mode is
+// preserved; new files are created 0600.
 func writeFile(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("install: create dir for %s: %w", path, err)
-	}
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	target, err := resolveSymlinks(path)
 	if err != nil {
-		return fmt.Errorf("install: create temp for %s: %w", path, err)
+		return fmt.Errorf("install: resolve %s: %w", path, err)
+	}
+
+	mode := os.FileMode(0o600)
+	if fi, sErr := os.Stat(target); sErr == nil {
+		mode = fi.Mode().Perm()
+	}
+
+	dir := filepath.Dir(target)
+	if mkErr := os.MkdirAll(dir, 0o750); mkErr != nil {
+		return fmt.Errorf("install: create dir for %s: %w", target, mkErr)
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(target)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("install: create temp for %s: %w", target, err)
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }() // no-op after a successful rename
 
-	if err := tmp.Chmod(0o600); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("install: chmod temp for %s: %w", path, err)
+		return fmt.Errorf("install: chmod temp for %s: %w", target, err)
 	}
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("install: write temp for %s: %w", path, err)
+		return fmt.Errorf("install: write temp for %s: %w", target, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("install: close temp for %s: %w", path, err)
+		return fmt.Errorf("install: close temp for %s: %w", target, err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("install: replace %s: %w", path, err)
+	if err := os.Rename(tmpName, target); err != nil {
+		return fmt.Errorf("install: replace %s: %w", target, err)
 	}
 	return nil
+}
+
+// resolveSymlinks walks the symlink chain by hand so that, unlike
+// filepath.EvalSymlinks, a DANGLING final link still resolves to the intended
+// target location (the file is then created there and the link starts working).
+func resolveSymlinks(path string) (string, error) {
+	const maxHops = 40
+	resolved := path
+	for range maxHops {
+		fi, err := os.Lstat(resolved)
+		if errors.Is(err, os.ErrNotExist) {
+			return resolved, nil // does not exist yet; create here
+		}
+		if err != nil {
+			return "", err
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			return resolved, nil
+		}
+		next, err := os.Readlink(resolved)
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(next) {
+			next = filepath.Join(filepath.Dir(resolved), next)
+		}
+		resolved = next
+	}
+	return "", errors.New("too many levels of symbolic links")
 }

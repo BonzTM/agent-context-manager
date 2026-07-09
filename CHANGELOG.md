@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Global installs no longer orphan symlinked configs: the atomic write now
+  follows the symlink chain and replaces the final target file, so a
+  CLAUDE.md/AGENTS.md or settings.json linked into a dotfiles repo keeps its
+  link (a dangling link gets its target created), and the target's file mode
+  is preserved. Previously the temp-file rename converted the symlink itself
+  into a regular file.
+- `acm init` recognizes a hand-pasted drill-down block (without acm's
+  markers) by its heading and skips it with a notice instead of appending a
+  duplicate managed copy.
+
 ### Changed
 
 - `make verify` now uses a read-only `tidy-check` (`go mod tidy -diff`) instead
