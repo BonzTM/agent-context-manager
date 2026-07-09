@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-09
+
+Capture-correctness and operational-hardening release: Codex assistant turns
+are wired reliably, repeated source events remain lossless, automatic recall is
+quieter and better ranked, local state is owner-only, and every headless model
+call has a hard deadline. The database schema and command names are unchanged.
+
+### Fixed
+
+- Codex global installation now parses `config.toml`, places `notify` at the
+  top level, and relocates the legacy ACM block when an earlier release
+  accidentally appended it inside the final TOML table.
+- Capture now uses hook `turn_id` and `tool_use_id` identities, with the raw
+  event payload as an idempotency fallback, so equal prompts or tool results
+  from distinct events are no longer collapsed.
+- Recall blocks direct `msg_` IDs to `acm describe` instead of the summary-only
+  `acm expand` command.
+- Automatic recall filters low-signal prompt terms and deterministically reranks
+  BM25 candidates by coverage, current conversation, role, recency, and payload
+  size instead of injecting the raw top-five OR matches.
+
+### Changed
+
+- Headless Claude/Codex calls now have a 120-second deadline. Unix process
+  groups are terminated together, and inherited output pipes have a final
+  one-second drain bound.
+- `acm window` now describes its output as ACM's synthetic persisted view, not
+  the live prompt on augmentation-only hosts.
+
+### Security
+
+- Databases and backups are enforced to owner-only mode (`0600`) on creation
+  and open; existing permissive database files are repaired automatically.
+
+See [docs/release-notes/RELEASE_NOTES_1.1.0.md](docs/release-notes/RELEASE_NOTES_1.1.0.md) for the full release notes.
+
 ## [1.0.1] - 2026-07-09
 
 Fast-follow patch for 1.0.0: symlink-safe global installs, duplicate-proof
@@ -122,6 +158,7 @@ budget, and recoverable on demand through the agent's own shell tool.
 
 See [docs/release-notes/RELEASE_NOTES_1.0.0.md](docs/release-notes/RELEASE_NOTES_1.0.0.md) for the full release notes.
 
-[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.1.0
 [1.0.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.0.1
 [1.0.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.0.0
