@@ -131,6 +131,7 @@ details on any command.`,
 	root.AddCommand(
 		newVersionCmd(),
 		newDoctorCmd(a),
+		newBackfillCmd(a),
 		newBackupCmd(a),
 		newIngestCmd(a),
 		newGrepCmd(a),

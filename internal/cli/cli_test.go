@@ -24,6 +24,7 @@ func TestVersionCommand(t *testing.T) {
 }
 
 func TestDoctorCommandReportsOK(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dbPath := filepath.Join(t.TempDir(), "acm.db")
 	root := newRootCmd()
 	var out bytes.Buffer

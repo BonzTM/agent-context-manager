@@ -120,3 +120,50 @@ func TestCaptureClaudeStopWithoutTranscriptIsEmpty(t *testing.T) {
 		t.Fatalf("expected no messages, got %d", len(req.Messages))
 	}
 }
+
+func TestCaptureCodexStopReadsRollout(t *testing.T) {
+	transcript := filepath.Join(t.TempDir(), "rollout.jsonl")
+	lines := strings.Join([]string{
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","id":"a1","content":[{"type":"output_text","text":"first answer"}]}}`,
+		`{"type":"response_item","payload":`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","id":"a1-final","content":[{"type":"output_text","text":"first final"}]}}`,
+		`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`,
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","id":"a2","content":[{"type":"output_text","text":"final answer"}]}}`,
+		`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-2"}}`,
+	}, "\n")
+	if err := os.WriteFile(transcript, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	messages, report, err := ReconcileTranscriptAssistant(core.AgentCodex, transcript)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if len(messages) != 2 || messages[0].ExternalID != "turn-1" || messages[1].ExternalID != "turn-2" {
+		t.Fatalf("unexpected messages: %+v", messages)
+	}
+	if messages[0].Content != "first final" {
+		t.Fatalf("first turn content = %q, want final assistant message", messages[0].Content)
+	}
+	if report.Lines != 8 || report.Malformed != 1 || report.Assistant != 2 || report.LimitReached {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+}
+
+func TestTranscriptReconciliationHasLineLimit(t *testing.T) {
+	transcript := filepath.Join(t.TempDir(), "bounded.jsonl")
+	content := strings.Repeat("{}\n", transcriptMaxLines+1)
+	if err := os.WriteFile(transcript, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, report, err := ReconcileTranscriptAssistant(core.AgentCodex, transcript)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !report.LimitReached || report.Lines != transcriptMaxLines {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+}

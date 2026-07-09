@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fractions, unsafe loop/fanout/depth limits, and summary targets that cannot
   fit their chunks. New flags expose token-based fresh-tail protection,
   condensation input caps, and the engine's existing finite safety bounds.
+- `acm backfill` previews and optionally reconciles missing Codex assistant
+  turns from bounded rollout scans. `acm doctor` now verifies Codex notify/hook
+  installation, executable resolution, file modes, capture freshness, and
+  prompt-bearing conversations with no assistant rows.
 
 ### Changed
 
@@ -25,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count and tokens while leaving tool results eligible for early compaction and
   offload. Condensed nodes consume exactly the configured fanout and never more
   than the configured token cap.
+- Codex global installation now adds a `Stop` hook as a redundant transcript
+  reconciliation path. Rollout capture keeps the final assistant message per
+  task boundary and keys it by turn ID, matching notify deduplication.
 
 ## [1.1.1] - 2026-07-09
 

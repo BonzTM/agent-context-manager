@@ -38,7 +38,7 @@ What it installs per agent:
 | Agent | Config / files written | Instructions appended |
 |-------|------------------------|-----------------------|
 | Claude Code | `~/.claude/settings.json` — `UserPromptSubmit`+`PostToolUse`+`Stop` hooks + `Bash(acm:*)` permission | `~/.claude/CLAUDE.md` |
-| Codex | `~/.codex/hooks.json` — `UserPromptSubmit`+`PostToolUse` hooks; `~/.codex/config.toml` — `notify` (assistant-turn capture) | `~/.codex/AGENTS.md` |
+| Codex | `~/.codex/hooks.json` — `UserPromptSubmit`+`PostToolUse`+`Stop` hooks; `~/.codex/config.toml` — `notify` (assistant-turn capture) | `~/.codex/AGENTS.md` |
 | OpenCode | `~/.config/opencode/plugin/acm.ts` — the plugin, auto-loaded (no `opencode.json` edit) | `~/.config/opencode/AGENTS.md` |
 
 Notes:
@@ -81,8 +81,8 @@ handling with a lossless side-record and recall.
 Codex loads hooks from `hooks.json` (user-level `~/.codex/hooks.json`, or
 `<repo>/.codex/hooks.json` for a trusted project). `acm init codex` generates:
 
-- `hooks.snippet.json` — `UserPromptSubmit` (capture + recall) and `PostToolUse`
-  (capture) hooks.
+- `hooks.snippet.json` — `UserPromptSubmit` (capture + recall), `PostToolUse`
+  (capture), and `Stop` (idempotent rollout reconciliation) hooks.
 - `AGENTS.acm.md` — the drill-down instruction block.
 
 **Setup** (or just run `acm init --global codex`, which does all of this)
@@ -97,6 +97,13 @@ Codex loads hooks from `hooks.json` (user-level `~/.codex/hooks.json`, or
 
 Codex's shell tool may be sandboxed or gated; on a trusted project the `acm`
 drill-down commands run without repeated prompts.
+
+`acm doctor` verifies the executable, top-level notify command, all three hooks,
+owner-only database modes, latest Codex capture time, and conversations with
+prompts but no assistant rows. To recover assistant turns missed by an older or
+broken integration, preview `acm backfill`, then persist the reported missing
+turns with `acm backfill --apply`. Rollout scans and repeated applies are bounded
+and idempotent by Codex turn ID.
 
 ---
 

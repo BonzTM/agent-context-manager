@@ -122,7 +122,8 @@ func codexHooks(home string, apply bool) (Change, error) {
 	// every tool. The command is a single string, per Codex's hooks schema.
 	changed := ensureHookEntry(m, "UserPromptSubmit", "", "acm hook --agent codex --event UserPromptSubmit")
 	changed = ensureHookEntry(m, "PostToolUse", "", "acm hook --agent codex --event PostToolUse") || changed
-	return finishJSON(path, m, changed, apply, "UserPromptSubmit + PostToolUse hooks")
+	changed = ensureHookEntry(m, "Stop", "", "acm hook --agent codex --event Stop") || changed
+	return finishJSON(path, m, changed, apply, "UserPromptSubmit + PostToolUse + Stop hooks")
 }
 
 func ensureAllow(m map[string]any, perm string) bool {
