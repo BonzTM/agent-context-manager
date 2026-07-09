@@ -4,7 +4,10 @@
 // toolchain embeds, so `acm version` is meaningful on every install path.
 package buildinfo
 
-import "runtime/debug"
+import (
+	"runtime/debug"
+	"strings"
+)
 
 // Name is the binary/tool name. It is a constant because it never varies by
 // build, unlike the version metadata below.
@@ -25,11 +28,13 @@ var (
 // Info resolves the effective version, commit, and build date: ldflags values
 // when stamped, otherwise the toolchain-embedded module version and VCS
 // metadata (which `go install module@version` and `-buildvcs` builds carry).
+// The displayed version is always v-less (house convention: the v prefix
+// exists only on git tags, where the Go toolchain requires it).
 func Info() (version, commit, date string) {
 	version, commit, date = Version, Commit, Date
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
-		return version, commit, date
+		return strings.TrimPrefix(version, "v"), commit, date
 	}
 	if version == "dev" && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
 		version = bi.Main.Version
@@ -46,5 +51,5 @@ func Info() (version, commit, date string) {
 			}
 		}
 	}
-	return version, commit, date
+	return strings.TrimPrefix(version, "v"), commit, date
 }

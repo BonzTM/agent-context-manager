@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Displayed versions are v-less everywhere: `acm version` strips the module
+  version's `v` prefix, and release titles and stamped binaries use bare
+  `X.Y.Z`. The `v` exists only on git tags, where the Go toolchain requires it
+  for canonical resolution; the release workflow now mirrors a bare `X.Y.Z`
+  alias tag onto the same commit so `go install ...@X.Y.Z` also resolves.
+
 ## [1.0.0] - 2026-07-09
 
 Initial release: a single local binary that gives Claude Code, Codex, and

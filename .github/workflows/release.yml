@@ -3,6 +3,13 @@
 # release. CI (ci.yml) proves the commit; this workflow only packages it.
 # `go install github.com/bonztm/agent-context-manager/cmd/acm@<tag>` remains
 # the primary install path and needs no artifact from here.
+#
+# Tag convention: the v-prefixed tag is the trigger (the Go toolchain requires
+# it for canonical version resolution — @latest and pkg.go.dev only see
+# vX.Y.Z tags), and this workflow mirrors a bare X.Y.Z alias onto the same
+# commit for the house no-v style, so `go install ...@1.2.3` also resolves to
+# the canonical release. Display strings (release title, stamped version) drop
+# the v everywhere.
 
 name: release
 
@@ -11,7 +18,7 @@ on:
     tags: ["v*"] # canonical Go module tags: v1.2.3 (the v prefix is required)
 
 permissions:
-  contents: write # create the release and upload assets
+  contents: write # create the release, upload assets, push the bare alias tag
 
 jobs:
   publish:
@@ -23,9 +30,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Mirror bare version tag
+        run: |
+          BARE="${GITHUB_REF_NAME#v}"
+          if git ls-remote --exit-code origin "refs/tags/${BARE}" > /dev/null 2>&1; then
+            echo "bare tag ${BARE} already exists"
+          else
+            git tag "${BARE}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${BARE}"
+          fi
+
       - name: Build stamped static binaries
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          VERSION="${GITHUB_REF_NAME#v}"
           COMMIT="${GITHUB_SHA}"
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           PKG="github.com/bonztm/agent-context-manager/internal/buildinfo"
@@ -43,5 +60,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/* \
-            --title "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME#v}" \
             --notes "See CHANGELOG.md for the changes in this release."
