@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-09
+
+Fast-follow patch for 1.0.0: symlink-safe global installs, duplicate-proof
+instruction blocks, a stricter verification gate, sibling-consistent release
+packaging, and a security toolchain bump. No schema, command, or contract
+changes — a drop-in upgrade.
+
+### Added
+
+- Contributor Covenant code of conduct, matching the sibling
+  agent-workflow-manager repo's community meta set.
+
 ### Fixed
 
 - Global installs no longer orphan symlinked configs: the atomic write now
@@ -21,23 +33,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `make verify` now uses a read-only `tidy-check` (`go mod tidy -diff`) instead
-  of the in-place `tidy`, so CI fails on committed go.mod/go.sum drift rather
-  than silently auto-correcting it in the workspace; `make tidy` remains the
-  local fixer. (Found by agent-workflow-manager's cross-LLM review gate.)
-- Release assets now match the sibling repos: publishing a GitHub release
-  triggers a per-architecture matrix (linux/darwin/windows on amd64/arm64)
-  that uploads `acm-<version>-<os>-<arch>.tar.gz` archives (`.zip` on
-  Windows) with per-archive `.sha256` checksums, replacing the previous raw
-  per-platform binaries. The workflow also mirrors whichever tag form is
-  missing (bare `X.Y.Z` or `vX.Y.Z`) onto the release commit, and CI gains a
-  cross-compile check for every released platform.
-
+- Release pipeline aligned with the sibling repos: publishing a GitHub
+  release triggers a per-architecture matrix (linux/darwin/windows on
+  amd64/arm64) that uploads `acm-<version>-<os>-<arch>.tar.gz` archives
+  (`.zip` on Windows) with per-archive `.sha256` checksums, replacing the
+  previous raw per-platform binaries; the workflow mirrors whichever tag
+  form is missing (bare `X.Y.Z` or `vX.Y.Z`) onto the release commit so
+  house-style bare tags and canonical Go module resolution coexist; and CI
+  gains a cross-compile check for every released platform.
 - Displayed versions are v-less everywhere: `acm version` strips the module
   version's `v` prefix, and release titles and stamped binaries use bare
-  `X.Y.Z`. The `v` exists only on git tags, where the Go toolchain requires it
-  for canonical resolution; the release workflow now mirrors a bare `X.Y.Z`
-  alias tag onto the same commit so `go install ...@X.Y.Z` also resolves.
+  `X.Y.Z`; the `v` exists only on git tags, where the Go toolchain requires
+  it.
+- `make verify` uses a read-only `tidy-check` (`go mod tidy -diff`) instead
+  of the in-place `tidy`, so CI fails on committed go.mod/go.sum drift
+  rather than silently auto-correcting it in the workspace; `make tidy`
+  remains the local fixer. (Found by agent-workflow-manager's cross-LLM
+  review gate.)
+
+### Security
+
+- Raised the `go` directive to 1.26.5, whose standard library fixes
+  GO-2026-5856 (`crypto/tls`) and GO-2026-4970 (`os`) — flagged by the CI
+  vulnerability gate on 1.26.4 toolchains.
+
+See [docs/release-notes/RELEASE_NOTES_1.0.1.md](docs/release-notes/RELEASE_NOTES_1.0.1.md) for the full release notes.
 
 ## [1.0.0] - 2026-07-09
 
@@ -102,5 +122,6 @@ budget, and recoverable on demand through the agent's own shell tool.
 
 See [docs/release-notes/RELEASE_NOTES_1.0.0.md](docs/release-notes/RELEASE_NOTES_1.0.0.md) for the full release notes.
 
-[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.0.1
 [1.0.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.0.0
