@@ -90,8 +90,8 @@ func TestExpandQuerySynthesizeFallsBackWithoutAgentCLI(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "acm.db")
 
 	payload := `{"agent":"codex","session_id":"syn","messages":[
-		{"role":"user","content":"we picked sqlite for zero infrastructure","external_id":"s1"},
-		{"role":"assistant","content":"agreed, sqlite it is","external_id":"s2"}]}`
+		{"role":"user","content":"we picked sqlite for zero infrastructure ` + strings.Repeat("architecture ", 100) + `","external_id":"s1"},
+		{"role":"assistant","content":"agreed, sqlite it is ` + strings.Repeat("decision ", 100) + `","external_id":"s2"}]}`
 	runACM(t, dbPath, payload, "ingest")
 
 	// Build a leaf summary so there is a sum_ id to expand.
@@ -106,7 +106,9 @@ func TestExpandQuerySynthesizeFallsBackWithoutAgentCLI(t *testing.T) {
 	}
 	conv := res.Messages[0].Message.ConversationID
 	runACM(t, dbPath, "", "compact", conv,
-		"--model-context-tokens", "40", "--soft-fraction", "0.1", "--fresh-tail", "0", "--leaf-chunk-tokens", "10", "--leaf-target-tokens", "8")
+		"--model-context-tokens", "1000", "--soft-fraction", "0.1", "--fresh-tail", "0", "--fresh-tail-tokens", "0",
+		"--leaf-chunk-tokens", "300", "--leaf-target-tokens", "40", "--condensed-target-tokens", "40",
+		"--condense-chunk-tokens", "300", "--truncate-tokens", "20")
 	sumOut := runACM(t, dbPath, "", "grep", "sqlite")
 	sumID := ""
 	for f := range strings.FieldsSeq(sumOut) {

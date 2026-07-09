@@ -53,20 +53,31 @@ a `*` `.gitignore` into it on first use.
 | `--model-context-tokens` | `200000` | The host model's context window |
 | `--soft-fraction` | `0.6` | Compact when the window exceeds this fraction of the model window |
 | `--fresh-tail` | `8` | Most recent messages always kept raw |
+| `--fresh-tail-tokens` | `4000` | Minimum recent conversational tokens kept raw |
 | `--leaf-chunk-tokens` | `4000` | Maximum source tokens folded into one leaf summary |
 | `--leaf-target-tokens` | `600` | Target size of a leaf summary |
 | `--condensed-target-tokens` | `1000` | Target size of a condensed summary |
+| `--condense-fanout` | `4` | Same-depth summaries folded into one condensed node |
+| `--condense-chunk-tokens` | `8000` | Maximum source tokens folded into one condensed node |
+| `--max-depth` | `3` | Maximum condensed-summary depth |
+| `--truncate-tokens` | `512` | Deterministic fallback summary size |
+| `--large-file-threshold` | `25000` | Offload compacted messages above this size; `0` disables |
+| `--max-iterations` | `200` | Maximum compaction operations per conversation |
 | `--hard-fraction` | `0.8` | Warn when a finished pass is still above this fraction |
 | `--summarizer` | `deterministic` | `deterministic`, `claude`, or `codex` |
 
 Compaction also runs opportunistically from the capture hooks on turn-ending
 events (`Stop`, `agent-turn-complete`) with the deterministic summarizer and
-default budget; pass `--no-compact` to `acm hook` to disable it. When you lower
-`--model-context-tokens`, lower the two target sizes with it — summaries larger
-than the remaining budget cannot bring the window under the threshold.
+default budget; pass `--no-compact` to `acm hook` to disable it. Invalid flag
+combinations fail before the summary DAG or active window is modified. Summary
+targets must fit below the soft budget and their corresponding chunk limits;
+the error names the flags to lower or the model window to raise.
 
 For meaningful compression, the leaf chunk size should comfortably exceed the
 summary target, so that many tokens of input fold into a smaller summary.
+The fresh tail protects recent system, user, and assistant messages by both
+count and tokens. Tool results remain eligible for early compaction and
+large-file offload so a tool-heavy turn cannot consume the entire raw window.
 
 ## Window diagnostics
 

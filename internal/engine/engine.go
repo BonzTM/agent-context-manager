@@ -39,11 +39,13 @@ type Config struct {
 	ModelContextTokens    int
 	SoftFraction          float64 // begin compacting above this
 	HardFraction          float64 // warn when a finished pass is still above this
-	FreshTailMessages     int     // most recent messages always kept raw
+	FreshTailMessages     int     // most recent conversational messages kept raw
+	FreshTailTokens       int     // minimum recent conversational tokens kept raw
 	LeafChunkTokens       int     // max source tokens folded into one leaf
 	LeafTargetTokens      int     // target size of a leaf summary
 	CondensedTargetTokens int     // target size of a condensed summary
 	CondenseFanout        int     // condense once this many same-depth summaries stack up
+	CondenseChunkTokens   int     // max source tokens folded into one condensed summary
 	MaxDepth              int     // deepest condensed level
 	TruncateTokens        int     // deterministic fallback truncation (Algorithm 3, level 3)
 	LargeFileThreshold    int     // message token count above which content is offloaded
@@ -57,10 +59,12 @@ func DefaultConfig() Config {
 		SoftFraction:          0.6,
 		HardFraction:          0.8,
 		FreshTailMessages:     8,
+		FreshTailTokens:       4_000,
 		LeafChunkTokens:       4_000,
 		LeafTargetTokens:      600,
 		CondensedTargetTokens: 1_000,
 		CondenseFanout:        4,
+		CondenseChunkTokens:   8_000,
 		MaxDepth:              3,
 		TruncateTokens:        512,
 		LargeFileThreshold:    25_000,
@@ -109,6 +113,7 @@ type Result struct {
 type windowItem struct {
 	typ         core.ContextItemType
 	refID       string
+	role        core.Role
 	tokens      int
 	earliestSeq int64
 	latestSeq   int64
@@ -120,6 +125,9 @@ type windowItem struct {
 // fresh tail. It is idempotent: a window already under threshold is left as-is
 // (beyond persisting the initial seeding).
 func (c *Compactor) Compact(ctx context.Context, conversationID string) (Result, error) {
+	if err := c.cfg.Validate(); err != nil {
+		return Result{}, err
+	}
 	w, err := c.buildWindow(ctx, conversationID)
 	if err != nil {
 		return Result{}, err
@@ -137,7 +145,7 @@ func (c *Compactor) Compact(ctx context.Context, conversationID string) (Result,
 	}
 
 	for iter := 0; iter < c.cfg.MaxIterations && windowTokens(w) > soft; iter++ {
-		protected := protectedSet(w, c.cfg.FreshTailMessages)
+		protected := protectedSet(w, c.cfg.FreshTailMessages, c.cfg.FreshTailTokens)
 		if start, end, ok := findMessageBlock(w, protected, c.cfg.LeafChunkTokens); ok {
 			leaf, lErr := c.makeLeaf(ctx, conversationID, w[start:end])
 			if lErr != nil {
@@ -147,7 +155,7 @@ func (c *Compactor) Compact(ctx context.Context, conversationID string) (Result,
 			res.Leaves++
 			continue
 		}
-		if start, end, ok := condenseRun(w, c.cfg.CondenseFanout, c.cfg.MaxDepth); ok {
+		if start, end, ok := condenseRun(w, c.cfg.CondenseFanout, c.cfg.MaxDepth, c.cfg.CondenseChunkTokens); ok {
 			cond, cErr := c.makeCondensed(ctx, conversationID, w[start:end])
 			if cErr != nil {
 				return Result{}, cErr
@@ -195,7 +203,7 @@ func (c *Compactor) buildWindow(ctx context.Context, conversationID string) ([]w
 			if mErr != nil {
 				return nil, mErr
 			}
-			w = append(w, windowItem{typ: core.ContextMessage, refID: m.ID, tokens: m.TokenCount, earliestSeq: m.Seq, latestSeq: m.Seq})
+			w = append(w, windowItem{typ: core.ContextMessage, refID: m.ID, role: m.Role, tokens: m.TokenCount, earliestSeq: m.Seq, latestSeq: m.Seq})
 			lastSeq = max(lastSeq, m.Seq)
 		case core.ContextSummary:
 			s, sErr := c.store.GetSummary(ctx, it.RefID)
@@ -216,7 +224,7 @@ func (c *Compactor) buildWindow(ctx context.Context, conversationID string) ([]w
 		return nil, err
 	}
 	for _, m := range msgs {
-		w = append(w, windowItem{typ: core.ContextMessage, refID: m.ID, tokens: m.TokenCount, earliestSeq: m.Seq, latestSeq: m.Seq})
+		w = append(w, windowItem{typ: core.ContextMessage, refID: m.ID, role: m.Role, tokens: m.TokenCount, earliestSeq: m.Seq, latestSeq: m.Seq})
 	}
 	return w, nil
 }
@@ -397,21 +405,26 @@ func windowTokens(w []windowItem) int {
 	return total
 }
 
-// protectedSet marks the indices of the last freshTail message items, which are
-// never compacted.
-func protectedSet(w []windowItem, freshTail int) map[int]bool {
+// protectedSet preserves recent conversational turns by both message count and
+// token floor. Tool results stay eligible for early compaction and offload.
+func protectedSet(w []windowItem, freshTail, freshTokens int) map[int]bool {
 	protected := make(map[int]bool)
-	if freshTail <= 0 {
+	if freshTail <= 0 && freshTokens <= 0 {
 		return protected
 	}
-	seen := 0
-	for i := len(w) - 1; i >= 0 && seen < freshTail; i-- {
-		if w[i].typ == core.ContextMessage {
+	seen, tokenTotal := 0, 0
+	for i := len(w) - 1; i >= 0 && (seen < freshTail || tokenTotal < freshTokens); i-- {
+		if isConversationalMessage(w[i]) {
 			protected[i] = true
 			seen++
+			tokenTotal += w[i].tokens
 		}
 	}
 	return protected
+}
+
+func isConversationalMessage(item windowItem) bool {
+	return item.typ == core.ContextMessage && item.role != core.RoleTool
 }
 
 // findMessageBlock returns the first maximal run of consecutive, unprotected
@@ -436,9 +449,9 @@ func findMessageBlock(w []windowItem, protected map[int]bool, leafChunkTokens in
 	return i, end, true
 }
 
-// condenseRun returns the first run of >= fanout consecutive summary items that
-// share a depth below maxDepth.
-func condenseRun(w []windowItem, fanout, maxDepth int) (start, end int, ok bool) {
+// condenseRun returns the first exactly fanout-sized run below maxDepth whose
+// total source size stays within chunkTokens.
+func condenseRun(w []windowItem, fanout, maxDepth, chunkTokens int) (start, end int, ok bool) {
 	i := 0
 	for i < len(w) {
 		if w[i].typ != core.ContextSummary {
@@ -446,14 +459,18 @@ func condenseRun(w []windowItem, fanout, maxDepth int) (start, end int, ok bool)
 			continue
 		}
 		d := w[i].depth
-		j := i
-		for j < len(w) && w[j].typ == core.ContextSummary && w[j].depth == d {
+		j, tokens := i, 0
+		for j < len(w) && j-i < fanout && w[j].typ == core.ContextSummary && w[j].depth == d {
+			if tokens+w[j].tokens > chunkTokens {
+				break
+			}
+			tokens += w[j].tokens
 			j++
 		}
-		if d < maxDepth && j-i >= fanout {
+		if d < maxDepth && j-i == fanout {
 			return i, j, true
 		}
-		i = j
+		i++
 	}
 	return 0, 0, false
 }

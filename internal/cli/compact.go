@@ -32,6 +32,9 @@ func newCompactCmd(a *app) *cobra.Command {
   acm compact --model-context-tokens 1000000 --soft-fraction 0.5`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			if vErr := cfg.Validate(); vErr != nil {
+				return vErr
+			}
 			summarizer, sErr := summarizerByName(summarizerName)
 			if sErr != nil {
 				return sErr
@@ -70,9 +73,16 @@ func newCompactCmd(a *app) *cobra.Command {
 	cmd.Flags().Float64Var(&cfg.SoftFraction, "soft-fraction", cfg.SoftFraction, "compact when the window exceeds this fraction of the model window")
 	cmd.Flags().Float64Var(&cfg.HardFraction, "hard-fraction", cfg.HardFraction, "warn when a finished pass is still above this fraction of the model window")
 	cmd.Flags().IntVar(&cfg.FreshTailMessages, "fresh-tail", cfg.FreshTailMessages, "most recent messages always kept raw")
+	cmd.Flags().IntVar(&cfg.FreshTailTokens, "fresh-tail-tokens", cfg.FreshTailTokens, "minimum recent conversational tokens kept raw")
 	cmd.Flags().IntVar(&cfg.LeafChunkTokens, "leaf-chunk-tokens", cfg.LeafChunkTokens, "max source tokens folded into one leaf summary")
 	cmd.Flags().IntVar(&cfg.LeafTargetTokens, "leaf-target-tokens", cfg.LeafTargetTokens, "target size of a leaf summary (keep well under leaf-chunk-tokens)")
 	cmd.Flags().IntVar(&cfg.CondensedTargetTokens, "condensed-target-tokens", cfg.CondensedTargetTokens, "target size of a condensed summary")
+	cmd.Flags().IntVar(&cfg.CondenseFanout, "condense-fanout", cfg.CondenseFanout, "same-depth summaries folded into one condensed node")
+	cmd.Flags().IntVar(&cfg.CondenseChunkTokens, "condense-chunk-tokens", cfg.CondenseChunkTokens, "maximum source tokens folded into one condensed node")
+	cmd.Flags().IntVar(&cfg.MaxDepth, "max-depth", cfg.MaxDepth, "maximum condensed-summary depth")
+	cmd.Flags().IntVar(&cfg.TruncateTokens, "truncate-tokens", cfg.TruncateTokens, "deterministic fallback summary size")
+	cmd.Flags().IntVar(&cfg.LargeFileThreshold, "large-file-threshold", cfg.LargeFileThreshold, "offload compacted messages above this token count (0 disables)")
+	cmd.Flags().IntVar(&cfg.MaxIterations, "max-iterations", cfg.MaxIterations, "maximum compaction operations per conversation")
 	cmd.Flags().StringVar(&summarizerName, "summarizer", "deterministic", "summarizer: deterministic|claude|codex")
 	return cmd
 }
