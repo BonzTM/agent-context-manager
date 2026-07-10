@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hashes it into resume identity, and feeds validation failures into retries.
 - An anonymized fixed-clock recall corpus records exact top-k expectations for
   every message role and summary hits, with Recall@k/MRR regression gates.
+- OpenCode's self-contained plugin now owns its outgoing active window through
+  message/system/compaction transforms. The new bounded `acm opencode-context`
+  protocol archives older messages, preserves the count-and-token fresh tail,
+  injects automatic recall, and supplies summary roots with drill-down guidance.
 
 ### Changed
 
@@ -58,6 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic recall now searches active and historical summaries under separate
   candidate/result quotas, excludes the current protected raw tail, and emits
   kind-correct `acm describe` or `acm expand` drill-down guidance.
+- Automatic recall selection is shared by hook-based hosts and OpenCode's
+  transform protocol, keeping candidate limits and ranking identical.
 
 ### Security
 
@@ -71,6 +77,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agentic map isolates Claude to read-only built-ins with no MCP servers and
   runs Codex under its read-only sandbox without user rules or configuration.
   Both stream bounded events and terminate the child process group on limits.
+- OpenCode-generated archive, summary, recall, and resume content carries
+  synthetic metadata and reserved protocol prefixes that are rejected before
+  capture, preventing transformed context from being indexed recursively.
 
 ## [1.1.1] - 2026-07-09
 

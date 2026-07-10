@@ -155,6 +155,39 @@ func TestCompactShrinksWindowAndIsLossless(t *testing.T) {
 	}
 }
 
+func TestArchiveToFreshTailCompactsBelowSoftThreshold(t *testing.T) {
+	ctx := context.Background()
+	compactor, sqliteStore, conversation := setup(t, testConfig())
+	// Five messages remain below the 500-token soft threshold but exceed the
+	// protected tail.
+	appendMessages(t, sqliteStore, conversation.ID, 5)
+	normal, err := compactor.Compact(ctx, conversation.ID)
+	if err != nil {
+		t.Fatalf("normal compact: %v", err)
+	}
+	if normal.Compacted {
+		t.Fatalf("normal compact unexpectedly changed below-soft window: %+v", normal)
+	}
+	archived, err := compactor.ArchiveToFreshTail(ctx, conversation.ID)
+	if err != nil {
+		t.Fatalf("archive to fresh tail: %v", err)
+	}
+	if !archived.Compacted || archived.Leaves == 0 {
+		t.Fatalf("archive result = %+v", archived)
+	}
+	items, err := compactor.Assemble(ctx, conversation.ID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(items) < 3 || !items[0].IsSummary || items[len(items)-1].IsSummary {
+		t.Fatalf("archived window = %+v", items)
+	}
+	second, err := compactor.ArchiveToFreshTail(ctx, conversation.ID)
+	if err != nil || second.Compacted {
+		t.Fatalf("second archive = %+v err=%v", second, err)
+	}
+}
+
 func TestToolHeavyCompactionProtectsConversationalTail(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()

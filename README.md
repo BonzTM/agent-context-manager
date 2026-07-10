@@ -49,9 +49,9 @@ each project.
   The agent drills down through its normal shell tool (`acm expand`, `acm grep` —
   which searches summaries as well as messages).
 - **Automatic recall** — relevant prior context is surfaced into each new turn
-  on Claude Code and Codex prompt hooks through bounded message/summary search,
-  fresh-tail exclusion, and deterministic role, recency, session, and
-  size-aware reranking measured by a committed Recall@k/MRR corpus.
+  on all three hosts through bounded message/summary search, fresh-tail
+  exclusion, and deterministic role, recency, session, and size-aware
+  reranking measured by a committed Recall@k/MRR corpus.
 - **Large-file offload** — oversized payloads are moved to disk with a compact,
   type-aware exploration summary (JSON/CSV/SQL/code get deterministic
   schema-level descriptions; prose uses the summarizer), keeping the working
@@ -139,7 +139,7 @@ acm expand <summary-id>   # recover a summary's verbatim sources
 |-------|:-------:|:----------------:|:----------:|:---------------------:|
 | Claude Code | ✅ hooks (prompts, tools, assistant transcript) | ✅ | ✅ shell tool | augment |
 | Codex | ✅ hooks + notify (prompts, tools, final assistant message) | ✅ | ✅ shell tool | augment |
-| OpenCode | ✅ plugin (messages + tool calls) | — (drill-down only) | ✅ shell tool | capture only |
+| OpenCode | ✅ plugin (messages + tool calls) | ✅ transform | ✅ shell tool | ✅ transform |
 
 Setup for each agent is in [docs/integrations.md](docs/integrations.md). How acm's
 surface compares to the other LCM implementations (volt, lossless-claw,

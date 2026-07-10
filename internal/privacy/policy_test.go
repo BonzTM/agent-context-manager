@@ -70,6 +70,24 @@ func TestPolicySupportsExplicitOptOutAndAllowValue(t *testing.T) {
 	}
 }
 
+func TestPolicyAlwaysExcludesSyntheticContext(t *testing.T) {
+	disabled := false
+	policy, err := newPolicy(diskPolicy{Redact: &disabled})
+	if err != nil {
+		t.Fatalf("new policy: %v", err)
+	}
+	for _, content := range []string{
+		"[Archived by acm: older message elided]",
+		"<acm-recall>\nprior context\n</acm-recall>",
+	} {
+		request := core.IngestRequest{Agent: core.AgentOpenCode, SessionID: "session", Messages: []core.IngestMessage{{Role: core.RoleUser, Content: content}}}
+		filtered, decision, applyErr := policy.Apply(request)
+		if applyErr != nil || len(filtered.Messages) != 0 || decision.MessagesExcluded != 1 {
+			t.Fatalf("synthetic exclusion = %+v %+v err=%v", filtered, decision, applyErr)
+		}
+	}
+}
+
 func TestSessionModesHaveDeterministicPrecedence(t *testing.T) {
 	policy, err := newPolicy(diskPolicy{
 		IgnoreSessions: []string{"blocked-*"}, StatelessSessions: []string{"stateless-*", "blocked-*"},

@@ -151,6 +151,7 @@ details on any command.`,
 		newExpandQueryCmd(a),
 		newWindowCmd(a),
 		newHookCmd(a),
+		newOpenCodeContextCmd(a),
 		newInitCmd(a),
 		newMapCmd(a),
 	)
