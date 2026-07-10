@@ -117,10 +117,14 @@ view is diagnostic on those hosts; they receive only supplemental recall.
 
 ### Off-context batch processing (`acm map`)
 
-For bulk work over large datasets, `acm map` reads a JSONL file, processes each
-item independently through a bounded worker pool with validated retries, and
-writes results to a JSONL file. The dataset never enters the agent's context
-window, which keeps accuracy stable regardless of dataset size.
+For bulk work over large datasets, `acm map` validates and streams a JSONL file,
+processes each item independently through a bounded worker pool with validated
+retries, and spools synced per-item state to disk. Successful runs assemble the
+states in input order and publish the output with a same-directory rename only
+after it has been flushed and synced. Interrupted runs leave their state for a
+compatible restart, which skips completed and terminally failed items. The
+dataset never enters the agent's context window, and in-memory work is bounded
+by worker concurrency rather than item count.
 
 ## Data model
 

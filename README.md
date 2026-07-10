@@ -160,7 +160,7 @@ hermes-lcm, opencode-lcm) is mapped in [docs/comparison.md](docs/comparison.md).
 | `acm expand <id>` | Expand a summary to its verbatim sources |
 | `acm expand-query <id> <query>` | Expand a summary, filtered to matching messages; `--synthesize` answers with the agent model |
 | `acm window <id>` | Show a conversation's assembled active context |
-| `acm map` | Process a JSONL dataset off-context (bounded worker pool) |
+| `acm map` | Stream a JSONL dataset off-context with bounded, resumable workers |
 | `acm stats` | Report aggregate store counts |
 | `acm doctor` | Check database integrity, permissions, integrations, and capture gaps |
 | `acm backup` | Write a consistent snapshot copy of the database |

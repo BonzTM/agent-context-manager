@@ -133,3 +133,24 @@ one-second drain bound on every platform.
 | `--require` | _(none)_ | Comma-separated JSON fields each output must contain |
 | `--concurrency` | `8` | Maximum concurrent item workers |
 | `--max-retries` | `2` | Retries per item on error or failed validation |
+| `--max-input-bytes` | `1073741824` | Maximum total input bytes |
+| `--max-item-bytes` | `1048576` | Maximum bytes in one input item |
+| `--max-output-bytes` | `1048576` | Maximum bytes in one processor output |
+| `--max-items` | `100000` | Maximum input item count |
+| `--max-calls` | `0` | Maximum worst-case processor calls; `0` disables the budget |
+| `--run-timeout` | `0s` | Maximum duration for the complete run; `0` disables the deadline |
+| `--state-dir` | `<output>.acm-map-state` | Durable per-item resume state |
+
+The hard caps are 64 concurrent workers, 8 GiB of input, 8 MiB per input or
+output item, 1,000,000 items, 2,000,000 lines, 10 attempts per item, and 24
+hours per run. ACM validates the complete input and worst-case call count before
+invoking a processor. It then streams at most `2 * concurrency + 1` items
+through memory and persists each attempt under `--state-dir`. The directory
+also holds an owner-only validated input snapshot so later processing cannot
+observe a different file than the one that passed preflight.
+
+Cancellation or a process failure leaves resume state in place and does not
+publish a partial output. Re-run the identical command to process only
+unfinished items and assemble one ordered result per input. Changing the input,
+processor contract, attempts, or byte limits requires removing the old state or
+choosing another `--state-dir`. A successful run removes its state directory.

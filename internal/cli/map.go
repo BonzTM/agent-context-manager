@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -13,16 +15,18 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/summarize"
 )
 
+type mapOptions struct {
+	input, output, processor, prompt, stateDir string
+	require                                    []string
+	concurrency, maxRetries                    int
+	maxItemBytes, maxOutputBytes               int
+	maxItems, maxCalls                         int
+	maxInputBytes                              int64
+	runTimeout                                 time.Duration
+}
+
 func newMapCmd(_ *app) *cobra.Command {
-	var (
-		input       string
-		output      string
-		processor   string
-		prompt      string
-		require     []string
-		concurrency int
-		maxRetries  int
-	)
+	options := &mapOptions{}
 	cmd := &cobra.Command{
 		Use:     "map",
 		GroupID: groupBatch,
@@ -41,42 +45,84 @@ func newMapCmd(_ *app) *cobra.Command {
   acm map --input files.jsonl --output out.jsonl --processor claude \
     --prompt "Classify this file. Return {\"label\": ...}" --require label`,
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if input == "" || output == "" {
-				return errors.New("map: --input and --output are required")
-			}
-			proc, err := buildProcessor(processor, prompt)
-			if err != nil {
-				return err
-			}
-			var validate llmmap.Validator
-			if len(require) > 0 {
-				validate = llmmap.RequireFields(require...)
-			}
-
-			mapper := &llmmap.Mapper{
-				Concurrency: concurrency,
-				MaxRetries:  maxRetries,
-				Process:     proc,
-				Validate:    validate,
-			}
-			res, err := mapper.Run(cmd.Context(), input, output)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "mapped %d items: %d ok, %d failed -> %s\n",
-				res.Total, res.Succeeded, res.Failed, output)
-			return nil
-		},
+		RunE: func(cmd *cobra.Command, _ []string) error { return options.run(cmd) },
 	}
-	cmd.Flags().StringVar(&input, "input", "", "input JSONL file (one item per line)")
-	cmd.Flags().StringVar(&output, "output", "", "output JSONL file")
-	cmd.Flags().StringVar(&processor, "processor", "passthrough", "per-item processor: passthrough|claude|codex")
-	cmd.Flags().StringVar(&prompt, "prompt", "", "instruction prepended to each item (for claude/codex)")
-	cmd.Flags().StringSliceVar(&require, "require", nil, "comma-separated JSON fields each output must contain")
-	cmd.Flags().IntVar(&concurrency, "concurrency", 8, "max concurrent item workers")
-	cmd.Flags().IntVar(&maxRetries, "max-retries", 2, "retries per item on error or failed validation")
+	options.bindFlags(cmd)
 	return cmd
+}
+
+func (options *mapOptions) bindFlags(cmd *cobra.Command) {
+	flags := cmd.Flags()
+	flags.StringVar(&options.input, "input", "", "input JSONL file (one item per line)")
+	flags.StringVar(&options.output, "output", "", "output JSONL file")
+	flags.StringVar(&options.processor, "processor", "passthrough", "per-item processor: passthrough|claude|codex")
+	flags.StringVar(&options.prompt, "prompt", "", "instruction prepended to each item (for claude/codex)")
+	flags.StringSliceVar(&options.require, "require", nil, "comma-separated JSON fields each output must contain")
+	flags.IntVar(&options.concurrency, "concurrency", 8, "max concurrent item workers")
+	flags.IntVar(&options.maxRetries, "max-retries", 2, "retries per item on error or failed validation")
+	flags.Int64Var(&options.maxInputBytes, "max-input-bytes", 1<<30, "maximum total input bytes")
+	flags.IntVar(&options.maxItemBytes, "max-item-bytes", 1<<20, "maximum bytes in one input item")
+	flags.IntVar(&options.maxOutputBytes, "max-output-bytes", 1<<20, "maximum bytes in one processor output")
+	flags.IntVar(&options.maxItems, "max-items", 100_000, "maximum input item count")
+	flags.IntVar(&options.maxCalls, "max-calls", 0, "maximum worst-case processor calls (0 disables)")
+	flags.DurationVar(&options.runTimeout, "run-timeout", 0, "maximum duration for the complete run (0 disables)")
+	flags.StringVar(&options.stateDir, "state-dir", "", "resume state directory (default <output>.acm-map-state)")
+}
+
+func (options *mapOptions) run(cmd *cobra.Command) error {
+	mapper, err := options.mapper()
+	if err != nil {
+		return err
+	}
+	result, err := mapper.Run(cmd.Context(), options.input, options.output)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "mapped %d items: %d ok, %d failed (peak buffered: %d) -> %s\n",
+		result.Total, result.Succeeded, result.Failed, result.PeakInFlight, options.output)
+	return err
+}
+
+func (options *mapOptions) mapper() (*llmmap.Mapper, error) {
+	if options.input == "" || options.output == "" {
+		return nil, errors.New("map: --input and --output are required")
+	}
+	processor, err := buildProcessor(options.processor, options.prompt)
+	if err != nil {
+		return nil, err
+	}
+	configKey, err := mapConfigKey(options.processor, options.prompt, options.require)
+	if err != nil {
+		return nil, err
+	}
+	return &llmmap.Mapper{
+		Concurrency: options.concurrency, MaxRetries: options.maxRetries,
+		MaxInputBytes: options.maxInputBytes, MaxItemBytes: options.maxItemBytes,
+		MaxOutputBytes: options.maxOutputBytes, MaxItems: options.maxItems,
+		MaxCalls: options.maxCalls, RunTimeout: options.runTimeout,
+		StateDir: options.stateDir, ConfigKey: configKey,
+		Process: processor, Validate: mapValidator(options.require),
+	}, nil
+}
+
+func mapValidator(require []string) llmmap.Validator {
+	if len(require) == 0 {
+		return nil
+	}
+	return llmmap.RequireFields(require...)
+}
+
+func mapConfigKey(processor, prompt string, require []string) (string, error) {
+	contract := struct {
+		Processor string   `json:"processor"`
+		Prompt    string   `json:"prompt"`
+		Require   []string `json:"require"`
+	}{Processor: processor, Prompt: prompt, Require: require}
+	encoded, err := json.Marshal(contract)
+	if err != nil {
+		return "", fmt.Errorf("map: encode processor contract: %w", err)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(encoded)), nil
 }
 
 func buildProcessor(name, prompt string) (llmmap.Processor, error) {
