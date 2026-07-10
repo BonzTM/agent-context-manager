@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -138,48 +137,12 @@ func (options *hookOptions) persistCapture(ctx context.Context, a *app, sq *stor
 }
 
 func automaticRecall(ctx context.Context, sq *store.SQLite, agent core.Agent, sessionID, prompt string, limit int) ([]agents.RecallHit, error) {
-	terms := agents.RecallTerms(prompt)
-	if len(terms) == 0 {
-		return nil, nil
-	}
-	conversationID := core.DeriveConversationID(agent, sessionID)
-	excluded, err := freshTailIDs(ctx, sq, conversationID)
-	if err != nil {
-		return nil, err
-	}
-	messageLimit, summaryLimit := recallCandidateLimits(limit)
-	query := core.SearchQuery{Text: strings.Join(terms, " "), Limit: messageLimit, Any: true}
-	messages, err := sq.SearchMessages(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("search messages: %w", err)
-	}
-	query.Limit = summaryLimit
-	summaries, err := sq.SearchSummaries(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("search summaries: %w", err)
-	}
-	candidates := agents.MessageRecallHits(messages, excluded)
-	candidates = append(candidates, agents.SummaryRecallHits(summaries)...)
-	return agents.RankRecall(candidates, terms, conversationID, clock.Now(), limit), nil
-}
-
-func freshTailIDs(ctx context.Context, sq *store.SQLite, conversationID string) (map[string]struct{}, error) {
 	cfg := engine.DefaultConfig()
-	ids, err := sq.RecentConversationalMessageIDs(ctx, conversationID, cfg.FreshTailMessages, cfg.FreshTailTokens, agents.MaxFreshTailRows)
-	if err != nil {
-		return nil, fmt.Errorf("load fresh tail: %w", err)
-	}
-	excluded := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		excluded[id] = struct{}{}
-	}
-	return excluded, nil
-}
-
-func recallCandidateLimits(limit int) (messages, summaries int) {
-	total := min(agents.MaxRecallCandidates, max(limit, 1)*10)
-	summaries = min(agents.MaxSummaryCandidates, max(total/5, 1))
-	return total - summaries, summaries
+	return agents.AutomaticRecall(ctx, sq, agents.AutomaticRecallRequest{
+		Agent: agent, SessionID: sessionID, Prompt: prompt, Limit: limit,
+		FreshTailMessages: cfg.FreshTailMessages, FreshTailTokens: cfg.FreshTailTokens,
+		Now: clock.Now(),
+	})
 }
 
 func emitRecall(cmd *cobra.Command, event, block string) error {

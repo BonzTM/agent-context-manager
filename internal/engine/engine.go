@@ -126,6 +126,16 @@ type windowItem struct {
 // fresh tail. It is idempotent: a window already under threshold is left as-is
 // (beyond persisting the initial seeding).
 func (c *Compactor) Compact(ctx context.Context, conversationID string) (Result, error) {
+	return c.compactWindow(ctx, conversationID, false)
+}
+
+// ArchiveToFreshTail folds every compactible message outside the protected
+// fresh tail. Owning hosts use it before replacing archived prompt content.
+func (c *Compactor) ArchiveToFreshTail(ctx context.Context, conversationID string) (Result, error) {
+	return c.compactWindow(ctx, conversationID, true)
+}
+
+func (c *Compactor) compactWindow(ctx context.Context, conversationID string, archiveAll bool) (Result, error) {
 	if err := c.cfg.Validate(); err != nil {
 		return Result{}, err
 	}
@@ -134,18 +144,12 @@ func (c *Compactor) Compact(ctx context.Context, conversationID string) (Result,
 		return Result{}, err
 	}
 
-	soft := int(c.cfg.SoftFraction * float64(c.cfg.ModelContextTokens))
 	res := Result{BeforeTokens: windowTokens(w)}
-
-	if res.BeforeTokens <= soft {
-		if pErr := c.persist(ctx, conversationID, w); pErr != nil {
-			return Result{}, pErr
+	soft := int(c.cfg.SoftFraction * float64(c.cfg.ModelContextTokens))
+	for range c.cfg.MaxIterations {
+		if !archiveAll && windowTokens(w) <= soft {
+			break
 		}
-		res.AfterTokens = res.BeforeTokens
-		return res, nil
-	}
-
-	for iter := 0; iter < c.cfg.MaxIterations && windowTokens(w) > soft; iter++ {
 		protected := protectedSet(w, c.cfg.FreshTailMessages, c.cfg.FreshTailTokens)
 		if start, end, ok := findMessageBlock(w, protected, c.cfg.LeafChunkTokens); ok {
 			leaf, lErr := c.makeLeaf(ctx, conversationID, w[start:end])
@@ -173,12 +177,12 @@ func (c *Compactor) Compact(ctx context.Context, conversationID string) (Result,
 	}
 	res.AfterTokens = windowTokens(w)
 	res.Compacted = res.Leaves > 0 || res.Condensed > 0
-	if hard := int(c.cfg.HardFraction * float64(c.cfg.ModelContextTokens)); hard > 0 && res.AfterTokens > hard {
+	if hard := int(c.cfg.HardFraction * float64(c.cfg.ModelContextTokens)); !archiveAll && hard > 0 && res.AfterTokens > hard {
 		c.logger.Warn("window still above hard threshold after compaction",
 			"conversation", conversationID, "tokens", res.AfterTokens, "hard", hard,
 			"hint", "lower --leaf-target-tokens/--condensed-target-tokens or raise --fresh-tail limits")
 	}
-	c.logger.Debug("compacted", "conversation", conversationID,
+	c.logger.Debug("compacted", "conversation", conversationID, "archive_all", archiveAll,
 		"before", res.BeforeTokens, "after", res.AfterTokens, "leaves", res.Leaves, "condensed", res.Condensed)
 	return res, nil
 }

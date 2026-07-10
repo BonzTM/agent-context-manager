@@ -118,11 +118,20 @@ plugin to `~/.config/opencode/plugin/acm.ts` and appends the drill-down
 instructions to `~/.config/opencode/AGENTS.md`. For a single project, copy that
 plugin into `<repo>/.opencode/plugin/` instead.
 
-Ensure the `acm` binary is on `PATH`; the plugin shells out to it. The plugin
-captures each message and tool call into acm's lossless store; retrieval on
-OpenCode is drill-down only (the model runs `acm grep`/`expand`/`describe`
-through its shell tool — there is no automatic recall injection yet), and the
-active window remains OpenCode's own.
+Ensure the `acm` binary is on `PATH`; the plugin shells out to it. The same
+self-contained plugin captures each message and tool call, then uses OpenCode's
+`experimental.chat.messages.transform` hook to request a bounded, versioned
+plan from `acm opencode-context`. The binary archives messages outside the
+protected count-and-token tail, assembles active summary roots, and selects
+automatic recall; the plugin replaces archived part payloads and appends the
+summary and `<acm-recall>` context to the current user message. Its system and
+compaction hooks preserve drill-down guidance and a bounded resume note.
+
+Generated context is marked `synthetic` with an `acmContext` metadata field and
+a reserved `[Archived by acm:` or `<acm-recall>` prefix. Both the plugin and the
+capture policy reject those markers before persistence, preventing transformed
+context from feeding back into the lossless store. Messages intentionally
+beginning with either reserved marker are therefore excluded from capture.
 
 ---
 

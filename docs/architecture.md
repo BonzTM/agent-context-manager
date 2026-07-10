@@ -68,6 +68,11 @@ Compaction is governed by a two-threshold token budget over the active window:
    higher-depth node.
 
 The most recent messages (the **fresh tail**) are never compacted.
+OpenCode's owning adapter invokes the same bounded loop before each prompt even
+below the soft threshold, folding every eligible older message so the outgoing
+array can be represented by summary roots plus the protected raw tail. Claude
+Code and Codex retain the threshold-triggered behavior because their hooks
+cannot replace the host message array.
 
 ### Escalating summarization
 
@@ -114,9 +119,10 @@ recency, active-summary status, source order, and payload size. Low-signal
 prompts inject no recall block. A fixed-clock fixture corpus gates exact top-k,
 Recall@k, MRR, and deterministic ordering.
 
-`acm window` renders ACM's persisted, synthetic active view. The current Claude
-Code and Codex adapters cannot replace the host's live message array, so this
-view is diagnostic on those hosts; they receive only supplemental recall.
+`acm window` renders ACM's persisted, synthetic active view. OpenCode's message
+transform applies that view to the outgoing prompt and injects automatic recall.
+The Claude Code and Codex adapters cannot replace the host's live message array,
+so the view is diagnostic on those hosts; they receive supplemental recall.
 
 ### Off-context batch processing (`acm map`)
 

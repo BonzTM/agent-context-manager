@@ -29,8 +29,8 @@ The implementations compared:
 | Protected fresh tail | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Escalating summarization (normal → aggressive → deterministic truncate) | ✅ | ✅ | ✅ | ✅ | ✗ (deterministic only) |
 | Deterministic summarizer as primary mode | ✅ | ✗ (L3 fallback only) | ✗ (L3 fallback only) | ✗ (L3 fallback only) | ✅ |
-| Active-window ownership | augment (hosts do not expose it) | ✅ full | ✅ full | ✅ full | ✅ in-place prompt rewrite |
-| Automatic recall injection on prompt | ✅ (Claude Code, Codex) | ✗ (pull only) | ✗ (pull only) | ✗ (summaries in window) | ✅ (scope-escalating) |
+| Active-window ownership | ✅ OpenCode transform; augment on Claude Code/Codex | ✅ full | ✅ full | ✅ full | ✅ in-place prompt rewrite |
+| Automatic recall injection on prompt | ✅ (all supported hosts) | ✗ (pull only) | ✗ (pull only) | ✗ (summaries in window) | ✅ (scope-escalating) |
 | Drill-down retrieval (grep/expand/describe) | ✅ shell commands | ✅ agent tools | ✅ agent tools | ✅ agent tools + slash cmds | ✅ agent tools |
 | Search covers summaries | ✅ | ✅ (grouped by summary) | ✅ | ✅ | ✅ |
 | Large-content offload | ✅ (token threshold, disk + type-aware exploration summaries) | ✅ (type-aware exploration summaries) | ✅ | ✗ (truncation only) | ✅ (artifact blobs, dedup, previews) |
@@ -42,13 +42,12 @@ The implementations compared:
 
 ## Where acm deliberately differs
 
-**Augmentation over ownership.** Claude Code and Codex expose hooks and
-supplemental-context injection, not control of the live message array — so on
-those hosts *no* implementation can own the window, and acm is designed for
-exactly that constraint: a lossless side-record, push recall at prompt time, and
-pull drill-down through the shell tool the agent already has. The window-owning
-implementations above each require adopting their host (volt, OpenClaw, Hermes)
-or a host with a transform API (OpenCode).
+**Ownership where the host permits it.** Claude Code and Codex expose hooks and
+supplemental-context injection, not control of the live message array. On those
+hosts acm keeps a lossless side-record, pushes recall at prompt time, and offers
+drill-down through the existing shell tool. OpenCode exposes a message transform,
+so acm additionally replaces archived payloads with summary pointers while
+preserving the protected fresh tail.
 
 **One binary, many agents, per-project state.** acm is the only implementation
 in this set that covers multiple unrelated host agents from one install, keeps
@@ -63,10 +62,6 @@ window-owning engines instead keep summaries permanently in context.
 
 These are real deltas, tracked as roadmap items rather than claimed away:
 
-- **No active-window ownership anywhere, including OpenCode.** The OpenCode
-  plugin captures messages and tool calls; it does not yet rewrite the outgoing
-  prompt (`experimental.chat.messages.transform`) the way opencode-lcm does, and
-  OpenCode recall is drill-down only.
 - **Retrieval remains lexical.** acm filters prompts to a bounded salient-term
   query, obtains BM25 candidates, and reranks by coverage, current conversation,
   role, recency, and payload size. It still lacks semantic embeddings, learned

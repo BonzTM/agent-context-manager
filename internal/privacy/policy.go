@@ -15,6 +15,8 @@ import (
 const (
 	maxJSONNodes            = 10_000
 	maxRedactionsPerMessage = 10_000
+	acmArchivePrefix        = "[Archived by acm:"
+	acmRecallPrefix         = "<acm-recall>"
 )
 
 type redactionPattern struct {
@@ -86,7 +88,7 @@ func (policy *Policy) Apply(request core.IngestRequest) (core.IngestRequest, cor
 }
 
 func (policy *Policy) excludeMessage(message core.IngestMessage) bool {
-	if matchesAny(policy.toolGlobs, message.ToolName) || policy.rawContainsExcludedPath(message.Raw) {
+	if syntheticContext(message.Content) || matchesAny(policy.toolGlobs, message.ToolName) || policy.rawContainsExcludedPath(message.Raw) {
 		return true
 	}
 	content := message.Content + "\n" + message.Raw
@@ -96,6 +98,11 @@ func (policy *Policy) excludeMessage(message core.IngestMessage) bool {
 		}
 	}
 	return false
+}
+
+func syntheticContext(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	return strings.HasPrefix(trimmed, acmArchivePrefix) || strings.HasPrefix(trimmed, acmRecallPrefix)
 }
 
 func (policy *Policy) redactMessage(message core.IngestMessage) (core.IngestMessage, bool, error) {

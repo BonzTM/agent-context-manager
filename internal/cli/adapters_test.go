@@ -106,11 +106,11 @@ func TestHookInjectsSummaryOnlyMatchWithExpandGuidance(t *testing.T) {
 }
 
 func TestRecallCandidateLimitsAndFlagBounds(t *testing.T) {
-	messages, summaries := recallCandidateLimits(5)
+	messages, summaries := agents.RecallCandidateLimits(5)
 	if messages != 40 || summaries != 10 {
 		t.Fatalf("default candidate limits = %d/%d, want 40/10", messages, summaries)
 	}
-	messages, summaries = recallCandidateLimits(1)
+	messages, summaries = agents.RecallCandidateLimits(1)
 	if messages+summaries != 10 || summaries != 2 {
 		t.Fatalf("small candidate limits = %d/%d, want total 10 with 2 summaries", messages, summaries)
 	}

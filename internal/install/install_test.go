@@ -101,8 +101,24 @@ func TestOpencodePluginInstalledToAutoLoadDir(t *testing.T) {
 	}
 	path := filepath.Join(home, ".config", "opencode", "plugin", "acm.ts")
 	content := readFile(t, path)
-	if !strings.Contains(content, "export default") {
-		t.Fatalf("plugin file does not look like a plugin:\n%s", content)
+	for _, required := range []string{
+		"experimental.chat.messages.transform",
+		"experimental.chat.system.transform",
+		"experimental.session.compacting",
+		`["opencode-context"]`,
+		"synthetic: true",
+		"acmContext",
+		"[Archived by acm:",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("plugin missing %q", required)
+		}
+	}
+	if count := strings.Count(content, "export default"); count != 1 {
+		t.Fatalf("plugin has %d default exports, want exactly one", count)
+	}
+	if strings.Contains(content, "export {") || strings.Contains(content, "export const ") {
+		t.Fatal("plugin contains a named export that OpenCode cannot load")
 	}
 
 	// Re-apply: idempotent (file unchanged).
