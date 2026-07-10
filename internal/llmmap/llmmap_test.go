@@ -145,6 +145,7 @@ func TestMapperRejectsExcessiveLimitsBeforeProcessorWork(t *testing.T) {
 		{name: "item count", mapper: Mapper{MaxItems: hardMaxItems + 1}},
 		{name: "run timeout", mapper: Mapper{RunTimeout: hardRunTimeout + time.Second}},
 		{name: "call budget", mapper: Mapper{MaxCalls: 1}},
+		{name: "hard call budget", mapper: Mapper{MaxCalls: hardMaxCalls + 1}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -29,6 +29,7 @@ const (
 	hardItemBytes      = 8 << 20
 	hardMaxItems       = 1_000_000
 	hardMaxLines       = 2_000_000
+	hardMaxCalls       = 10_000_000
 	hardAttempts       = 10
 	hardRunTimeout     = 24 * time.Hour
 	maxErrorBytes      = 4 << 10
@@ -211,7 +212,7 @@ func (mapper *Mapper) settings(outputPath string) (runSettings, error) {
 	if settings.maxInputBytes < 1 || settings.maxInputBytes > hardInputBytes {
 		return settings, fmt.Errorf("llmmap: input bytes must be 1..%d", int64(hardInputBytes))
 	}
-	if settings.maxItems < 1 || settings.maxItems > hardMaxItems || settings.maxCalls < 0 || mapper.RunTimeout < defaultRunTimeout || mapper.RunTimeout > hardRunTimeout {
+	if settings.maxItems < 1 || settings.maxItems > hardMaxItems || settings.maxCalls < 0 || settings.maxCalls > hardMaxCalls || mapper.RunTimeout < defaultRunTimeout || mapper.RunTimeout > hardRunTimeout {
 		return settings, errors.New("llmmap: invalid item, call, or timeout limit")
 	}
 	return settings, nil
@@ -637,7 +638,7 @@ func readFileBounded(path string, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("llmmap: read state: %w", err)
 	}
 	if int64(len(content)) > limit {
-		return nil, fmt.Errorf("llmmap: state file %s exceeds %d bytes", path, limit)
+		return nil, fmt.Errorf("llmmap: file %s exceeds %d bytes", path, limit)
 	}
 	return content, nil
 }

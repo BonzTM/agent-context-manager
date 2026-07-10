@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `acm map` now exposes total-input and item/output byte limits, item and
   worst-case call budgets, a run timeout, and an optional resume-state
   directory.
+- `acm map --processor claude-agent|codex-agent` runs bounded tool-using
+  sessions per item with host read-only controls, observed tool/turn limits,
+  per-item deadlines, and the existing durable item-state contract.
+- `acm map --schema` compiles a bounded local JSON Schema before processor work,
+  hashes it into resume identity, and feeds validation failures into retries.
 
 ### Changed
 
@@ -58,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The local-data threat model and ADR 0002 document the limits of owner-only
   modes and defer database encryption until driver, licensing, key management,
   migration, recovery, and rollback requirements are resolved.
+- Agentic map isolates Claude to read-only built-ins with no MCP servers and
+  runs Codex under its read-only sandbox without user rules or configuration.
+  Both stream bounded events and terminate the child process group on limits.
 
 ## [1.1.1] - 2026-07-09
 

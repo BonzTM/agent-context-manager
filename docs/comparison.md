@@ -35,7 +35,7 @@ The implementations compared:
 | Search covers summaries | ✅ | ✅ (grouped by summary) | ✅ | ✅ | ✅ |
 | Large-content offload | ✅ (token threshold, disk + type-aware exploration summaries) | ✅ (type-aware exploration summaries) | ✅ | ✗ (truncation only) | ✅ (artifact blobs, dedup, previews) |
 | LLM-synthesized `expand-query` | ✅ (`--synthesize`, cited msg ids, filter fallback) | ✗ | ✅ (sub-agent, grants) | ✅ (separate model/timeout) | ✗ |
-| Off-context batch map (`llm_map`) | ✅ (worker pool, validation-feedback retries) | ✅ (+ `agentic_map`, exactly-once item states) | ✗ | ✗ | ✗ |
+| Off-context batch map (`llm_map`) | ✅ (streaming, resumable, JSON Schema, read-only `agentic_map`) | ✅ (`agentic_map`, exactly-once item states) | ✗ | ✗ | ✗ |
 | Works with zero infrastructure (one binary, no host fork) | ✅ | ✗ | ✗ | ✗ | ✗ (needs OpenCode runtime) |
 | Multi-project routing from one install | ✅ | n/a | ✗ | ✗ | ✗ |
 | Operational hygiene (doctor, backup) | ✅ integrity + FTS parity check, `VACUUM INTO` backup | unspecified | ✅ rich (TUI, rotate, repair, transplant) | ✅ (doctor, clean, backup) | ✅ (doctor, retention, snapshots, GC) |
@@ -71,10 +71,3 @@ These are real deltas, tracked as roadmap items rather than claimed away:
   query, obtains BM25 candidates, and reranks by coverage, current conversation,
   role, recency, and payload size. It still lacks semantic embeddings, learned
   ranking, and opencode-lcm's scope escalation.
-- **No `agentic_map`.** acm ships `llm_map` mechanics (worker pool, required
-  fields, validation-feedback retries); volt's tool-using per-item sub-agents
-  and exactly-once DB-backed item states are out of scope for a hookable CLI.
-- **Coarser session lifecycle.** Session filtering patterns, retention pruning,
-  pinning, and cross-session carry-over (lossless-claw, hermes-lcm,
-  opencode-lcm) are not implemented; acm's per-project databases keep the blast
-  radius small, but offer no per-session policy.

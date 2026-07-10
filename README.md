@@ -55,9 +55,10 @@ each project.
   type-aware exploration summary (JSON/CSV/SQL/code get deterministic
   schema-level descriptions; prose uses the summarizer), keeping the working
   context lean.
-- **Off-context batch processing** — `acm map` processes large JSONL datasets
-  through a fixed worker pool with validated, feedback-driven retries, without
-  the data ever entering the agent's context window.
+- **Off-context batch processing** — `acm map` streams large JSONL datasets
+  through bounded resumable workers with JSON Schema feedback retries; optional
+  read-only agentic processors can inspect the workspace with host tools per
+  item without putting the dataset in the parent agent's context window.
 - **Bring-your-own model** — optional LLM summarization reuses the host agent's
   own model in headless mode, so `acm` holds no separate credentials. A fully
   offline deterministic summarizer is the default and the fallback.
@@ -160,7 +161,7 @@ hermes-lcm, opencode-lcm) is mapped in [docs/comparison.md](docs/comparison.md).
 | `acm expand <id>` | Expand a summary to its verbatim sources |
 | `acm expand-query <id> <query>` | Expand a summary, filtered to matching messages; `--synthesize` answers with the agent model |
 | `acm window <id>` | Show a conversation's assembled active context |
-| `acm map` | Stream a JSONL dataset off-context with bounded, resumable workers |
+| `acm map` | Stream JSONL through bounded single-response or read-only agentic workers |
 | `acm stats` | Report aggregate store counts |
 | `acm doctor` | Check database integrity, permissions, integrations, and capture gaps |
 | `acm backup` | Write a consistent snapshot copy of the database |
