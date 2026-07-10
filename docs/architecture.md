@@ -108,8 +108,11 @@ The agent recovers detail through its normal shell tool:
 
 Relevant prior context is also surfaced automatically into new turns by the
 capture/recall hook. It extracts a bounded set of salient prompt terms, obtains
-BM25 candidates, then reranks them by lexical coverage, current conversation,
-role, recency, and payload size. Low-signal prompts inject no recall block.
+bounded BM25 message and summary candidates, excludes the current protected
+raw tail, then reranks them by lexical coverage, current conversation, role,
+recency, active-summary status, source order, and payload size. Low-signal
+prompts inject no recall block. A fixed-clock fixture corpus gates exact top-k,
+Recall@k, MRR, and deterministic ordering.
 
 `acm window` renders ACM's persisted, synthetic active view. The current Claude
 Code and Codex adapters cannot replace the host's live message array, so this

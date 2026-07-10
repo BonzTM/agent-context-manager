@@ -70,6 +70,7 @@ type SummaryHit struct {
 	Summary Summary
 	Snippet string
 	Score   float64
+	Active  bool
 }
 
 // Store is acm's persistence contract, defined here by its consumer (the core

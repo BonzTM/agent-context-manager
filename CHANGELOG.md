@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-item deadlines, and the existing durable item-state contract.
 - `acm map --schema` compiles a bounded local JSON Schema before processor work,
   hashes it into resume identity, and feeds validation failures into retries.
+- An anonymized fixed-clock recall corpus records exact top-k expectations for
+  every message role and summary hits, with Recall@k/MRR regression gates.
 
 ### Changed
 
@@ -53,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `2 * concurrency + 1` in-memory bound, persist synced per-item attempt state
   and a validated input snapshot, resume only unfinished items, and publish
   ordered output only after success.
+- Automatic recall now searches active and historical summaries under separate
+  candidate/result quotas, excludes the current protected raw tail, and emits
+  kind-correct `acm describe` or `acm expand` drill-down guidance.
 
 ### Security
 

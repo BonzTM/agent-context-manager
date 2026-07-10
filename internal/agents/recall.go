@@ -11,9 +11,50 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
-// RecallBlock formats search hits into an injectable context block. It returns
-// "" when there is nothing relevant to inject (so the caller can skip output).
-func RecallBlock(hits []core.SearchHit) string {
+// RecallKind identifies the drill-down contract for one automatic recall hit.
+type RecallKind string
+
+const (
+	// RecallMessage points to one verbatim message.
+	RecallMessage RecallKind = "message"
+	// RecallSummary points to one expandable summary DAG node.
+	RecallSummary RecallKind = "summary"
+)
+
+// RecallHit is the common deterministic ranking shape for messages and summaries.
+type RecallHit struct {
+	Kind           RecallKind
+	ID             string
+	ConversationID string
+	Role           core.Role
+	Content        string
+	Snippet        string
+	TokenCount     int
+	Seq            int64
+	Depth          int
+	EarliestSeq    int64
+	LatestSeq      int64
+	CreatedAt      time.Time
+	Active         bool
+	SourceRank     int
+}
+
+const (
+	// MaxRecallItems is the hard injected-result bound.
+	MaxRecallItems = 10
+	// MaxRecallCandidates is the combined message/summary search bound.
+	MaxRecallCandidates = 50
+	// MaxSummaryCandidates is the summary share of the candidate bound.
+	MaxSummaryCandidates = 10
+	// MaxSummaryResults prevents summary nodes from flooding injected context.
+	MaxSummaryResults = 2
+	// MaxFreshTailRows bounds identity-only current-tail discovery.
+	MaxFreshTailRows      = 4096
+	maxRecallSnippetRunes = 300
+)
+
+// RecallBlock formats ranked message and summary hits for hook injection.
+func RecallBlock(hits []RecallHit) string {
 	if len(hits) == 0 {
 		return ""
 	}
@@ -21,14 +62,23 @@ func RecallBlock(hits []core.SearchHit) string {
 	lines = append(lines,
 		"<acm-recall>",
 		"Relevant earlier context from this project's history. Drill down for the",
-		"verbatim message with: acm describe <msg-id>  (or search more: acm grep <pattern>).",
+		"source with acm describe <msg-id> or acm expand <sum-id>.",
 	)
-	for _, h := range hits {
-		lines = append(lines, fmt.Sprintf("- [%s seq=%d %s] %s",
-			h.Message.ID, h.Message.Seq, h.Message.Role, oneLine(h.Snippet)))
+	for _, hit := range hits {
+		lines = append(lines, recallLine(hit))
 	}
 	lines = append(lines, "</acm-recall>")
 	return strings.Join(lines, "\n")
+}
+
+func recallLine(hit RecallHit) string {
+	snippet := truncateRunes(oneLine(hit.Snippet), maxRecallSnippetRunes)
+	if hit.Kind == RecallSummary {
+		return fmt.Sprintf("- [%s depth=%d seq=%d-%d; acm expand %s] %s",
+			hit.ID, hit.Depth, hit.EarliestSeq, hit.LatestSeq, hit.ID, snippet)
+	}
+	return fmt.Sprintf("- [%s seq=%d %s; acm describe %s] %s",
+		hit.ID, hit.Seq, hit.Role, hit.ID, snippet)
 }
 
 const maxRecallTerms = 12
@@ -56,67 +106,110 @@ func RecallTerms(prompt string) []string {
 	return terms
 }
 
-// RankRecall selects the strongest hits using lexical coverage, host context,
-// role, recency, BM25 input order, and a penalty for oversized tool payloads.
-func RankRecall(hits []core.SearchHit, terms []string, conversationID string, limit int) []core.SearchHit {
-	if limit <= 0 || len(hits) == 0 {
-		return nil
-	}
-	newest := newestHitTime(hits)
-	scores := make([]int, len(hits))
-	for i, hit := range hits {
-		scores[i] = recallScore(hit, terms, conversationID, newest, len(hits)-i)
-	}
-
-	selected := make([]bool, len(hits))
-	out := make([]core.SearchHit, 0, min(limit, len(hits)))
-	for range min(limit, len(hits)) {
-		best := bestRecallIndex(scores, selected)
-		selected[best] = true
-		out = append(out, hits[best])
+// MessageRecallHits converts message search output and excludes current-tail IDs.
+func MessageRecallHits(hits []core.SearchHit, excluded map[string]struct{}) []RecallHit {
+	out := make([]RecallHit, 0, len(hits))
+	for rank, hit := range hits {
+		if _, skip := excluded[hit.Message.ID]; skip {
+			continue
+		}
+		out = append(out, RecallHit{
+			Kind: RecallMessage, ID: hit.Message.ID, ConversationID: hit.Message.ConversationID,
+			Role: hit.Message.Role, Content: hit.Message.Content, Snippet: hit.Snippet,
+			TokenCount: hit.Message.TokenCount, Seq: hit.Message.Seq,
+			CreatedAt: hit.Message.CreatedAt, SourceRank: rank,
+		})
 	}
 	return out
 }
 
-func recallScore(hit core.SearchHit, terms []string, conversationID string, newest time.Time, bm25Rank int) int {
-	content := strings.ToLower(hit.Message.Content)
+// SummaryRecallHits converts active and historical summary search output.
+func SummaryRecallHits(hits []core.SummaryHit) []RecallHit {
+	out := make([]RecallHit, 0, len(hits))
+	for rank, hit := range hits {
+		out = append(out, RecallHit{
+			Kind: RecallSummary, ID: hit.Summary.ID, ConversationID: hit.Summary.ConversationID,
+			Content: hit.Summary.Content, Snippet: hit.Snippet, TokenCount: hit.Summary.TokenCount,
+			Depth: hit.Summary.Depth, EarliestSeq: hit.Summary.EarliestSeq,
+			LatestSeq: hit.Summary.LatestSeq, CreatedAt: hit.Summary.CreatedAt,
+			Active: hit.Active, SourceRank: rank,
+		})
+	}
+	return out
+}
+
+// RankRecall selects deterministic combined hits under total and per-kind quotas.
+func RankRecall(hits []RecallHit, terms []string, conversationID string, now time.Time, limit int) []RecallHit {
+	if limit <= 0 || len(hits) == 0 {
+		return nil
+	}
+	scores := make([]int, len(hits))
+	for i, hit := range hits {
+		scores[i] = recallScore(hit, terms, conversationID, now)
+	}
+
+	selected := make([]bool, len(hits))
+	out := make([]RecallHit, 0, min(limit, len(hits)))
+	messageCount, summaryCount := 0, 0
+	for range min(limit, len(hits), MaxRecallItems) {
+		best := bestRecallIndex(hits, scores, selected, messageCount, summaryCount, limit)
+		if best < 0 {
+			break
+		}
+		selected[best] = true
+		out = append(out, hits[best])
+		if hits[best].Kind == RecallSummary {
+			summaryCount++
+		} else {
+			messageCount++
+		}
+	}
+	return out
+}
+
+func recallScore(hit RecallHit, terms []string, conversationID string, now time.Time) int {
+	content := strings.ToLower(hit.Content)
 	matched := 0
 	for _, term := range terms {
 		if strings.Contains(content, term) {
 			matched++
 		}
 	}
-	score := matched*100 + min(bm25Rank, 25)
-	if hit.Message.ConversationID == conversationID {
+	score := matched*100 + max(25-hit.SourceRank, 0)
+	if hit.ConversationID == conversationID {
 		score += 75
 	}
-	score += roleRecallScore(hit.Message.Role)
-	score += recencyRecallScore(newest.Sub(hit.Message.CreatedAt))
-	if hit.Message.Role == core.RoleTool {
-		score -= min(hit.Message.TokenCount/200, 50)
+	score += recencyRecallScore(max(now.Sub(hit.CreatedAt), 0))
+	if hit.Kind == RecallSummary {
+		score += 60
+		if hit.Active {
+			score += 40
+		}
+		return score
+	}
+	score += roleRecallScore(hit.Role)
+	if hit.Role == core.RoleTool {
+		score -= min(hit.TokenCount/200, 50)
 	}
 	return score
 }
 
-func newestHitTime(hits []core.SearchHit) time.Time {
-	var newest time.Time
-	for _, hit := range hits {
-		if hit.Message.CreatedAt.After(newest) {
-			newest = hit.Message.CreatedAt
-		}
-	}
-	return newest
-}
-
-func bestRecallIndex(scores []int, selected []bool) int {
+func bestRecallIndex(hits []RecallHit, scores []int, selected []bool, messages, summaries, limit int) int {
 	best := -1
 	for i, score := range scores {
-		if selected[i] || (best >= 0 && score <= scores[best]) {
+		if selected[i] || !withinRecallQuota(hits[i].Kind, messages, summaries, limit) || (best >= 0 && score <= scores[best]) {
 			continue
 		}
 		best = i
 	}
 	return best
+}
+
+func withinRecallQuota(kind RecallKind, messages, summaries, limit int) bool {
+	if kind == RecallSummary {
+		return summaries < min(MaxSummaryResults, limit)
+	}
+	return messages < min(limit, MaxRecallItems)
 }
 
 func roleRecallScore(role core.Role) int {
@@ -193,4 +286,12 @@ func AdditionalContextJSON(event, context string) ([]byte, error) {
 
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + "..."
 }

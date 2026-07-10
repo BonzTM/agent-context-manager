@@ -49,8 +49,9 @@ each project.
   The agent drills down through its normal shell tool (`acm expand`, `acm grep` —
   which searches summaries as well as messages).
 - **Automatic recall** — relevant prior context is surfaced into each new turn
-  on Claude Code and Codex prompt hooks through bounded salient-term search and
-  deterministic role, recency, session, and size-aware reranking.
+  on Claude Code and Codex prompt hooks through bounded message/summary search,
+  fresh-tail exclusion, and deterministic role, recency, session, and
+  size-aware reranking measured by a committed Recall@k/MRR corpus.
 - **Large-file offload** — oversized payloads are moved to disk with a compact,
   type-aware exploration summary (JSON/CSV/SQL/code get deterministic
   schema-level descriptions; prose uses the summarizer), keeping the working

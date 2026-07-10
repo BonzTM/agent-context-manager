@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,16 +13,18 @@ import (
 	"github.com/bonztm/agent-context-manager/internal/core"
 	"github.com/bonztm/agent-context-manager/internal/engine"
 	"github.com/bonztm/agent-context-manager/internal/privacy"
+	"github.com/bonztm/agent-context-manager/internal/store"
 )
 
+type hookOptions struct {
+	agentStr  string
+	event     string
+	recall    int
+	noCompact bool
+}
+
 func newHookCmd(a *app) *cobra.Command {
-	const maxRecallCandidates = 50
-	var (
-		agentStr  string
-		event     string
-		recall    int
-		noCompact bool
-	)
+	options := &hookOptions{}
 	cmd := &cobra.Command{
 		Use:     "hook [notification-json]",
 		GroupID: groupCapture,
@@ -40,8 +43,8 @@ func newHookCmd(a *app) *cobra.Command {
 			"  agent-turn-complete    (Codex notify) capture user + final assistant\n" +
 			"                         message, then compact if over budget\n" +
 			"  SessionStart           no-op for capture\n\n" +
-			"Recall searches the project history (OR over prompt terms) before the prompt\n" +
-			"is stored, so the prompt cannot match itself. Recall is best-effort: a search\n" +
+			"Recall searches messages and summaries (OR over prompt terms) before the prompt\n" +
+			"is stored, excluding the current raw tail. Recall is best-effort: a search\n" +
 			"failure is logged and never blocks capture.\n\n" +
 			"After capturing a turn-ending event, the conversation is opportunistically\n" +
 			"compacted (deterministic summarizer, default budget) when it exceeds the soft\n" +
@@ -50,93 +53,142 @@ func newHookCmd(a *app) *cobra.Command {
 		Example: `  echo '{"session_id":"s","prompt":"hi"}' | acm hook --agent claude-code --event UserPromptSubmit
   echo '{"session_id":"s","tool_name":"Bash","tool_response":{}}' | acm hook --agent codex --event PostToolUse`,
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			agent := core.Agent(agentStr)
-			if !agent.Valid() {
-				return fmt.Errorf("hook: invalid --agent %q", agentStr)
-			}
-			if event == "" {
-				return errors.New("hook: --event is required")
-			}
-			if recall < 0 {
-				return errors.New("hook: --recall must be non-negative")
-			}
-			payload, err := hookPayload(cmd.InOrStdin(), args)
-			if err != nil {
-				return fmt.Errorf("hook: read payload: %w", err)
-			}
-
-			req, err := agents.Capture(agent, event, payload)
-			if err != nil {
-				return err
-			}
-			sessionMode := a.policy.Mode(req.SessionID)
-
-			ctx := cmd.Context()
-			sq, db, err := a.newStore(ctx)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = db.Close() }()
-			svc := a.coreService(sq)
-
-			// Recall runs BEFORE capturing the current prompt so the prompt cannot
-			// match itself. It is best-effort: capture is the invariant, so a
-			// recall failure is logged and never aborts the hook.
-			if event == agents.EventUserPromptSubmit && len(req.Messages) > 0 && recall > 0 && sessionMode != privacy.SessionIgnore {
-				prompt := req.Messages[0].Content
-				terms := agents.RecallTerms(prompt)
-				candidateLimit := min(recall, maxRecallCandidates/5) * 5
-				hits, sErr := svc.Search(ctx, core.SearchQuery{
-					Text:  strings.Join(terms, " "),
-					Limit: candidateLimit,
-					Any:   true,
-				})
-				switch {
-				case sErr != nil:
-					a.logger.Warn("recall search failed; continuing with capture", "error", sErr)
-				case len(terms) == 0:
-				default:
-					hits = agents.RankRecall(hits, terms, core.DeriveConversationID(agent, req.SessionID), recall)
-					if block := agents.RecallBlock(hits); block != "" {
-						out, mErr := agents.AdditionalContextJSON(event, block)
-						if mErr != nil {
-							return mErr
-						}
-						if _, wErr := fmt.Fprintln(cmd.OutOrStdout(), string(out)); wErr != nil {
-							return wErr
-						}
-					}
-				}
-			}
-
-			// Capture.
-			if req.SessionID == "" || len(req.Messages) == 0 {
-				return nil
-			}
-			res, err := svc.Ingest(ctx, req)
-			if err != nil {
-				return err
-			}
-
-			// Opportunistic compaction on turn-ending events keeps the summary DAG
-			// current without a manual 'acm compact' step. Compact is a cheap no-op
-			// below the soft threshold, and a failure here is best-effort by
-			// design: the messages are already safely captured.
-			if !noCompact && (event == agents.EventStop || event == agents.EventTurnComplete) {
-				comp := a.newCompactor(sq, engine.DefaultConfig(), nil)
-				if _, cErr := comp.Compact(ctx, res.ConversationID); cErr != nil {
-					a.logger.Warn("opportunistic compaction failed", "conversation", res.ConversationID, "error", cErr)
-				}
-			}
-			return nil
-		},
+		RunE: func(cmd *cobra.Command, args []string) error { return options.run(a, cmd, args) },
 	}
-	cmd.Flags().StringVar(&agentStr, "agent", "", "host agent: claude-code|codex|opencode")
-	cmd.Flags().StringVar(&event, "event", "", "hook event name (e.g. UserPromptSubmit, PostToolUse, agent-turn-complete)")
-	cmd.Flags().IntVar(&recall, "recall", 5, "max recalled context items to inject on prompt events")
-	cmd.Flags().BoolVar(&noCompact, "no-compact", false, "skip opportunistic compaction after turn-ending events")
+	options.bindFlags(cmd)
 	return cmd
+}
+
+func (options *hookOptions) bindFlags(cmd *cobra.Command) {
+	flags := cmd.Flags()
+	flags.StringVar(&options.agentStr, "agent", "", "host agent: claude-code|codex|opencode")
+	flags.StringVar(&options.event, "event", "", "hook event name (e.g. UserPromptSubmit, PostToolUse, agent-turn-complete)")
+	flags.IntVar(&options.recall, "recall", 5, "max recalled context items to inject on prompt events (0..10)")
+	flags.BoolVar(&options.noCompact, "no-compact", false, "skip opportunistic compaction after turn-ending events")
+}
+
+func (options *hookOptions) run(a *app, cmd *cobra.Command, args []string) error {
+	agent, request, err := options.captureRequest(cmd.InOrStdin(), args)
+	if err != nil {
+		return err
+	}
+	ctx := cmd.Context()
+	sq, db, err := a.newStore(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	if err := options.handleRecall(ctx, a, cmd, sq, agent, request); err != nil {
+		return err
+	}
+	return options.persistCapture(ctx, a, sq, a.coreService(sq), request)
+}
+
+func (options *hookOptions) captureRequest(stdin io.Reader, args []string) (core.Agent, core.IngestRequest, error) {
+	agent := core.Agent(options.agentStr)
+	if !agent.Valid() {
+		return agent, core.IngestRequest{}, fmt.Errorf("hook: invalid --agent %q", options.agentStr)
+	}
+	if options.event == "" {
+		return agent, core.IngestRequest{}, errors.New("hook: --event is required")
+	}
+	if options.recall < 0 || options.recall > agents.MaxRecallItems {
+		return agent, core.IngestRequest{}, fmt.Errorf("hook: --recall must be between 0 and %d", agents.MaxRecallItems)
+	}
+	payload, err := hookPayload(stdin, args)
+	if err != nil {
+		return agent, core.IngestRequest{}, fmt.Errorf("hook: read payload: %w", err)
+	}
+	request, err := agents.Capture(agent, options.event, payload)
+	return agent, request, err
+}
+
+func (options *hookOptions) handleRecall(ctx context.Context, a *app, cmd *cobra.Command, sq *store.SQLite, agent core.Agent, request core.IngestRequest) error {
+	if options.event != agents.EventUserPromptSubmit || len(request.Messages) == 0 || options.recall == 0 || a.policy.Mode(request.SessionID) == privacy.SessionIgnore {
+		return nil
+	}
+	hits, err := automaticRecall(ctx, sq, agent, request.SessionID, request.Messages[0].Content, options.recall)
+	if err != nil {
+		a.logger.Warn("recall search failed; continuing with capture", "error", err)
+		return nil
+	}
+	block := agents.RecallBlock(hits)
+	if block == "" {
+		return nil
+	}
+	return emitRecall(cmd, options.event, block)
+}
+
+func (options *hookOptions) persistCapture(ctx context.Context, a *app, sq *store.SQLite, service *core.Service, request core.IngestRequest) error {
+	if request.SessionID == "" || len(request.Messages) == 0 {
+		return nil
+	}
+	result, err := service.Ingest(ctx, request)
+	if err != nil {
+		return err
+	}
+	if options.noCompact || (options.event != agents.EventStop && options.event != agents.EventTurnComplete) {
+		return nil
+	}
+	compactor := a.newCompactor(sq, engine.DefaultConfig(), nil)
+	if _, err := compactor.Compact(ctx, result.ConversationID); err != nil {
+		a.logger.Warn("opportunistic compaction failed", "conversation", result.ConversationID, "error", err)
+	}
+	return nil
+}
+
+func automaticRecall(ctx context.Context, sq *store.SQLite, agent core.Agent, sessionID, prompt string, limit int) ([]agents.RecallHit, error) {
+	terms := agents.RecallTerms(prompt)
+	if len(terms) == 0 {
+		return nil, nil
+	}
+	conversationID := core.DeriveConversationID(agent, sessionID)
+	excluded, err := freshTailIDs(ctx, sq, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	messageLimit, summaryLimit := recallCandidateLimits(limit)
+	query := core.SearchQuery{Text: strings.Join(terms, " "), Limit: messageLimit, Any: true}
+	messages, err := sq.SearchMessages(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("search messages: %w", err)
+	}
+	query.Limit = summaryLimit
+	summaries, err := sq.SearchSummaries(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("search summaries: %w", err)
+	}
+	candidates := agents.MessageRecallHits(messages, excluded)
+	candidates = append(candidates, agents.SummaryRecallHits(summaries)...)
+	return agents.RankRecall(candidates, terms, conversationID, clock.Now(), limit), nil
+}
+
+func freshTailIDs(ctx context.Context, sq *store.SQLite, conversationID string) (map[string]struct{}, error) {
+	cfg := engine.DefaultConfig()
+	ids, err := sq.RecentConversationalMessageIDs(ctx, conversationID, cfg.FreshTailMessages, cfg.FreshTailTokens, agents.MaxFreshTailRows)
+	if err != nil {
+		return nil, fmt.Errorf("load fresh tail: %w", err)
+	}
+	excluded := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		excluded[id] = struct{}{}
+	}
+	return excluded, nil
+}
+
+func recallCandidateLimits(limit int) (messages, summaries int) {
+	total := min(agents.MaxRecallCandidates, max(limit, 1)*10)
+	summaries = min(agents.MaxSummaryCandidates, max(total/5, 1))
+	return total - summaries, summaries
+}
+
+func emitRecall(cmd *cobra.Command, event, block string) error {
+	out, err := agents.AdditionalContextJSON(event, block)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), string(out))
+	return err
 }
 
 func hookPayload(stdin io.Reader, args []string) ([]byte, error) {

@@ -104,6 +104,21 @@ Use `ignore_sessions` for sessions that receive neither recall nor writes, and
 `stateless_sessions` for recall-enabled sessions that create no rows. See
 [Session lifecycle](session-lifecycle.md) for retention and carry-over.
 
+## Automatic recall
+
+Prompt hooks extract at most 12 salient terms and search both messages and the
+summary DAG before storing the new prompt. The default `--recall=5` candidate
+budget is 40 messages plus 10 summaries. Results are reranked against the
+process clock by lexical coverage, current conversation, message role,
+recency, active-summary status, source rank, and oversized-tool cost. At most
+two summaries and ten total items can be injected.
+
+Recent non-tool messages protected by the default fresh-tail count and token
+floors are excluded from current-conversation candidates. Message results use
+`acm describe`; summary results use `acm expand`. See
+[Recall evaluation](recall-evaluation.md) for the fixture corpus, measured
+baseline, hard bounds, and regression command.
+
 ## Summarizers
 
 - **`deterministic`** (default) — a structural, no-LLM summarizer. Fully offline
