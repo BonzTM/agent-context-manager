@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `acm prune` provides dry-run-first, backup-verified retention with pins and
   expansion gates; `acm pin` exempts conversations; and `acm carry-over` seeds
   a new session from the deepest bounded summary layer while pinning its source.
+- `acm map` now exposes total-input and item/output byte limits, item and
+  worst-case call budgets, a run timeout, and an optional resume-state
+  directory.
 
 ### Changed
 
@@ -41,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session policy now distinguishes ignored sessions (no recall or writes) from
   stateless sessions (recall without writes). Successful summary traversal is
   recorded as a conservative retention acknowledgement.
+- Map runs preflight the complete input before model work, stream through a
+  `2 * concurrency + 1` in-memory bound, persist synced per-item attempt state
+  and a validated input snapshot, resume only unfinished items, and publish
+  ordered output only after success.
 
 ### Security
 
