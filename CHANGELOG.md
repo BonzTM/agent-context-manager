@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-10
+
+Context-ownership and governance release: OpenCode gains a summary-backed active
+window and automatic recall; Codex gains capture diagnostics and backfill;
+privacy, session lifecycle, window accounting, compaction policy, recall, and
+large map runs gain explicit bounded controls.
+
 ### Added
 
 - `acm window --breakdown` reports exact rendered versus stored token estimates,
@@ -80,6 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenCode-generated archive, summary, recall, and resume content carries
   synthetic metadata and reserved protocol prefixes that are rejected before
   capture, preventing transformed context from being indexed recursively.
+
+See [docs/release-notes/RELEASE_NOTES_1.2.0.md](docs/release-notes/RELEASE_NOTES_1.2.0.md) for the full release notes.
 
 ## [1.1.1] - 2026-07-09
 
@@ -246,7 +255,8 @@ budget, and recoverable on demand through the agent's own shell tool.
 
 See [docs/release-notes/RELEASE_NOTES_1.0.0.md](docs/release-notes/RELEASE_NOTES_1.0.0.md) for the full release notes.
 
-[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.2.0
 [1.1.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.1.1
 [1.1.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.1.0
 [1.0.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.0.1
