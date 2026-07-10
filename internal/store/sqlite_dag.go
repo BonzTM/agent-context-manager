@@ -177,7 +177,8 @@ func (s *SQLite) SearchSummaries(ctx context.Context, q core.SearchQuery) ([]cor
 		if q.Text == "" {
 			return nil, nil
 		}
-		query = "SELECT " + prefixedSummaryColumns("s") + `, '' AS snip, 0.0 AS score
+		query = "SELECT " + prefixedSummaryColumns("s") + `, '' AS snip, 0.0 AS score,
+       EXISTS (SELECT 1 FROM context_items ci WHERE ci.item_type = 'summary' AND ci.ref_id = s.id) AS active
 FROM summaries s
 WHERE instr(lower(s.content), lower(?)) > 0`
 		args = append(args, q.Text)
@@ -193,7 +194,8 @@ WHERE instr(lower(s.content), lower(?)) > 0`
 		}
 		query = "SELECT " + prefixedSummaryColumns("s") + `,
        snippet(summaries_fts, 0, '[', ']', '…', 12) AS snip,
-       bm25(summaries_fts) AS score
+       bm25(summaries_fts) AS score,
+       EXISTS (SELECT 1 FROM context_items ci WHERE ci.item_type = 'summary' AND ci.ref_id = s.id) AS active
 FROM summaries_fts
 JOIN summaries s ON s.id = summaries_fts.summary_id
 WHERE summaries_fts MATCH ?`
@@ -220,10 +222,11 @@ WHERE summaries_fts MATCH ?`
 			createdAt string
 			snip      string
 			score     float64
+			active    bool
 		)
 		if sErr := rows.Scan(&sum.ID, &sum.ConversationID, &kind, &sum.Depth, &sum.Content, &sum.TokenCount,
 			&sum.SourceCount, &sum.DescendantMessageCount, &sum.EarliestSeq, &sum.LatestSeq, &createdAt,
-			&snip, &score); sErr != nil {
+			&snip, &score, &active); sErr != nil {
 			return nil, fmt.Errorf("store: scan summary hit: %w", sErr)
 		}
 		sum.Kind = core.SummaryKind(kind)
@@ -235,7 +238,7 @@ WHERE summaries_fts MATCH ?`
 		if snip == "" {
 			snip = truncate(sum.Content, 200)
 		}
-		out = append(out, core.SummaryHit{Summary: sum, Snippet: snip, Score: score})
+		out = append(out, core.SummaryHit{Summary: sum, Snippet: snip, Score: score, Active: active})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("store: iterate summary hits: %w", err)

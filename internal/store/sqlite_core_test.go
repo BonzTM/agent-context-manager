@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -146,7 +147,7 @@ func TestSearchSummariesFindsCompactedContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("append: %v", err)
 	}
-	if _, err = sq.CreateLeafSummary(ctx, core.LeafSummaryInput{
+	summary, err := sq.CreateLeafSummary(ctx, core.LeafSummaryInput{
 		ConversationID:         conv.ID,
 		Content:                "decided on jittered retry policy for the client",
 		TokenCount:             8,
@@ -154,7 +155,8 @@ func TestSearchSummariesFindsCompactedContent(t *testing.T) {
 		EarliestSeq:            msg.Seq,
 		LatestSeq:              msg.Seq,
 		DescendantMessageCount: 1,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create leaf: %v", err)
 	}
 
@@ -168,6 +170,16 @@ func TestSearchSummariesFindsCompactedContent(t *testing.T) {
 	if hits[0].Summary.ConversationID != conv.ID {
 		t.Fatalf("hit conversation = %q, want %q", hits[0].Summary.ConversationID, conv.ID)
 	}
+	if hits[0].Active {
+		t.Fatal("historical summary reported active")
+	}
+	if replaceErr := sq.ReplaceContextItems(ctx, conv.ID, []core.ContextItem{{Type: core.ContextSummary, RefID: summary.ID}}); replaceErr != nil {
+		t.Fatalf("activate summary: %v", replaceErr)
+	}
+	activeHits, err := sq.SearchSummaries(ctx, core.SearchQuery{Text: "jittered retry"})
+	if err != nil || len(activeHits) != 1 || !activeHits[0].Active {
+		t.Fatalf("active summary hits = %+v err=%v", activeHits, err)
+	}
 
 	sub, err := sq.SearchSummaries(ctx, core.SearchQuery{Text: "retry policy", Mode: core.SearchSubstr})
 	if err != nil {
@@ -175,6 +187,34 @@ func TestSearchSummariesFindsCompactedContent(t *testing.T) {
 	}
 	if len(sub) != 1 {
 		t.Fatalf("substr summary hits = %d, want 1", len(sub))
+	}
+}
+
+func TestRecentConversationalMessageIDsUsesCountAndTokenFloors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sq := openTestStore(t)
+	conv := mustConversation(t, sq)
+	inputs := []core.MessageInput{
+		{ConversationID: conv.ID, Role: core.RoleUser, Content: "older requirement", TokenCount: 4, ExternalID: "m1"},
+		{ConversationID: conv.ID, Role: core.RoleTool, Content: "large tool result", TokenCount: 100, ExternalID: "m2"},
+		{ConversationID: conv.ID, Role: core.RoleAssistant, Content: "recent answer", TokenCount: 2, ExternalID: "m3"},
+	}
+	ids := make([]string, 0, len(inputs))
+	for _, input := range inputs {
+		message, _, err := sq.AppendMessage(ctx, input)
+		if err != nil {
+			t.Fatalf("append: %v", err)
+		}
+		ids = append(ids, message.ID)
+	}
+	recent, err := sq.RecentConversationalMessageIDs(ctx, conv.ID, 1, 5, 10)
+	if err != nil {
+		t.Fatalf("recent message IDs: %v", err)
+	}
+	want := []string{ids[2], ids[0]}
+	if !slices.Equal(recent, want) {
+		t.Fatalf("recent IDs = %v, want %v", recent, want)
 	}
 }
 

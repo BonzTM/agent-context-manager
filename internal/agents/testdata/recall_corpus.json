@@ -1,0 +1,92 @@
+{
+  "clock": "2026-07-09T12:00:00Z",
+  "minimum_recall_at_k": 1.0,
+  "minimum_mrr": 1.0,
+  "cases": [
+    {
+      "name": "decision_over_noisy_tool",
+      "prompt": "What was the quartz retry timeout decision?",
+      "current_conversation": "current",
+      "limit": 2,
+      "candidates": [
+        {"kind":"message","id":"msg_tool_noise","conversation_id":"other","role":"tool","content":"quartz retry timeout decision logs repeated","token_count":10000,"created_at":"2026-07-09T11:50:00Z"},
+        {"kind":"message","id":"msg_decision","conversation_id":"other","role":"assistant","content":"quartz retry timeout decision is 30 seconds","token_count":12,"created_at":"2026-07-09T11:00:00Z"},
+        {"kind":"message","id":"msg_question","conversation_id":"other","role":"user","content":"record the quartz retry timeout decision","token_count":10,"created_at":"2026-07-08T12:00:00Z"}
+      ],
+      "expected_top_k": ["msg_decision", "msg_question"],
+      "relevant_ids": ["msg_decision", "msg_question"]
+    },
+    {
+      "name": "system_identifier",
+      "prompt": "Locate ACM_RECALL_WINDOW configuration",
+      "current_conversation": "current",
+      "limit": 1,
+      "candidates": [
+        {"kind":"message","id":"msg_system_identifier","conversation_id":"other","role":"system","content":"ACM RECALL WINDOW configuration is defined by the hook policy","token_count":14,"created_at":"2026-07-08T10:00:00Z"},
+        {"kind":"message","id":"msg_identifier_note","conversation_id":"other","role":"assistant","content":"recall window notes","token_count":8,"created_at":"2026-07-09T10:00:00Z"}
+      ],
+      "expected_top_k": ["msg_system_identifier"],
+      "relevant_ids": ["msg_system_identifier"]
+    },
+    {
+      "name": "user_requirement",
+      "prompt": "Preserve keyboard accessibility navigation requirement",
+      "current_conversation": "current",
+      "limit": 1,
+      "candidates": [
+        {"kind":"message","id":"msg_user_requirement","conversation_id":"other","role":"user","content":"preserve the keyboard accessibility navigation requirement","token_count":10,"created_at":"2026-07-07T12:00:00Z"},
+        {"kind":"message","id":"msg_partial_implementation","conversation_id":"other","role":"assistant","content":"keyboard navigation implementation","token_count":8,"created_at":"2026-07-09T11:00:00Z"}
+      ],
+      "expected_top_k": ["msg_user_requirement"],
+      "relevant_ids": ["msg_user_requirement"]
+    },
+    {
+      "name": "tool_only_identifier",
+      "prompt": "Find sha256 artifact checksum deadbeef",
+      "current_conversation": "current",
+      "limit": 1,
+      "candidates": [
+        {"kind":"message","id":"msg_tool_checksum","conversation_id":"other","role":"tool","content":"sha256 artifact checksum deadbeef","token_count":200,"created_at":"2026-07-09T11:30:00Z"},
+        {"kind":"message","id":"msg_checksum_note","conversation_id":"other","role":"assistant","content":"artifact checksum note","token_count":8,"created_at":"2026-07-09T11:40:00Z"}
+      ],
+      "expected_top_k": ["msg_tool_checksum"],
+      "relevant_ids": ["msg_tool_checksum"]
+    },
+    {
+      "name": "resumed_session_tie",
+      "prompt": "Recall cobalt migration rollback plan",
+      "current_conversation": "resumed",
+      "limit": 1,
+      "candidates": [
+        {"kind":"message","id":"msg_prior_session","conversation_id":"prior","role":"assistant","content":"cobalt migration rollback plan","token_count":9,"created_at":"2026-07-09T11:30:00Z"},
+        {"kind":"message","id":"msg_resumed_session","conversation_id":"resumed","role":"assistant","content":"cobalt migration rollback plan","token_count":9,"created_at":"2026-07-09T10:30:00Z"}
+      ],
+      "expected_top_k": ["msg_resumed_session"],
+      "relevant_ids": ["msg_resumed_session"]
+    },
+    {
+      "name": "summary_only_match",
+      "prompt": "Explain zephyr cache eviction policy",
+      "current_conversation": "current",
+      "limit": 1,
+      "candidates": [
+        {"kind":"message","id":"msg_cache_partial","conversation_id":"other","role":"assistant","content":"cache implementation details","token_count":12,"created_at":"2026-07-09T11:00:00Z"},
+        {"kind":"summary","id":"sum_zephyr_policy","conversation_id":"other","content":"zephyr cache eviction policy uses LRU","token_count":20,"depth":1,"earliest_seq":1,"latest_seq":20,"created_at":"2026-07-08T12:00:00Z","active":false}
+      ],
+      "expected_top_k": ["sum_zephyr_policy"],
+      "relevant_ids": ["sum_zephyr_policy"]
+    },
+    {
+      "name": "active_summary_tie",
+      "prompt": "Recall glacier indexing decision",
+      "current_conversation": "current",
+      "limit": 2,
+      "candidates": [
+        {"kind":"summary","id":"sum_historical_glacier","conversation_id":"other","content":"glacier indexing decision uses trigram search","token_count":20,"depth":1,"earliest_seq":1,"latest_seq":10,"created_at":"2026-07-09T10:00:00Z","active":false},
+        {"kind":"summary","id":"sum_active_glacier","conversation_id":"other","content":"glacier indexing decision uses trigram search","token_count":20,"depth":2,"earliest_seq":1,"latest_seq":30,"created_at":"2026-07-09T09:00:00Z","active":true}
+      ],
+      "expected_top_k": ["sum_active_glacier", "sum_historical_glacier"],
+      "relevant_ids": ["sum_active_glacier", "sum_historical_glacier"]
+    }
+  ]
+}

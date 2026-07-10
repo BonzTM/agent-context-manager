@@ -259,6 +259,41 @@ func (s *SQLite) ListMessages(ctx context.Context, conversationID string, afterS
 	return out, nil
 }
 
+// RecentConversationalMessageIDs returns the newest non-tool message IDs until
+// both fresh-tail floors are satisfied, subject to a hard row bound.
+func (s *SQLite) RecentConversationalMessageIDs(ctx context.Context, conversationID string, minMessages, minTokens, maxRows int) ([]string, error) {
+	if minMessages < 0 || minTokens < 0 || maxRows < 1 || maxRows > 4096 {
+		return nil, errors.New("store: invalid recent-message limits")
+	}
+	const query = `SELECT id, token_count FROM messages
+WHERE conversation_id = ? AND role <> 'tool' ORDER BY seq DESC LIMIT ?`
+	rows, err := s.db.QueryContext(ctx, query, conversationID, maxRows)
+	if err != nil {
+		return nil, fmt.Errorf("store: list recent message ids: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	ids, tokens := make([]string, 0, min(minMessages, maxRows)), 0
+	for range maxRows {
+		if len(ids) >= minMessages && tokens >= minTokens {
+			break
+		}
+		if !rows.Next() {
+			break
+		}
+		var id string
+		var tokenCount int
+		if scanErr := rows.Scan(&id, &tokenCount); scanErr != nil {
+			return nil, fmt.Errorf("store: scan recent message id: %w", scanErr)
+		}
+		ids = append(ids, id)
+		tokens += tokenCount
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate recent message ids: %w", err)
+	}
+	return ids, nil
+}
+
 // SearchMessages runs an FTS MATCH (default) or a case-insensitive substring
 // scan (SearchSubstr) and returns ranked hits.
 func (s *SQLite) SearchMessages(ctx context.Context, q core.SearchQuery) ([]core.SearchHit, error) {

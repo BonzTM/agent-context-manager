@@ -1,12 +1,17 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bonztm/agent-context-manager/internal/agents"
+	"github.com/bonztm/agent-context-manager/internal/core"
+	"github.com/bonztm/agent-context-manager/internal/store"
 )
 
 func TestHookCapturesAndInjectsRecall(t *testing.T) {
@@ -33,6 +38,85 @@ func TestHookCapturesAndInjectsRecall(t *testing.T) {
 	stats := runACM(t, dbPath, "", "stats")
 	if !strings.Contains(stats, "messages:      2") {
 		t.Fatalf("stats after hook = %q, want 2 messages", stats)
+	}
+}
+
+func TestHookExcludesCurrentFreshTailFromRecall(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "acm.db")
+	current := `{"agent":"codex","session_id":"current","messages":[{"role":"assistant","content":"fresh cobalt strategy should not be reinjected","external_id":"fresh"}]}`
+	historical := `{"agent":"codex","session_id":"prior","messages":[{"role":"assistant","content":"historical cobalt migration strategy","external_id":"old"}]}`
+	runACM(t, dbPath, current, "ingest")
+	runACM(t, dbPath, historical, "ingest")
+	payload := `{"session_id":"current","turn_id":"next","prompt":"what was the cobalt migration strategy"}`
+	output := runACM(t, dbPath, payload, "hook", "--agent", "codex", "--event", "UserPromptSubmit")
+	if !strings.Contains(output, "historical") || !strings.Contains(output, "[cobalt]") {
+		t.Fatalf("historical match missing: %q", output)
+	}
+	if strings.Contains(output, "fresh cobalt") {
+		t.Fatalf("fresh-tail match was redundantly injected: %q", output)
+	}
+}
+
+func TestHookInjectsSummaryOnlyMatchWithExpandGuidance(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "acm.db")
+	ctx := context.Background()
+	db, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if migrationErr := db.MigrateUp(ctx); migrationErr != nil {
+		_ = db.Close()
+		t.Fatalf("migrate: %v", migrationErr)
+	}
+	sq := store.NewSQLite(db, clock)
+	conversation, err := sq.EnsureConversation(ctx, core.ConversationInput{Agent: core.AgentClaude, SessionID: "prior"})
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("ensure conversation: %v", err)
+	}
+	message, _, err := sq.AppendMessage(ctx, core.MessageInput{
+		ConversationID: conversation.ID, Role: core.RoleAssistant,
+		Content: "a decision that uses different source wording", TokenCount: 8, ExternalID: "source",
+	})
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("append source: %v", err)
+	}
+	summary, err := sq.CreateLeafSummary(ctx, core.LeafSummaryInput{
+		ConversationID: conversation.ID, Content: "zephyr cache eviction policy uses LRU",
+		TokenCount: 8, SourceMessageIDs: []string{message.ID}, EarliestSeq: message.Seq,
+		LatestSeq: message.Seq, DescendantMessageCount: 1,
+	})
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("create summary: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close seed database: %v", err)
+	}
+	payload := `{"session_id":"current","prompt":"what is the zephyr cache eviction policy"}`
+	output := runACM(t, dbPath, payload, "hook", "--agent", "claude-code", "--event", "UserPromptSubmit")
+	if !strings.Contains(output, summary.ID) || !strings.Contains(output, "acm expand "+summary.ID) {
+		t.Fatalf("summary recall missing expand guidance: %q", output)
+	}
+	if strings.Contains(output, "acm describe "+summary.ID) {
+		t.Fatalf("summary recall used message guidance: %q", output)
+	}
+}
+
+func TestRecallCandidateLimitsAndFlagBounds(t *testing.T) {
+	messages, summaries := recallCandidateLimits(5)
+	if messages != 40 || summaries != 10 {
+		t.Fatalf("default candidate limits = %d/%d, want 40/10", messages, summaries)
+	}
+	messages, summaries = recallCandidateLimits(1)
+	if messages+summaries != 10 || summaries != 2 {
+		t.Fatalf("small candidate limits = %d/%d, want total 10 with 2 summaries", messages, summaries)
+	}
+	options := &hookOptions{agentStr: "codex", event: agents.EventUserPromptSubmit, recall: agents.MaxRecallItems + 1}
+	if _, _, err := options.captureRequest(strings.NewReader(`{}`), nil); err == nil || !strings.Contains(err.Error(), "between 0 and") {
+		t.Fatalf("invalid recall limit error = %v", err)
 	}
 }
 
