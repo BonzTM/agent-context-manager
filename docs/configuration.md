@@ -128,9 +128,10 @@ one-second drain bound on every platform.
 |------|---------|-------------|
 | `--input` | _(required)_ | Input JSONL file, one item per line |
 | `--output` | _(required)_ | Output JSONL file |
-| `--processor` | `passthrough` | `passthrough`, `claude`, or `codex` |
-| `--prompt` | _(empty)_ | Instruction prepended to each item (for `claude`/`codex`) |
+| `--processor` | `passthrough` | `passthrough`, `claude`, `codex`, `claude-agent`, or `codex-agent` |
+| `--prompt` | _(empty)_ | Instruction prepended to each item |
 | `--require` | _(none)_ | Comma-separated JSON fields each output must contain |
+| `--schema` | _(none)_ | Local JSON Schema file for full output validation |
 | `--concurrency` | `8` | Maximum concurrent item workers |
 | `--max-retries` | `2` | Retries per item on error or failed validation |
 | `--max-input-bytes` | `1073741824` | Maximum total input bytes |
@@ -140,12 +141,16 @@ one-second drain bound on every platform.
 | `--max-calls` | `0` | Maximum worst-case processor calls; `0` disables the budget |
 | `--run-timeout` | `0s` | Maximum duration for the complete run; `0` disables the deadline |
 | `--state-dir` | `<output>.acm-map-state` | Durable per-item resume state |
+| `--max-tools` | `16` | Maximum observed tool calls per agentic attempt |
+| `--max-turns` | `8` | Maximum observed agent turns per agentic attempt |
+| `--item-timeout` | `2m` | Maximum wall time per agentic attempt |
 
 The hard caps are 64 concurrent workers, 8 GiB of input, 8 MiB per input or
-output item, 1,000,000 items, 2,000,000 lines, 10 attempts per item, and 24
-hours per run. ACM validates the complete input and worst-case call count before
-invoking a processor. It then streams at most `2 * concurrency + 1` items
-through memory and persists each attempt under `--state-dir`. The directory
+output item, 1,000,000 items, 2,000,000 lines, 10,000,000 total calls, 10
+attempts per item, and 24 hours per run. ACM validates the complete input and
+worst-case call count before invoking a processor. It then streams at most
+`2 * concurrency + 1` items through memory and persists each attempt under
+`--state-dir`. The directory
 also holds an owner-only validated input snapshot so later processing cannot
 observe a different file than the one that passed preflight.
 
@@ -154,3 +159,18 @@ publish a partial output. Re-run the identical command to process only
 unfinished items and assemble one ordered result per input. Changing the input,
 processor contract, attempts, or byte limits requires removing the old state or
 choosing another `--state-dir`. A successful run removes its state directory.
+
+The `claude-agent` and `codex-agent` processors run a full host-agent loop for
+each attempt. Claude receives only `Read`, `Glob`, and `Grep`, plan permissions,
+an empty strict MCP configuration, and no persistent session. Codex receives
+its `read-only` sandbox, ephemeral state, and no user configuration or execution
+rules. ACM also observes each host's JSON event stream and cancels the process
+group when its tool, turn, event, line-size, or item-time limit is exceeded.
+Agentic modes replace `--max-calls=0` with a finite 100-call default and
+`--run-timeout=0` with a one-hour default. Their hard caps are 100 tools, 50
+turns, and 30 minutes per item.
+
+Schemas are limited to 1 MiB, compiled before processor work, and included by
+content hash in the resume contract. Remote and external `$ref` loading is
+disabled. Schema failures are preserved as validation feedback for the next
+attempt and become an ordered terminal failure after retries are exhausted.

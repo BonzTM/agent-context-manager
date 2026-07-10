@@ -126,6 +126,17 @@ compatible restart, which skips completed and terminally failed items. The
 dataset never enters the agent's context window, and in-memory work is bounded
 by worker concurrency rather than item count.
 
+Single-response processors call a headless model once per attempt. The
+`claude-agent` and `codex-agent` processors instead consume each host's JSONL
+event stream while a tool-using session runs under host read-only controls. ACM
+counts turns and tool starts, applies an item deadline, bounds event bytes and
+count, and kills the process group when a limit is crossed. Both modes use the
+same persisted `pending`/`running`/`completed`/`failed` item contract.
+
+Optional JSON Schema output validation is compiled offline before the run. The
+schema hash forms part of the resume identity, and validation errors enter the
+same bounded feedback/retry path as processor errors.
+
 ## Data model
 
 | Table | Purpose |
