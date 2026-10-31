@@ -1,0 +1,19 @@
+{"type":"session.inbox.enqueued","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","inboxID":"msg_user1","item":{"type":"user","payload":{"text":"Use the bash tool to run: echo acm-probe-ok","files":[]},"delivery":"steer"}}}
+{"type":"session.execution.started","data":{"sessionID":"ses_test"}}
+{"type":"session.inbox.delivered","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","inboxID":"msg_user1"}}
+{"type":"session.inbox.enqueued","location":{"directory":"/elsewhere"},"data":{"sessionID":"ses_other","inboxID":"msg_other","item":{"type":"user","payload":{"text":"belongs to another project","files":[]},"delivery":"steer"}}}
+{"type":"session.inbox.delivered","location":{"directory":"/elsewhere"},"data":{"sessionID":"ses_other","inboxID":"msg_other"}}
+{"type":"session.inbox.enqueued","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","inboxID":"msg_cancelled","item":{"type":"user","payload":{"text":"never delivered","files":[]},"delivery":"queue"}}}
+{"type":"session.inbox.cancelled","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","inboxID":"msg_cancelled"}}
+{"type":"session.step.started","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step1","agent":"build","model":{"id":"claude-haiku-4.5","providerID":"github-copilot","variant":"default"},"started":1}}
+{"type":"session.tool.input.started","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step1","id":"toolu_1","name":"shell"}}
+{"type":"session.tool.called","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step1","id":"toolu_1","input":{"command":"echo acm-probe-ok"},"executed":false}}
+{"type":"session.tool.success","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step1","id":"toolu_1","content":[{"type":"text","text":"acm-probe-ok\n"}],"metadata":{"status":"completed","exit":0},"executed":false}}
+{"type":"session.step.ended","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step1","finish":"tool-calls"}}
+{"type":"session.step.started","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step2","agent":"build","started":2}}
+{"type":"session.text.ended","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step2","ordinal":1,"text":"second block"}}
+{"type":"session.text.ended","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step2","ordinal":0,"text":"done"}}
+{"type":"session.step.ended","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step2","finish":"stop"}}
+{"type":"session.tool.input.started","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step3","id":"toolu_2","name":"read"}}
+{"type":"session.tool.failed","location":{"directory":"__DIR__"},"data":{"sessionID":"ses_test","assistantMessageID":"msg_step3","id":"toolu_2","error":{"type":"tool","message":"file not found"},"executed":false}}
+{"type":"session.execution.succeeded","data":{"sessionID":"ses_test"}}

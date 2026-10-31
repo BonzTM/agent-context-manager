@@ -99,8 +99,8 @@ func BuildInit(agent core.Agent) (InitPlan, error) {
 				{RelPath: "AGENTS.acm.md", Content: DrillDownDoc},
 			},
 			Instructions: instructions(core.AgentOpenCode,
-				"Install the embedded OpenCode plugin with 'acm init --global opencode' (writes ~/.config/opencode/plugin/acm.ts),",
-				"or for this project copy that plugin into <repo>/.opencode/plugin/. Append AGENTS.acm.md to your AGENTS.md."),
+				"Install the embedded OpenCode 2.x plugin with 'acm init --global opencode' (writes ~/.config/opencode/plugins/acm/server.ts),",
+				"or for this project copy that file to <repo>/.opencode/plugins/acm/server.ts. Append AGENTS.acm.md to your AGENTS.md."),
 		}, nil
 	default:
 		return InitPlan{}, fmt.Errorf("agents: unknown agent %q", agent)
