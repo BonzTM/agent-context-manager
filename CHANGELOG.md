@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Build with Go 1.26.6 (`go.mod`) to pick up the standard-library fix for
+  GO-2026-6218 (quadratic complexity in `net/url` path resolution, reachable
+  through JSON Schema compilation in `acm map`).
+
 ### Fixed
 
 - The embedded OpenCode plugin targets the OpenCode 2.x plugin API. OpenCode 2.x
