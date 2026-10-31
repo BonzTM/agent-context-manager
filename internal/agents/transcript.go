@@ -4,18 +4,25 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/bonztm/agent-context-manager/internal/core"
 )
 
 // transcriptScanBuffer bounds a single transcript line. Claude Code lines carry
 // whole assistant turns including tool payloads, so allow large ones.
+// transcriptZstdMaxWindow bounds decoder memory for compressed Codex rollouts.
 const (
-	transcriptScanBuffer = 16 * 1024 * 1024
-	transcriptMaxLines   = 100_000
+	transcriptScanBuffer    = 16 * 1024 * 1024
+	transcriptMaxLines      = 100_000
+	transcriptZstdMaxWindow = 64 * 1024 * 1024
 )
 
 // TranscriptReport describes bounded reconciliation work without exposing
@@ -68,8 +75,9 @@ type codexTranscriptState struct {
 
 // ReconcileTranscriptAssistant reads a supported host transcript and returns
 // final assistant text with stable source IDs plus bounded scan diagnostics.
+// The error wraps os.ErrNotExist when no copy of the transcript exists.
 func ReconcileTranscriptAssistant(agent core.Agent, path string) ([]core.IngestMessage, TranscriptReport, error) {
-	f, err := os.Open(path)
+	f, err := openTranscript(agent, path)
 	if err != nil {
 		return nil, TranscriptReport{}, fmt.Errorf("agents: open transcript: %w", err)
 	}
@@ -109,6 +117,76 @@ func ReconcileTranscriptAssistant(agent core.Agent, path string) ([]core.IngestM
 		report.Assistant++
 	}
 	return out, report, nil
+}
+
+// openTranscript opens the first existing copy of a transcript. Codex
+// compresses older rollouts in place (<path>.zst) and moves archived threads
+// to <codex home>/archived_sessions/, so for Codex those locations are tried
+// after the recorded path. The error wraps os.ErrNotExist when none exists.
+func openTranscript(agent core.Agent, path string) (io.ReadCloser, error) {
+	candidates := []string{path}
+	if agent == core.AgentCodex {
+		candidates = codexRolloutCandidates(path)
+	}
+	for _, candidate := range candidates {
+		f, err := os.Open(candidate)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasSuffix(candidate, ".zst") {
+			return f, nil
+		}
+		return newZstdReadCloser(f)
+	}
+	return nil, fmt.Errorf("%s: %w", path, os.ErrNotExist)
+}
+
+// codexRolloutCandidates lists where a Codex rollout recorded at path may now
+// live, in lookup order.
+func codexRolloutCandidates(path string) []string {
+	candidates := []string{path, path + ".zst"}
+	if archived, ok := archivedRolloutPath(path); ok {
+		candidates = append(candidates, archived, archived+".zst")
+	}
+	return candidates
+}
+
+// archivedRolloutPath maps <home>/sessions/YYYY/MM/DD/<file> to
+// <home>/archived_sessions/<file>.
+func archivedRolloutPath(path string) (string, bool) {
+	sessions := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(path))))
+	if filepath.Base(sessions) != "sessions" {
+		return "", false
+	}
+	return filepath.Join(filepath.Dir(sessions), "archived_sessions", filepath.Base(path)), true
+}
+
+// zstdReadCloser streams a zstd-compressed file and closes both the decoder
+// and the file.
+type zstdReadCloser struct {
+	decoder *zstd.Decoder
+	file    *os.File
+}
+
+func newZstdReadCloser(f *os.File) (io.ReadCloser, error) {
+	decoder, err := zstd.NewReader(f, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxWindow(transcriptZstdMaxWindow))
+	if err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("decode %s: %w", f.Name(), err)
+	}
+	return zstdReadCloser{decoder: decoder, file: f}, nil
+}
+
+func (z zstdReadCloser) Read(p []byte) (int, error) {
+	return z.decoder.Read(p)
+}
+
+func (z zstdReadCloser) Close() error {
+	z.decoder.Close()
+	return z.file.Close()
 }
 
 func parseTranscriptRecord(agent core.Agent, raw []byte, codexState *codexTranscriptState) (core.IngestMessage, bool, bool) {

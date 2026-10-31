@@ -107,6 +107,12 @@ broken integration, preview `acm backfill`, then persist the reported missing
 turns with `acm backfill --apply`. Rollout scans and repeated applies are bounded
 and idempotent by Codex turn ID.
 
+Codex compresses older rollouts in place (`<rollout>.jsonl.zst`) and moves
+archived threads to `~/.codex/archived_sessions/`. Backfill reads the recorded
+path first, then the compressed copy beside it, then the archived copy
+(plain or compressed). A rollout with no copy on disk is reported as
+`unavailable=N` for its conversation and skipped; the run continues.
+
 ---
 
 ## OpenCode

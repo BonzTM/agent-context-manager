@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `~/.config/opencode/plugins/acm/server.ts`, OpenCode 2.x's local plugin
   layout. It reports, but does not remove, a leftover 1.x plugin at
   `~/.config/opencode/plugin/acm.ts`.
+- `acm backfill` no longer aborts the whole run when a recorded Codex rollout
+  is missing. It reads rollouts Codex compressed in place (`.jsonl.zst`) or
+  moved to `archived_sessions/`, skips rollouts with no copy on disk, and
+  reports them per conversation as `unavailable=N`. The Codex Stop hook uses
+  the same lookup. Adds `github.com/klauspost/compress` (zstd decoding).
 
 ## [1.2.0] - 2026-07-10
 
