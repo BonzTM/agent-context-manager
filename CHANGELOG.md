@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-31
+
+OpenCode 2.x release: the embedded OpenCode plugin is ported to the OpenCode 2.x
+plugin API, Codex backfill reads compressed and archived rollouts, and the build
+moves to Go 1.26.6 for a standard-library security fix.
+
+### Removed
+
+- OpenCode 1.x support. The embedded plugin uses the OpenCode 2.x plugin API
+  only; stay on acm 1.2.0 for OpenCode 1.x.
+
 ### Security
 
 - Build with Go 1.26.6 (`go.mod`) to pick up the standard-library fix for
@@ -30,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moved to `archived_sessions/`, skips rollouts with no copy on disk, and
   reports them per conversation as `unavailable=N`. The Codex Stop hook uses
   the same lookup. Adds `github.com/klauspost/compress` (zstd decoding).
+
+### Changed
+
+- Dependencies: `github.com/pressly/goose/v3` 3.29.0 and `modernc.org/sqlite`
+  1.60.1 (from 3.27.3 and 1.54.0).
+
+See [docs/release-notes/RELEASE_NOTES_1.3.0.md](docs/release-notes/RELEASE_NOTES_1.3.0.md) for the full release notes.
 
 ## [1.2.0] - 2026-07-10
 
@@ -279,7 +297,8 @@ budget, and recoverable on demand through the agent's own shell tool.
 
 See [docs/release-notes/RELEASE_NOTES_1.0.0.md](docs/release-notes/RELEASE_NOTES_1.0.0.md) for the full release notes.
 
-[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/BonzTM/agent-context-manager/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.3.0
 [1.2.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.2.0
 [1.1.1]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.1.1
 [1.1.0]: https://github.com/BonzTM/agent-context-manager/releases/tag/v1.1.0
