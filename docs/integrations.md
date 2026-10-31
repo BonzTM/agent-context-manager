@@ -39,16 +39,18 @@ What it installs per agent:
 |-------|------------------------|-----------------------|
 | Claude Code | `~/.claude/settings.json` — `UserPromptSubmit`+`PostToolUse`+`Stop` hooks + `Bash(acm:*)` permission | `~/.claude/CLAUDE.md` |
 | Codex | `~/.codex/hooks.json` — `UserPromptSubmit`+`PostToolUse`+`Stop` hooks; `~/.codex/config.toml` — `notify` (assistant-turn capture) | `~/.codex/AGENTS.md` |
-| OpenCode | `~/.config/opencode/plugin/acm.ts` — the plugin, auto-loaded (no `opencode.json` edit) | `~/.config/opencode/AGENTS.md` |
+| OpenCode | `~/.config/opencode/plugins/acm/server.ts` — the plugin (OpenCode 2.x), auto-loaded (no `opencode.json` edit) | `~/.config/opencode/AGENTS.md` |
 
 Notes:
 
 - **Codex** hooks live in `~/.codex/hooks.json` (user-level, no project trust
   required). `notify` must be a top-level key in the global config, and the
   installer parses the TOML and places it there.
-- **OpenCode** loads the plugin automatically from its plugin directory; the
+- **OpenCode** loads the plugin automatically from its plugins directory; the
   plugin is embedded in the `acm` binary and written on install — no npm step.
-  Ensure `acm` is on `PATH` (the plugin shells out to it).
+  Ensure `acm` is on `PATH` (the plugin shells out to it). If a 1.x plugin from
+  an earlier acm release is still at `~/.config/opencode/plugin/acm.ts`, the
+  installer prints a note with the `rm` command; it never deletes the file.
 
 The per-project setup below remains available (omit `--global`) when you prefer
 committable, repo-scoped configuration.
@@ -109,29 +111,42 @@ and idempotent by Codex turn ID.
 
 ## OpenCode
 
-OpenCode is integrated through a plugin. OpenCode auto-loads any `*.ts` file in
-its plugin directory (Bun runs TypeScript natively), so installation is just
-dropping one self-contained file — no `opencode.json` edit, no npm.
+OpenCode is integrated through a plugin written for the OpenCode 2.x plugin API.
+OpenCode auto-loads each directory under its `plugins/` directory as a local
+plugin, using `server.ts` as the server entrypoint (Bun runs TypeScript
+natively), so installation is just dropping one self-contained file — no
+`opencode.json` edit, no npm. OpenCode 1.x is not supported.
 
 The simplest path is `acm init --global opencode`, which writes the embedded
-plugin to `~/.config/opencode/plugin/acm.ts` and appends the drill-down
+plugin to `~/.config/opencode/plugins/acm/server.ts` and appends the drill-down
 instructions to `~/.config/opencode/AGENTS.md`. For a single project, copy that
-plugin into `<repo>/.opencode/plugin/` instead.
+file to `<repo>/.opencode/plugins/acm/server.ts` instead.
 
-Ensure the `acm` binary is on `PATH`; the plugin shells out to it. The same
-self-contained plugin captures each message and tool call, then uses OpenCode's
-`experimental.chat.messages.transform` hook to request a bounded, versioned
-plan from `acm opencode-context`. The binary archives messages outside the
-protected count-and-token tail, assembles active summary roots, and selects
-automatic recall; the plugin replaces archived part payloads and appends the
-summary and `<acm-recall>` context to the current user message. Its system and
-compaction hooks preserve drill-down guidance and a bounded resume note.
+Ensure the `acm` binary is on `PATH`; the plugin shells out to it. OpenCode
+creates one plugin instance per project directory, and each instance runs `acm`
+in that directory:
 
-Generated context is marked `synthetic` with an `acmContext` metadata field and
-a reserved `[Archived by acm:` or `<acm-recall>` prefix. Both the plugin and the
-capture policy reject those markers before persistence, preventing transformed
-context from feeding back into the lossless store. Messages intentionally
-beginning with either reserved marker are therefore excluded from capture.
+- **Capture.** The plugin reads OpenCode's session event stream. It ingests a
+  user prompt when its inbox item is delivered, an assistant step's text when
+  the step ends, and each tool call when it succeeds or fails. Ingestion is
+  serialized and idempotent. The stream is not replayed after a disconnect, so
+  events emitted while the plugin reconnects are not captured.
+- **Active window.** Before each model request, the session `context` hook
+  requests a bounded, versioned plan from `acm opencode-context`. The binary
+  archives messages outside the protected count-and-token tail, assembles active
+  summary roots, and selects automatic recall. The plugin replaces archived text
+  and tool-result payloads with the archive placeholder, drops archived
+  reasoning, and appends the summary and `<acm-recall>` context to the current
+  user message. It leaves messages that carry provider-native replay data
+  unchanged.
+- **Guidance.** The `context` hook adds a drill-down hint to the system prompt,
+  and the `compaction` hook adds a bounded resume note.
+
+Generated context is marked with an `acmContext` metadata field and a reserved
+`[Archived by acm:` or `<acm-recall>` prefix. Both the plugin and the capture
+policy reject those markers before persistence, preventing transformed context
+from feeding back into the lossless store. Messages intentionally beginning
+with either reserved marker are therefore excluded from capture.
 
 ---
 

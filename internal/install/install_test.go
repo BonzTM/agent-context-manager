@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -99,14 +100,15 @@ func TestOpencodePluginInstalledToAutoLoadDir(t *testing.T) {
 	if len(res.Changes) == 0 {
 		t.Fatal("expected changes")
 	}
-	path := filepath.Join(home, ".config", "opencode", "plugin", "acm.ts")
+	path := filepath.Join(home, ".config", "opencode", "plugins", "acm", "server.ts")
 	content := readFile(t, path)
 	for _, required := range []string{
-		"experimental.chat.messages.transform",
-		"experimental.chat.system.transform",
-		"experimental.session.compacting",
+		`id: "acm"`,
+		"setup: async",
+		`ctx.session.hook("context"`,
+		`ctx.session.hook("compaction"`,
+		"ctx.event",
 		`["opencode-context"]`,
-		"synthetic: true",
 		"acmContext",
 		"[Archived by acm:",
 	} {
@@ -128,6 +130,61 @@ func TestOpencodePluginInstalledToAutoLoadDir(t *testing.T) {
 	if readFile(t, path) != content {
 		t.Fatal("re-apply changed the plugin file")
 	}
+}
+
+func TestOpencodeLegacyPluginReportedNotRemoved(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	legacy := filepath.Join(home, ".config", "opencode", "plugin", "acm.ts")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const legacySrc = "// acm — OpenCode plugin.\nexport default async function acmPlugin() { return {} }\n"
+	if err := os.WriteFile(legacy, []byte(legacySrc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Run(core.AgentOpenCode, home, true)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if readFile(t, legacy) != legacySrc {
+		t.Fatal("install modified the legacy plugin; it must only report it")
+	}
+	if !anyNoteContains(res, "rm "+strconv.Quote(legacy)) {
+		t.Fatalf("expected a removal note for %s, got %v", legacy, res.Notes)
+	}
+}
+
+func TestOpencodeUnrelatedLegacyPathNotReported(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	other := filepath.Join(home, ".config", "opencode", "plugin", "acm.ts")
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("// someone else's plugin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Run(core.AgentOpenCode, home, false)
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if anyNoteContains(res, other) {
+		t.Fatalf("unexpected note about a file acm did not write: %v", res.Notes)
+	}
+}
+
+func anyNoteContains(r Result, want string) bool {
+	for _, note := range r.Notes {
+		if strings.Contains(note, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCodexHooksInstalledAndIdempotent(t *testing.T) {

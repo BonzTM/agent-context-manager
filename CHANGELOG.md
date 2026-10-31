@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The embedded OpenCode plugin targets the OpenCode 2.x plugin API. OpenCode 2.x
+  rejected the 1.x plugin ("Plugin must export a default definition with an id
+  and an effect or setup function"), so capture, the active window, and
+  automatic recall silently stopped. The plugin now exports `{ id, setup }`,
+  captures from the 2.x session event stream, shapes context in the session
+  `context` hook, and adds the resume note in the `compaction` hook.
+- `acm init --global opencode` installs the plugin at
+  `~/.config/opencode/plugins/acm/server.ts`, OpenCode 2.x's local plugin
+  layout. It reports, but does not remove, a leftover 1.x plugin at
+  `~/.config/opencode/plugin/acm.ts`.
+
 ## [1.2.0] - 2026-07-10
 
 Context-ownership and governance release: OpenCode gains a summary-backed active

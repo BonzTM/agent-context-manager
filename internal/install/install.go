@@ -78,7 +78,14 @@ func Run(agent core.Agent, home string, apply bool) (Result, error) {
 			return Result{}, err
 		}
 		res.Notes = append(res.Notes,
-			"The OpenCode plugin is auto-loaded from its directory (no opencode.json edit needed) and shells out to 'acm' — ensure the binary is on PATH.")
+			"The OpenCode plugin (OpenCode 2.x) is auto-loaded from its directory (no opencode.json edit needed) and shells out to 'acm' — ensure the binary is on PATH.")
+		legacy, err := legacyOpencodePluginNote(home)
+		if err != nil {
+			return Result{}, err
+		}
+		if legacy != "" {
+			res.Notes = append(res.Notes, legacy)
+		}
 	default:
 		return Result{}, fmt.Errorf("install: unknown agent %q (want claude-code|codex|opencode)", agent)
 	}
@@ -168,9 +175,14 @@ func ensureHookEntry(m map[string]any, event, matcher, command string) bool {
 
 // --- OpenCode: drop the plugin into the auto-load directory ---
 
+// opencodeLegacyPluginHeader opens the OpenCode 1.x acm plugin, which acm
+// installed at plugin/acm.ts. OpenCode 2.x rejects its default export.
+const opencodeLegacyPluginHeader = "// acm — OpenCode plugin.\n"
+
 // opencodeConfigDir resolves OpenCode's config directory: $OPENCODE_CONFIG_DIR,
-// then $XDG_CONFIG_HOME/opencode, else <home>/.config/opencode. OpenCode
-// auto-loads any plugin/*.ts under it — no opencode.json edit is needed.
+// then $XDG_CONFIG_HOME/opencode, else <home>/.config/opencode. OpenCode 2.x
+// auto-loads each plugins/<name>/ directory under it as a local plugin, using
+// server.ts as the server entrypoint — no opencode.json edit is needed.
 func opencodeConfigDir(home string) string {
 	if dir := os.Getenv("OPENCODE_CONFIG_DIR"); dir != "" {
 		return dir
@@ -182,7 +194,7 @@ func opencodeConfigDir(home string) string {
 }
 
 func opencodePlugin(home string, apply bool) (Change, error) {
-	path := filepath.Join(opencodeConfigDir(home), "plugin", "acm.ts")
+	path := filepath.Join(opencodeConfigDir(home), "plugins", "acm", "server.ts")
 	existing, err := readText(path)
 	if err != nil {
 		return Change{}, err
@@ -200,6 +212,21 @@ func opencodePlugin(home string, apply bool) (Change, error) {
 		what = "OpenCode plugin (updated to current version)"
 	}
 	return Change{Path: path, Summary: verb(apply) + " " + what, Applied: apply}, nil
+}
+
+// legacyOpencodePluginNote reports an OpenCode 1.x acm plugin left at
+// plugin/acm.ts. Install never deletes it: the user removes it by hand.
+func legacyOpencodePluginNote(home string) (string, error) {
+	path := filepath.Join(opencodeConfigDir(home), "plugin", "acm.ts")
+	text, err := readText(path)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(text, opencodeLegacyPluginHeader) {
+		return "", nil
+	}
+	return fmt.Sprintf("Found the OpenCode 1.x acm plugin at %s. OpenCode 2.x cannot load it and logs a warning on every start; "+
+		"the plugin above replaces it. Remove it by hand: rm %q", path, path), nil
 }
 
 // --- Codex: ~/.codex/config.toml (top-level notify) ---
