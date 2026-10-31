@@ -219,6 +219,36 @@ func TestCodexBackfillIsDryRunFirstAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestCodexBackfillSkipsUnavailableRollouts(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "acm.db")
+	present := filepath.Join(dir, "rollout-present.jsonl")
+	lines := `{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","id":"response-1","content":[{"type":"output_text","text":"recovered answer"}]}}
+{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`
+	if err := os.WriteFile(present, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for session, transcript := range map[string]string{
+		"codex-gone":    filepath.Join(dir, "rollout-gone.jsonl"),
+		"codex-present": present,
+	} {
+		rawHook := fmt.Sprintf(`{"session_id":%q,"transcript_path":%q}`, session, transcript)
+		payload := fmt.Sprintf(`{"agent":"codex","session_id":%q,"messages":[{"role":"user","content":"prompt","external_id":"turn-1:input:0","raw":%q}]}`,
+			session, rawHook)
+		runACM(t, dbPath, payload, "ingest")
+	}
+
+	out := runACM(t, dbPath, "", "backfill", "--apply")
+	if !strings.Contains(out, "transcripts=1 unavailable=1 candidates=0 missing=0 appended=0") {
+		t.Fatalf("unavailable rollout not reported: %q", out)
+	}
+	if !strings.Contains(out, "transcripts=1 unavailable=0 candidates=1 missing=1 appended=1") {
+		t.Fatalf("present rollout not recovered after an unavailable one: %q", out)
+	}
+	assertMessageCount(t, dbPath, 3)
+}
+
 func assertMessageCount(t *testing.T, dbPath string, count int) {
 	t.Helper()
 	stats := runACM(t, dbPath, "", "stats")

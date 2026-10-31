@@ -4,6 +4,7 @@ go 1.26.6
 
 require (
 	github.com/BurntSushi/toml v1.6.0
+	github.com/klauspost/compress v1.20.3
 	github.com/pressly/goose/v3 v3.27.3
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2

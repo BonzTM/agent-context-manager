@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -21,10 +22,19 @@ const (
 type backfillResult struct {
 	ConversationID string
 	Transcripts    int
+	Unavailable    int
 	Candidates     int
 	Missing        int
 	Malformed      int
 	Appended       int
+}
+
+// transcriptScan aggregates the assistant candidates and diagnostics from one
+// conversation's rollouts. Unavailable counts rollouts with no copy on disk.
+type transcriptScan struct {
+	candidates  []core.IngestMessage
+	malformed   int
+	unavailable int
 }
 
 func newBackfillCmd(a *app) *cobra.Command {
@@ -65,8 +75,9 @@ func runBackfill(cmd *cobra.Command, a *app, ids []string, apply bool, maxConver
 		if bErr != nil {
 			return bErr
 		}
-		if _, wErr := fmt.Fprintf(cmd.OutOrStdout(), "%s: transcripts=%d candidates=%d missing=%d appended=%d malformed=%d mode=%s\n",
-			result.ConversationID, result.Transcripts, result.Candidates, result.Missing, result.Appended, result.Malformed, backfillMode(apply)); wErr != nil {
+		if _, wErr := fmt.Fprintf(cmd.OutOrStdout(), "%s: transcripts=%d unavailable=%d candidates=%d missing=%d appended=%d malformed=%d mode=%s\n",
+			result.ConversationID, result.Transcripts, result.Unavailable, result.Candidates, result.Missing, result.Appended, result.Malformed,
+			backfillMode(apply)); wErr != nil {
 			return wErr
 		}
 	}
@@ -115,13 +126,14 @@ func backfillConversation(ctx context.Context, service *core.Service, sq *store.
 	if err != nil {
 		return backfillResult{}, err
 	}
-	candidates, malformed, err := scanCodexTranscripts(paths)
+	scan, err := scanCodexTranscripts(paths)
 	if err != nil {
 		return backfillResult{}, err
 	}
-	missing := missingTranscriptMessages(messages, candidates)
+	missing := missingTranscriptMessages(messages, scan.candidates)
 	result := backfillResult{
-		ConversationID: conversation.ID, Transcripts: len(paths), Candidates: len(candidates), Missing: len(missing), Malformed: malformed,
+		ConversationID: conversation.ID, Transcripts: len(paths), Unavailable: scan.unavailable,
+		Candidates: len(scan.candidates), Missing: len(missing), Malformed: scan.malformed,
 	}
 	if !apply || len(missing) == 0 {
 		return result, nil
@@ -150,21 +162,27 @@ func transcriptPaths(messages []core.Message, limit int) ([]string, error) {
 	return paths, nil
 }
 
-func scanCodexTranscripts(paths []string) ([]core.IngestMessage, int, error) {
-	var candidates []core.IngestMessage
-	malformed := 0
+// scanCodexTranscripts reads each rollout once. A rollout with no copy on disk
+// (deleted, or pruned by Codex) is counted as unavailable and skipped, so one
+// lost file never aborts the whole backfill; any other read error does.
+func scanCodexTranscripts(paths []string) (transcriptScan, error) {
+	var scan transcriptScan
 	for _, path := range paths {
 		messages, report, err := agents.ReconcileTranscriptAssistant(core.AgentCodex, path)
+		if errors.Is(err, os.ErrNotExist) {
+			scan.unavailable++
+			continue
+		}
 		if err != nil {
-			return nil, malformed, err
+			return transcriptScan{}, err
 		}
 		if report.LimitReached {
-			return nil, malformed, fmt.Errorf("backfill: transcript %s reached its line limit", path)
+			return transcriptScan{}, fmt.Errorf("backfill: transcript %s reached its line limit", path)
 		}
-		malformed += report.Malformed
-		candidates = append(candidates, messages...)
+		scan.malformed += report.Malformed
+		scan.candidates = append(scan.candidates, messages...)
 	}
-	return candidates, malformed, nil
+	return scan, nil
 }
 
 func missingTranscriptMessages(existing []core.Message, candidates []core.IngestMessage) []core.IngestMessage {
